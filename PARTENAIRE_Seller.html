@@ -307,10 +307,7 @@ window.addEventListener('DOMContentLoaded', function() {
       <button class="auth-btn gold" id="btn-send-otp" onclick="sendOTP()">Envoyer le code / Send Code →</button>
       <div class="auth-error" id="phone-error"></div>
       <div class="auth-hint">
-        <strong>Demo sellers:</strong><br>
-        699000010 — MotoKing Douala (Gold)<br>
-        699000011 — Parts Express CM (Silver)<br>
-        699000014 — Guangzhou Motors (Premium)
+        Enter your registered phone number to receive a verification code.
       </div>
       <div class="auth-link">Nouveau vendeur? / New seller? <span onclick="goToRegister()">Créer votre boutique →</span></div>
     </div>
@@ -337,7 +334,7 @@ window.addEventListener('DOMContentLoaded', function() {
       <div class="auth-error" id="otp-error"></div>
       <button class="auth-btn gold" onclick="verifyOTP()">Vérifier / Verify Code →</button>
       <button class="auth-btn" onclick="showScreen('screen-phone')" style="background:#f8f6f0;color:var(--navy)">← Changer le numéro / Change Number</button>
-      <div class="auth-hint">Code OTP demo / Demo OTP code: <strong>1234</strong></div>
+      <div class="auth-hint">Enter the 4-digit code sent to your phone.</div>
     </div>
   </div>
 </div>
