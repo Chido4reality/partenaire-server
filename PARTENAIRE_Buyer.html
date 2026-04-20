@@ -1076,6 +1076,11 @@ function openOrderDetail(id) {
     <div class="card"><div class="card-title">📍 Order Progress</div><div class="tracker">${tracker}</div></div>
     ${o.status==='delivered' ? '<div class="alert alert-success">✅ Order delivered. Payment released to seller.</div>' : ''}
     ${o.status==='rejected' ? '<div class="alert" style="background:#FEECEC;border:1px solid var(--red);color:var(--red)">✕ Order was rejected by seller.</div>' : ''}
+    ${['confirmed','shipped','delivered','pending'].includes(o.status) && o.status !== 'rejected' ?
+      `<button class="btn" onclick="openDisputeModal('${o.id}','${o.order_ref}','${o.seller_id}',${o.total||0})"
+        style="width:100%;padding:12px;margin-top:8px;color:var(--red);border-color:var(--red);font-weight:700;border-radius:10px;background:#fff;border-width:1.5px;border-style:solid;cursor:pointer">
+        ⚠️ Raise a Dispute
+      </button>` : ''}
     <div style="height:40px"></div>`;
   document.getElementById('order-detail').style.display = 'block';
 }
@@ -1618,6 +1623,51 @@ document.getElementById('p-avatar').addEventListener('mouseleave',function(){thi
       <button class="btn btn-gold btn-block" style="padding:14px;font-size:14px;font-weight:800" onclick="acceptCounterOffer()">✅ Accept & Pay — <span id="counter-pay-amount">0 FCFA</span></button>
       <button class="btn btn-block" style="padding:12px;font-size:13px;color:var(--blue);border-color:var(--blue)" onclick="chatAboutCounter()">💬 Negotiate in Chat</button>
       <button class="btn btn-block" style="padding:12px;font-size:13px;color:var(--red);border-color:var(--red)" onclick="rejectCounterOffer()">✕ Reject — Cancel Order</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══ DISPUTE MODAL ══════════════════════════════════════════ -->
+<div class="counter-overlay" id="dispute-modal" onclick="if(event.target===this)closeDisputeModal()">
+  <div class="counter-box" style="max-width:440px">
+    <div style="font-size:18px;font-weight:800;color:var(--red);margin-bottom:4px">⚠️ Raise a Dispute</div>
+    <div style="font-size:13px;color:var(--grey);margin-bottom:16px">
+      Order: <strong id="dispute-order-ref"></strong> · Amount at risk: <strong id="dispute-amount" style="color:var(--red)"></strong>
+    </div>
+
+    <label style="font-size:11px;font-weight:700;color:var(--grey);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px">REASON</label>
+    <select id="dispute-reason" style="width:100%;padding:12px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:14px;color:var(--navy);background:#fff;margin-bottom:14px;outline:none">
+      <option value="">-- Select a reason --</option>
+      <option value="Item not received">Item not received</option>
+      <option value="Wrong item delivered">Wrong item delivered</option>
+      <option value="Item damaged or defective">Item damaged or defective</option>
+      <option value="Seller not responding">Seller not responding</option>
+      <option value="Price different from agreed">Price different from agreed</option>
+      <option value="Quality not as described">Quality not as described</option>
+      <option value="Other">Other</option>
+    </select>
+
+    <label style="font-size:11px;font-weight:700;color:var(--grey);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px">DESCRIPTION</label>
+    <textarea id="dispute-desc" rows="4"
+      placeholder="Describe the issue in detail. What happened? What did you expect? Any evidence?"
+      style="width:100%;padding:12px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:14px;color:var(--navy);background:#fff;margin-bottom:14px;outline:none;resize:none;font-family:inherit;box-sizing:border-box"></textarea>
+
+    <div id="dispute-error" style="display:none;background:#FEECEC;border:1px solid var(--red);color:var(--red);padding:10px;border-radius:8px;font-size:13px;margin-bottom:12px"></div>
+
+    <div style="background:var(--amberl);border:1px solid #F0C050;border-radius:10px;padding:12px;font-size:12px;color:var(--amber);margin-bottom:16px">
+      ⭐ Admin will review your dispute within 24 hours. Funds are held in escrow until resolved.
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button id="dispute-submit-btn" onclick="submitDispute()"
+        style="background:var(--red);color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;width:100%">
+        ⚠️ Submit Dispute
+      </button>
+      <button onclick="closeDisputeModal()"
+        style="background:#fff;color:var(--grey);border:1.5px solid var(--lgrey);border-radius:12px;padding:12px;font-size:13px;cursor:pointer;width:100%">
+        Cancel
+      </button>
     </div>
   </div>
 </div>
