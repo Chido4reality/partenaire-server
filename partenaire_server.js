@@ -11,7 +11,7 @@ const SMS = AT.SMS;
 const SUPA = 'ftxttdagpioieyzaijdc.supabase.co';
 const KEY  = process.env.SUPABASE_KEY;
 const PORT = 8080;
-const DIR  = 'C:\\Users\\Admin\\Desktop\\PARTENAIRE-Dozie.  Files';
+const DIR=__dirname;
 
 // ── MONETBIL CONFIG ───────────────────────────────────────────
 // Replace with real keys when going live
