@@ -22,8 +22,8 @@ const MONETBIL_API = 'https://api.monetbil.com';
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.jpg':'image/jpeg' };
 
 const ROUTES = {
-  '/':       'PARTENAIRE_Admin (1).html',
-  '/admin':  'PARTENAIRE_Admin (1).html',
+  '/':       'PARTENAIRE_Admin.html',
+  '/admin':  'PARTENAIRE_Admin.html',
   '/seller': 'PARTENAIRE_Seller.html',
   '/buyer':  'PARTENAIRE_Buyer.html',
 };
