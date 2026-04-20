@@ -1,0 +1,2081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://ftxttdagpioieyzaijdc.supabase.co https://cdn.jsdelivr.net; img-src * data: blob:; connect-src *;">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PARTENAIRE ✦ Admin Portal</title>
+<!-- Supabase via direct REST API -->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
+  :root{
+    --navy:#1A2B4A;--gold:#C9A84C;--white:#fff;--light:#F4F1EC;
+    --grey:#8A8A8A;--lgrey:#E8E8E8;--red:#E84040;--green:#2E7D32;
+    --greenl:#E8F5E9;--blue:#185FA5;--bluel:#E6F1FB;
+    --sidebar:240px;
+  }
+  body{background:#F0EDE8;color:var(--navy);min-height:100vh;display:flex}
+
+  /* ── LOGIN ── */
+  #login-screen{position:fixed;inset:0;background:var(--navy);display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:24px}
+  .login-box{background:#fff;border-radius:20px;padding:40px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+  .login-logo{font-size:28px;font-weight:900;letter-spacing:3px;color:var(--navy);text-align:center;margin-bottom:6px}
+  .login-logo span{color:var(--gold)}
+  .login-sub{text-align:center;color:var(--grey);font-size:13px;margin-bottom:28px}
+  .login-box label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--grey);display:block;margin-bottom:6px}
+  .login-box input{width:100%;padding:13px 16px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:15px;color:var(--navy);background:#fff;margin-bottom:16px;outline:none;transition:border 0.2s}
+  .login-box input:focus{border-color:var(--gold)}
+  .login-btn{width:100%;padding:14px;background:var(--navy);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:background 0.2s}
+  .login-btn:hover{background:#243b65}
+  .login-error{color:var(--red);font-size:13px;text-align:center;margin-top:12px;display:none}
+  .login-hint{background:#f8f6f0;border-radius:10px;padding:12px;font-size:12px;color:var(--grey);margin-top:16px;text-align:center}
+
+  /* ── SIDEBAR ── */
+  #sidebar{width:var(--sidebar);background:var(--navy);min-height:100vh;position:fixed;left:0;top:0;bottom:0;display:flex;flex-direction:column;overflow-y:auto}
+  .sb-logo{padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,0.08)}
+  .sb-logo-text{font-size:16px;font-weight:900;letter-spacing:2px;color:#fff}
+  .sb-logo-text span{color:var(--gold)}
+  .sb-logo-sub{font-size:10px;color:rgba(255,255,255,0.4);margin-top:3px;letter-spacing:1px;text-transform:uppercase}
+  .sb-user{padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08)}
+  .sb-user-name{font-size:13px;font-weight:600;color:#fff}
+  .sb-user-role{font-size:11px;color:var(--gold);margin-top:2px}
+  nav{flex:1;padding:12px 0}
+  nav a{display:flex;align-items:center;gap:10px;padding:11px 20px;color:rgba(255,255,255,0.6);text-decoration:none;font-size:13px;font-weight:500;transition:all 0.15s;cursor:pointer;border-left:3px solid transparent}
+  nav a:hover{color:#fff;background:rgba(255,255,255,0.05)}
+  nav a.active{color:#fff;background:rgba(201,168,76,0.15);border-left-color:var(--gold)}
+  nav a .badge{background:var(--red);color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:10px;margin-left:auto}
+  .sb-footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,0.08)}
+  .sb-logout{width:100%;padding:10px;background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border:none;border-radius:8px;font-size:12px;cursor:pointer;transition:background 0.2s}
+  .sb-logout:hover{background:rgba(255,255,255,0.15);color:#fff}
+  .lang-toggle{display:flex;gap:4px;padding:12px 20px;border-bottom:1px solid rgba(255,255,255,0.08)}
+  .lang-btn{flex:1;padding:6px;border-radius:6px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:rgba(255,255,255,0.4);transition:all 0.15s}
+  .lang-btn.active{background:var(--gold);color:var(--navy)}
+
+  /* ── MAIN ── */
+  #main{margin-left:var(--sidebar);flex:1;min-height:100vh;padding:28px}
+  .page{display:none}
+  .page.active{display:block}
+  .page-title{font-size:22px;font-weight:800;color:var(--navy);margin-bottom:4px}
+  .page-sub{font-size:13px;color:var(--grey);margin-bottom:24px}
+
+  /* ── STATS GRID ── */
+  .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px}
+  .stat-card{background:#fff;border-radius:14px;padding:18px;position:relative;overflow:hidden}
+  .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--gold)}
+  .stat-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--grey);margin-bottom:8px}
+  .stat-value{font-size:28px;font-weight:800;color:var(--navy)}
+  .stat-sub{font-size:11px;color:var(--green);margin-top:4px}
+  .stat-card.red::before{background:var(--red)}
+  .stat-card.green::before{background:var(--green)}
+  .stat-card.blue::before{background:var(--blue)}
+
+  /* ── TABLE ── */
+  .table-wrap{background:#fff;border-radius:14px;overflow:hidden;margin-bottom:20px}
+  .table-head{padding:16px 20px;border-bottom:1px solid var(--lgrey);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .table-title{font-size:14px;font-weight:700;color:var(--navy)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{background:#F8F7F4;text-align:left;font-size:11px;color:var(--grey);font-weight:700;padding:10px 16px;border-bottom:1px solid var(--lgrey);text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap}
+  tbody td{padding:13px 16px;border-bottom:1px solid #f0ede8;color:var(--navy);vertical-align:middle}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover td{background:#fdfcfa}
+
+  /* ── BADGES ── */
+  .badge{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap}
+  .badge-gold{background:#FEF9EC;color:#92600A}
+  .badge-silver{background:#F4F4F4;color:#666}
+  .badge-premium{background:var(--bluel);color:var(--blue)}
+  .badge-green{background:var(--greenl);color:var(--green)}
+  .badge-red{background:#FEECEC;color:var(--red)}
+  .badge-amber{background:#FEF9EC;color:#92600A}
+  .badge-grey{background:var(--lgrey);color:var(--grey)}
+  .badge-blue{background:var(--bluel);color:var(--blue)}
+
+  /* ── BUTTONS ── */
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;border:1px solid var(--lgrey);font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:var(--navy);transition:all 0.15s;white-space:nowrap}
+  .btn:hover{background:#f8f7f4;border-color:#ccc}
+  .btn-primary{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .btn-primary:hover{background:#243b65}
+  .btn-gold{background:var(--gold);color:var(--navy);border-color:var(--gold);font-weight:700}
+  .btn-gold:hover{background:#b8963e}
+  .btn-green{background:var(--green);color:#fff;border-color:var(--green)}
+  .btn-green:hover{background:#1b5e20}
+  .btn-red{background:transparent;color:var(--red);border-color:var(--red)}
+  .btn-red:hover{background:#FEECEC}
+  .btn-sm{padding:5px 10px;font-size:11px}
+
+  /* ── SEARCH / FILTER ── */
+  .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .search-box{position:relative;flex:1;min-width:200px}
+  .search-box input{width:100%;padding:9px 12px 9px 36px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:13px;color:var(--navy);background:#fff;outline:none;transition:border 0.2s}
+  .search-box input:focus{border-color:var(--gold)}
+  .search-box::before{content:'🔍';position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px}
+  select.filter{padding:9px 12px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:13px;color:var(--navy);background:#fff;outline:none;cursor:pointer}
+  select.filter:focus{border-color:var(--gold)}
+
+  /* ── MODAL ── */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:none;align-items:center;justify-content:center;padding:20px}
+  .modal-overlay.open{display:flex}
+  .modal{background:#fff;border-radius:20px;padding:32px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto;position:relative}
+  .modal-title{font-size:18px;font-weight:800;color:var(--navy);margin-bottom:4px}
+  .modal-sub{font-size:13px;color:var(--grey);margin-bottom:24px}
+  .modal-close{position:absolute;top:16px;right:16px;background:var(--lgrey);border:none;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:16px;color:var(--grey)}
+  .modal-close:hover{background:#ddd;color:var(--navy)}
+  .form-group{margin-bottom:16px}
+  .form-label{font-size:12px;font-weight:700;color:var(--grey);text-transform:uppercase;letter-spacing:0.4px;display:block;margin-bottom:6px}
+  .form-input{width:100%;padding:12px 14px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:14px;color:var(--navy);background:#fff;outline:none;transition:border 0.2s}
+  .form-input:focus{border-color:var(--gold)}
+  .form-select{width:100%;padding:12px 14px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:14px;color:var(--navy);background:#fff;outline:none;cursor:pointer}
+  .role-chips{display:flex;gap:8px;flex-wrap:wrap}
+  .role-chip{padding:7px 14px;border-radius:20px;border:1.5px solid var(--lgrey);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;color:var(--grey)}
+  .role-chip.selected{border-color:var(--navy);background:var(--navy);color:#fff}
+
+  /* ── ALERT BOX ── */
+  .alert{border-radius:12px;padding:14px 16px;font-size:13px;margin-bottom:20px;display:flex;align-items:flex-start;gap:10px}
+  .alert-warn{background:#FEF9EC;border:1px solid #F0C050;color:#92600A}
+  .alert-info{background:var(--bluel);border:1px solid #9EC5F0;color:var(--blue)}
+  .alert-success{background:var(--greenl);border:1px solid #A5D6A7;color:var(--green)}
+
+  /* ── LOADING ── */
+  .loading{text-align:center;padding:40px;color:var(--grey);font-size:14px}
+  .spinner{display:inline-block;width:24px;height:24px;border:3px solid var(--lgrey);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:8px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ── CITY BARS ── */
+  .city-bar{margin-bottom:12px}
+  .city-bar-header{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px;font-weight:500}
+  .city-bar-track{height:7px;background:var(--lgrey);border-radius:4px;overflow:hidden}
+  .city-bar-fill{height:7px;background:var(--gold);border-radius:4px;transition:width 0.8s}
+
+  /* ── USER AVATAR ── */
+  .avatar{width:34px;height:34px;border-radius:50%;background:var(--navy);display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0}
+  .user-cell{display:flex;align-items:center;gap:10px}
+  .user-cell-info{display:flex;flex-direction:column}
+  .user-cell-name{font-weight:600;font-size:13px;color:var(--navy)}
+  .user-cell-sub{font-size:11px;color:var(--grey);margin-top:1px}
+
+  /* ── FINANCE ── */
+  .finance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:24px}
+  .finance-card{background:#fff;border-radius:14px;padding:20px}
+  .finance-card-label{font-size:12px;color:var(--grey);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px}
+  .finance-card-value{font-size:24px;font-weight:800;color:var(--navy)}
+  .finance-card-sub{font-size:12px;color:var(--green);margin-top:4px}
+  .progress-bar{height:5px;background:var(--lgrey);border-radius:3px;margin-top:10px;overflow:hidden}
+  .progress-fill{height:5px;background:var(--gold);border-radius:3px}
+
+  /* ── ACTION BUTTONS ROW ── */
+  .action-row{display:flex;gap:6px;flex-wrap:wrap}
+
+  /* ── EMPTY STATE ── */
+  .empty{text-align:center;padding:48px 20px;color:var(--grey)}
+  .empty-icon{font-size:36px;margin-bottom:12px}
+  .empty-text{font-size:14px}
+
+  /* ── TOAST ── */
+  #toast{position:fixed;bottom:24px;right:24px;background:var(--navy);color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:500;z-index:9999;transform:translateY(100px);opacity:0;transition:all 0.3s;max-width:320px}
+  #toast.show{transform:translateY(0);opacity:1}
+  #toast.success{background:var(--green)}
+  #toast.error{background:var(--red)}
+
+  @media(max-width:768px){
+    :root{--sidebar:0px}
+    #sidebar{display:none}
+    #main{margin-left:0}
+  }
+</style>
+
+<script>
+// Show warning if opened via file://
+window.addEventListener('DOMContentLoaded', function() {
+  if (window.location.protocol === 'file:') {
+    const warn = document.createElement('div');
+    warn.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#E84040;color:#fff;text-align:center;padding:12px;font-size:13px;font-weight:600;z-index:99999';
+    warn.innerHTML = '⚠️ You are opening this file directly. Buttons will not work. <strong>Run: python -m http.server 8080</strong> in PowerShell then open <strong>http://localhost:8080</strong>';
+    document.body.prepend(warn);
+  }
+});
+</script>
+</head>
+<body>
+
+<!-- ══ LOGIN SCREEN ══════════════════════════════════════════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">PARTENAIRE <span>✦</span></div>
+    <div class="login-sub">Administrator Portal · Email + 4-Digit PIN</div>
+    <div>
+      <label>Email Address</label>
+      <input type="email" id="login-email" placeholder="chido4reality@yahoo.com" autocomplete="email">
+      <label>4-Digit PIN</label>
+      <div style="position:relative;margin-bottom:16px">
+        <input type="password" id="login-pass" placeholder="Enter your PIN" maxlength="4" style="margin-bottom:0;padding-right:44px;letter-spacing:6px;font-size:22px;text-align:center">
+        <button onclick="togglePass()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:18px;color:var(--grey)" id="pass-eye">👁️</button>
+      </div>
+      <button class="login-btn" onclick="handleLogin()">Access Admin Panel →</button>
+      <div class="login-error" id="login-error"></div>
+      <div class="login-hint">
+        <strong>PARTENAIRE ✦ Admin Access</strong><br>
+        Use your assigned email and 4-digit PIN<br>
+        <small style="color:#bbb;margin-top:4px;display:block">Contact CEO if you have forgotten your PIN</small>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SIDEBAR ══════════════════════════════════════════════════ -->
+<div id="sidebar">
+  <div class="sb-logo">
+    <div class="sb-logo-text">PARTENAIRE <span>✦</span></div>
+    <div class="sb-logo-sub">Admin Portal</div>
+  </div>
+  <div class="lang-toggle">
+    <button class="lang-btn active" id="btn-en" onclick="setLang('en')">EN</button>
+    <button class="lang-btn" id="btn-fr" onclick="setLang('fr')">FR</button>
+  </div>
+  <div class="sb-user">
+    <div class="sb-user-name" id="sb-name">Dozie</div>
+    <div class="sb-user-role" id="sb-role">👑 Master Admin</div>
+  </div>
+  <nav id="sidebar-nav">
+    <a onclick="showPage('dashboard')" class="active" data-page="dashboard">📊 <span data-t="dashboard">Dashboard</span></a>
+    <a onclick="showPage('verifications')" data-page="verifications">✦ <span data-t="verifications">Verifications</span> <span class="badge" id="verify-badge" style="display:none">0</span></a>
+    <a onclick="showPage('users')" data-page="users">👥 <span data-t="users">Users</span></a>
+    <a onclick="showPage('orders')" data-page="orders">📦 <span data-t="orders">Orders</span></a>
+    <a onclick="showPage('disputes')" data-page="disputes">⚖️ <span data-t="disputes">Disputes</span> <span class="badge" id="dispute-badge" style="display:none">0</span></a>
+    <a onclick="showPage('finance')" data-page="finance">💰 <span data-t="finance">Finance</span></a>
+    <a onclick="showPage('subscriptions')" data-page="subscriptions">💳 <span data-t="subscriptions">Subscriptions</span> <span class="badge" id="sub-badge" style="display:none">0</span></a>
+    <a onclick="showPage('admins')" data-page="admins" id="nav-admins">🔑 <span data-t="admins">Admin Team</span></a>
+    <a onclick="showPage('broadcasts')" data-page="broadcasts">📢 <span>Broadcasts</span></a>
+  </nav>
+  <div class="sb-footer">
+    <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-bottom:8px;text-align:center">Douala, Cameroun · 2026</div>
+    <button class="sb-logout" style="margin-bottom:8px" onclick="openChangePIN()">🔑 Change My PIN</button>
+    <button class="sb-logout" onclick="logout()">← Sign Out</button>
+  </div>
+</div>
+
+<!-- ══ MAIN CONTENT ══════════════════════════════════════════════ -->
+<div id="main">
+
+  <!-- DASHBOARD -->
+  <div class="page active" id="page-dashboard">
+    <div class="page-title" data-t="dashboard_title">Dashboard</div>
+    <div class="page-sub" data-t="dashboard_sub">Live overview · Douala, Cameroun</div>
+    <div id="dash-alert"></div>
+    <div class="stats-grid" id="stats-grid">
+      <div class="loading"><div class="spinner"></div><br>Loading stats...</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px" id="dash-lower">
+      <div class="table-wrap" id="city-section">
+        <div class="table-head"><div class="table-title">Activity by City</div></div>
+        <div style="padding:20px" id="city-bars"><div class="loading">Loading...</div></div>
+      </div>
+      <div class="table-wrap">
+        <div class="table-head"><div class="table-title">Recent Signups</div></div>
+        <div id="recent-signups"><div class="loading">Loading...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VERIFICATIONS -->
+  <div class="page" id="page-verifications">
+    <div class="page-title">Seller Verifications</div>
+    <div class="page-sub">Review documents and approve or reject badge applications</div>
+    <div class="table-wrap">
+      <div class="table-head">
+        <div class="table-title">Pending Applications</div>
+        <div class="toolbar">
+          <div class="search-box"><input type="text" id="verify-search" placeholder="Search seller..." oninput="filterVerify()"></div>
+          <select class="filter" id="verify-filter" onchange="filterVerify()">
+            <option value="">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Seller</th><th>Badge</th><th>City</th><th>Docs</th><th>Submitted</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="verify-table"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- USERS -->
+  <div class="page" id="page-users">
+    <div class="page-title">User Management</div>
+    <div class="page-sub">Manage all buyers and sellers on the platform</div>
+    <div class="table-wrap">
+      <div class="table-head">
+        <div class="table-title" id="user-count">All Users</div>
+        <div class="toolbar">
+          <div class="search-box"><input type="text" id="user-search" placeholder="Search by name, phone, city..." oninput="filterUsers()"></div>
+          <select class="filter" id="user-role-filter" onchange="filterUsers()">
+            <option value="">All Roles</option>
+            <option value="buyer">Buyers</option>
+            <option value="seller">Sellers</option>
+          </select>
+          <select class="filter" id="user-status-filter" onchange="filterUsers()">
+            <option value="">All Status</option>
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+          </select>
+          <button class="btn btn-gold" onclick="openAddUserModal()">+ Add User</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>User</th><th>Role</th><th>City</th><th>Phone</th><th>Joined</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="users-table"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ORDERS -->
+  <div class="page" id="page-orders">
+    <div class="page-title">Orders</div>
+    <div class="page-sub">All transactions across the platform</div>
+    <div class="table-wrap">
+      <div class="table-head">
+        <div class="table-title">All Orders</div>
+        <div class="toolbar">
+          <div class="search-box"><input type="text" id="order-search" placeholder="Search order ref, buyer..." oninput="filterOrders()"></div>
+          <select class="filter" id="order-status-filter" onchange="filterOrders()">
+            <option value="">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="shipped">Shipped</option>
+            <option value="delivered">Delivered</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Order</th><th>Buyer</th><th>Seller</th><th>Amount</th><th>Mode</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+        <tbody id="orders-table"><tr><td colspan="8" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- DISPUTES -->
+  <div class="page" id="page-disputes">
+    <div class="page-title">Disputes & Escrow</div>
+    <div class="page-sub">Resolve conflicts and manage escrow payments</div>
+    <div id="disputes-container"><div class="loading"><div class="spinner"></div><br>Loading disputes...</div></div>
+  </div>
+
+  <!-- FINANCE -->
+  <div class="page" id="page-finance">
+    <div class="page-title">Finance</div>
+    <div class="page-sub">Revenue, subscriptions and escrow — April 2026</div>
+    <div class="finance-grid">
+      <div class="finance-card"><div class="finance-card-label">Total Revenue</div><div class="finance-card-value" id="fin-revenue">—</div><div class="finance-card-sub">+18% vs last month</div><div class="progress-bar"><div class="progress-fill" style="width:78%"></div></div></div>
+      <div class="finance-card"><div class="finance-card-label">Escrow Held</div><div class="finance-card-value" id="fin-escrow">—</div><div class="finance-card-sub" id="fin-escrow-orders">— active orders</div></div>
+      <div class="finance-card"><div class="finance-card-label">Subscriptions</div><div class="finance-card-value">920,000 FCFA</div><div class="finance-card-sub">46 active subs</div></div>
+      <div class="finance-card"><div class="finance-card-label">Badge Fees</div><div class="finance-card-value">430,000 FCFA</div><div class="finance-card-sub">17 badges issued</div></div>
+      <div class="finance-card"><div class="finance-card-label">Commission (2%)</div><div class="finance-card-value">600,000 FCFA</div><div class="finance-card-sub">214 transactions</div></div>
+      <div class="finance-card"><div class="finance-card-label">Open Disputes</div><div class="finance-card-value" id="fin-disputes" style="color:var(--red)">—</div><div class="finance-card-sub" style="color:var(--red)">Escrow at risk</div></div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-head"><div class="table-title">Subscription Breakdown</div></div>
+      <table>
+        <thead><tr><th>Plan</th><th>Sellers</th><th>Monthly Fee</th><th>Revenue</th></tr></thead>
+        <tbody>
+          <tr><td><span class="badge badge-grey">Free</span></td><td>12</td><td>0 FCFA</td><td>0 FCFA</td></tr>
+          <tr><td><span class="badge badge-silver">🥈 Silver</span></td><td>28</td><td>3,000/mo · 10,000/yr</td><td>84,000 FCFA</td></tr>
+          <tr><td><span class="badge badge-gold">🥇 Gold</span></td><td>8</td><td>8,000/mo · 15,000/yr</td><td>64,000 FCFA</td></tr>
+          <tr><td><span class="badge badge-premium">❖ Gold Premium</span></td><td>6</td><td>15,000/mo · 15,000/yr</td><td>90,000 FCFA</td></tr>
+          <tr><td><span class="badge badge-blue">🌐 Intl Gold</span></td><td>4</td><td>75,000/mo</td><td>300,000 FCFA</td></tr>
+          <tr style="font-weight:700;background:#f8f7f4"><td colspan="3" style="text-align:right;color:var(--grey);font-size:12px">Total (monthly)</td><td>538,000 FCFA</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ADMINS -->
+  <!-- BROADCASTS PAGE -->
+  <div class="page" id="page-broadcasts">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+      <div>
+        <div class="page-title">📢 Broadcasts</div>
+        <div class="page-sub">Send announcements and security alerts to all users</div>
+      </div>
+      <button class="btn btn-gold" onclick="openModal('modal-new-broadcast')">+ New Broadcast</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px">
+      <div style="background:#fff;border-radius:12px;padding:16px;border-left:4px solid var(--red)">
+        <div style="font-size:13px;font-weight:700">🔒 Security Alert</div>
+        <div style="font-size:12px;color:var(--grey);margin-top:4px">Red banner on ALL portals instantly</div>
+      </div>
+      <div style="background:#fff;border-radius:12px;padding:16px;border-left:4px solid var(--blue)">
+        <div style="font-size:13px;font-weight:700">📣 Announcement</div>
+        <div style="font-size:12px;color:var(--grey);margin-top:4px">Blue info banner for all users</div>
+      </div>
+      <div style="background:#fff;border-radius:12px;padding:16px;border-left:4px solid var(--gold)">
+        <div style="font-size:13px;font-weight:700">📦 New Stock Promo</div>
+        <div style="font-size:12px;color:var(--grey);margin-top:4px">Gold notification for buyers from sellers</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-head">
+        <div class="table-title">All Broadcasts</div>
+        <button class="btn btn-sm" onclick="loadBroadcasts()">↻ Refresh</button>
+      </div>
+      <div id="broadcasts-list"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+  </div>
+
+  <div class="page" id="page-admins">
+    <div class="page-title">Admin Team</div>
+    <div class="page-sub">Manage administrators and their access levels</div>
+    <div class="table-wrap">
+      <div class="table-head">
+        <div class="table-title">Team Members</div>
+        <button class="btn btn-gold" onclick="openAddAdminModal()" id="add-admin-btn">+ Add Assistant</button>
+      </div>
+      <table>
+        <thead><tr><th>Administrator</th><th>Email</th><th>Role</th><th>PIN</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="admins-table"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SUBSCRIPTIONS -->
+  <div class="page" id="page-subscriptions">
+    <div class="page-title">💳 Subscriptions</div>
+    <div class="page-sub">Track payments, send reminders, suspend overdue accounts</div>
+
+    <!-- Summary stats -->
+    <div class="stats-grid" id="sub-stats-grid" style="margin-bottom:20px">
+      <div class="stat-card"><div class="stat-label">Active Subs</div><div class="stat-value" id="sub-active">—</div></div>
+      <div class="stat-card red"><div class="stat-label">Overdue</div><div class="stat-value" id="sub-overdue" style="color:var(--red)">—</div></div>
+      <div class="stat-card"><div class="stat-label">Due This Week</div><div class="stat-value" id="sub-due-week" style="color:var(--amber)">—</div></div>
+      <div class="stat-card green"><div class="stat-label">Monthly Revenue</div><div class="stat-value" id="sub-revenue" style="color:var(--green)">—</div></div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-head">
+        <div class="table-title">All Seller Subscriptions</div>
+        <div class="toolbar">
+          <select class="filter" id="sub-filter" onchange="filterSubs()">
+            <option value="">All Status</option>
+            <option value="active">Active</option>
+            <option value="trial">Trial</option>
+            <option value="overdue">Overdue</option>
+            <option value="suspended">Suspended</option>
+          </select>
+          <button class="btn btn-red" onclick="suspendOverdue()">⚠ Suspend All Overdue</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Seller</th>
+            <th>Badge</th>
+            <th>Cycle</th>
+            <th>Amount</th>
+            <th>Badge Fee</th>
+            <th>Next Due</th>
+            <th>Status</th>
+            <th>Alert</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="sub-table"><tr><td colspan="9" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- Payment history -->
+    <div class="table-wrap">
+      <div class="table-head">
+        <div class="table-title">Recent Payments Recorded</div>
+        <button class="btn btn-gold" onclick="openRecordPayment()">+ Record Payment</button>
+      </div>
+      <table>
+        <thead><tr><th>Seller</th><th>Type</th><th>Amount</th><th>Method</th><th>Reference</th><th>Date</th><th>Recorded By</th></tr></thead>
+        <tbody id="payments-table"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- end #main -->
+
+<!-- ══ MODAL: ADD USER ══ -->
+<div class="modal-overlay" id="modal-add-user">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-add-user')">✕</button>
+    <div class="modal-title">Add New User</div>
+    <div class="modal-sub">Create a buyer or seller account manually</div>
+    <div class="form-group"><label class="form-label">Full Name</label><input class="form-input" id="new-user-name" placeholder="e.g. Jean Dupont"></div>
+    <div class="form-group"><label class="form-label">Company Name</label><input class="form-input" id="new-user-company" placeholder="e.g. MotoKing Sarl"></div>
+    <div class="form-group"><label class="form-label">Phone Number</label><input class="form-input" id="new-user-phone" placeholder="+237 6XX XXX XXX"></div>
+    <div class="form-group"><label class="form-label">City</label>
+      <select class="form-select" id="new-user-city">
+        <option value="Douala">Douala</option><option value="Yaoundé">Yaoundé</option>
+        <option value="Bafoussam">Bafoussam</option><option value="Garoua">Garoua</option>
+        <option value="Maroua">Maroua</option><option value="Bertoua">Bertoua</option>
+      </select>
+    </div>
+    <div class="form-group"><label class="form-label">Role</label>
+      <div class="role-chips">
+        <div class="role-chip selected" data-role="buyer" onclick="selectRole(this)">🛒 Buyer</div>
+        <div class="role-chip" data-role="seller" onclick="selectRole(this)">🏪 Seller</div>
+      </div>
+    </div>
+    <button class="btn btn-gold" style="width:100%;justify-content:center;padding:13px" onclick="addUser()">✓ Create Account</button>
+  </div>
+</div>
+
+<!-- ══ MODAL: ADD ADMIN ══ -->
+<div class="modal-overlay" id="modal-add-admin">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-add-admin')">✕</button>
+    <div class="modal-title">Add Admin Assistant</div>
+    <div class="modal-sub">Only you (CEO) can add or remove admin team members</div>
+    <div class="form-group"><label class="form-label">Full Name</label><input class="form-input" id="new-admin-name" placeholder="e.g. Marie Nkolo"></div>
+    <div class="form-group"><label class="form-label">Email Address</label><input class="form-input" id="new-admin-email" placeholder="e.g. marie@partenaire.cm" type="email"></div>
+    <div class="form-group"><label class="form-label">4-Digit PIN</label><input class="form-input" id="new-admin-pin" placeholder="e.g. 1234" maxlength="4" type="password"></div>
+    <div class="form-group"><label class="form-label">Role & Access Level</label>
+      <div class="role-chips" id="admin-role-chips">
+        <div class="role-chip selected" data-role="verifier" onclick="selectAdminRole(this)">Verifier</div>
+        <div class="role-chip" data-role="finance" onclick="selectAdminRole(this)">Finance</div>
+        <div class="role-chip" data-role="disputes" onclick="selectAdminRole(this)">Disputes</div>
+        <div class="role-chip" data-role="agent" onclick="selectAdminRole(this)">City Agent</div>
+      </div>
+    </div>
+    <div class="alert alert-info" id="role-access-hint" style="margin-bottom:16px">
+      <span>ℹ️</span><span id="role-hint-text">Verifier can access: Dashboard, Verifications, Users</span>
+    </div>
+    <button class="btn btn-gold" style="width:100%;justify-content:center;padding:13px" onclick="addAdmin()">✓ Create Admin Account</button>
+  </div>
+</div>
+
+<!-- ══ MODAL: NEW BROADCAST ══ -->
+<div class="modal-overlay" id="modal-new-broadcast">
+  <div class="modal" style="max-width:520px">
+    <button class="modal-close" onclick="closeModal('modal-new-broadcast')">✕</button>
+    <div class="modal-title">📢 New Broadcast</div>
+    <div class="modal-sub">Send a message to buyers, sellers, or everyone</div>
+    <div class="form-group">
+      <label class="form-label">Type</label>
+      <select class="form-input" id="bc-type" onchange="updateBroadcastUI()">
+        <option value="announcement">📣 Platform Announcement</option>
+        <option value="security">🔒 Security Alert</option>
+        <option value="new_stock">📦 New Stock / Promo (Premium sellers)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Title</label>
+      <input class="form-input" id="bc-title" placeholder="e.g. New policy update / Alerte sécurité">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Message</label>
+      <textarea class="form-input" id="bc-message" rows="3" placeholder="Your message to users..." style="resize:none;font-family:inherit"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Send To</label>
+      <select class="form-input" id="bc-target">
+        <option value="all">Everyone (buyers + sellers)</option>
+        <option value="buyers">Buyers only</option>
+        <option value="sellers">Sellers only</option>
+        <option value="city">Specific city</option>
+      </select>
+    </div>
+    <div class="form-group" id="bc-city-group" style="display:none">
+      <label class="form-label">City</label>
+      <select class="form-input" id="bc-city">
+        <option>Douala</option><option>Yaoundé</option><option>Bafoussam</option>
+        <option>Garoua</option><option>Maroua</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Expires After</label>
+      <select class="form-input" id="bc-expires">
+        <option value="1">1 hour</option>
+        <option value="6">6 hours</option>
+        <option value="24" selected>24 hours</option>
+        <option value="72">3 days</option>
+        <option value="168">1 week</option>
+      </select>
+    </div>
+    <button class="btn btn-gold" style="width:100%;justify-content:center;padding:13px" onclick="sendBroadcast()">
+      📢 Send Broadcast Now
+    </button>
+  </div>
+</div>
+
+<!-- ══ MODAL: CHANGE PIN ══ -->
+<div class="modal-overlay" id="modal-change-pin">
+  <div class="modal" style="max-width:380px">
+    <button class="modal-close" onclick="closeModal('modal-change-pin')">✕</button>
+    <div class="modal-title">🔑 Change My PIN</div>
+    <div class="modal-sub">Choose a new 4-digit PIN for your admin account</div>
+    <div class="form-group">
+      <label class="form-label">Current PIN</label>
+      <input class="form-input" id="pin-current" type="password" maxlength="4" placeholder="Your current PIN" style="letter-spacing:6px;font-size:20px;text-align:center">
+    </div>
+    <div class="form-group">
+      <label class="form-label">New PIN</label>
+      <input class="form-input" id="pin-new" type="password" maxlength="4" placeholder="Choose a new 4-digit PIN" style="letter-spacing:6px;font-size:20px;text-align:center">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Confirm New PIN</label>
+      <input class="form-input" id="pin-confirm" type="password" maxlength="4" placeholder="Repeat new PIN" style="letter-spacing:6px;font-size:20px;text-align:center">
+    </div>
+    <div class="alert alert-info" style="margin-bottom:16px">
+      🔒 Your PIN is stored securely. Choose something easy to remember but hard to guess — avoid 1234, 0000, your birth year.
+    </div>
+    <button class="btn btn-gold" style="width:100%;justify-content:center;padding:13px" onclick="changePIN()">✓ Update PIN</button>
+  </div>
+</div>
+
+<!-- ══ MODAL: RECORD PAYMENT ══ -->
+<div class="modal-overlay" id="modal-record-payment">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-record-payment')">✕</button>
+    <div class="modal-title">💰 Record Payment</div>
+    <div class="modal-sub">Manually record a subscription or badge fee payment received</div>
+    <div class="form-group">
+      <label class="form-label">Seller</label>
+      <select class="form-select" id="pay-seller-id"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Payment Type</label>
+      <select class="form-select" id="pay-type">
+        <option value="subscription">🔄 Subscription Fee</option>
+        <option value="badge_fee">🏅 Badge Fee (one-time)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Amount (FCFA)</label>
+      <input class="form-input" id="pay-amount" type="number" placeholder="e.g. 8000">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Payment Method</label>
+      <select class="form-select" id="pay-method">
+        <option value="mtn_momo">MTN Mobile Money</option>
+        <option value="orange_money">Orange Money</option>
+        <option value="cash">Cash</option>
+        <option value="bank_transfer">Bank Transfer</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Transaction Reference (optional)</label>
+      <input class="form-input" id="pay-ref" placeholder="e.g. MTN-20260411-XXXX">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes (optional)</label>
+      <input class="form-input" id="pay-notes" placeholder="e.g. Paid in cash at Douala office">
+    </div>
+    <button class="btn btn-gold" style="width:100%;justify-content:center;padding:13px" onclick="recordPayment()">
+      ✓ Confirm Payment Received
+    </button>
+  </div>
+</div>
+
+<!-- ══ TOAST ══ -->
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  SUPABASE CONNECTION
+// ══════════════════════════════════════════════════════════════
+const SUPABASE_URL = 'https://ftxttdagpioieyzaijdc.supabase.co'; // direct fallback
+const API_BASE = window.location.hostname === 'localhost' ? '' : SUPABASE_URL;
+
+// Proxy helper — routes through local server when on localhost to avoid CORS
+function apiUrl(table, params='') {
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return '/api/' + table + (params ? '?' + params : '');
+  }
+  return SUPABASE_URL + '/rest/v1/' + table + (params ? '?' + params : '');
+}
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0eHR0ZGFncGlvaWV5emFpamRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MTc1MTAsImV4cCI6MjA5MDA5MzUxMH0.QQwoyo370gaDi-5I0DRJuHJtSa6FG6EFbJ1_QdR9u1g';
+// Direct REST API — works from file:// without CORS issues
+const db = {
+  from: (table) => ({
+    select: (cols='*') => ({
+      eq: (col, val) => ({
+        single: () => sbFetch('GET', table, {select: cols, [col]: 'eq.'+val, limit: 1, single: true}),
+        order: (col2, opts) => sbFetch('GET', table, {select: cols, [col]: 'eq.'+val, order: col2+(opts?.ascending===false?'.desc':'.asc')}),
+        then: (fn) => sbFetch('GET', table, {select: cols, [col]: 'eq.'+val}).then(fn)
+      }),
+      order: (col, opts) => ({ then: (fn) => sbFetch('GET', table, {select: cols, order: col+(opts?.ascending===false?'.desc':'.asc')}).then(fn) }),
+      single: () => sbFetch('GET', table, {select: cols, limit: 1, single: true}),
+      then: (fn) => sbFetch('GET', table, {select: cols}).then(fn)
+    }),
+    insert: (rows) => ({ select: () => ({ single: () => sbFetch('POST', table, {}, rows[0]) }), then: (fn) => sbFetch('POST', table, {}, rows[0]).then(fn) }),
+    update: (data) => ({ eq: (col, val) => ({ then: (fn) => sbPatch(table, col, val, data).then(fn) }) }),
+    delete: () => ({ eq: (col, val) => ({ then: (fn) => sbDelete(table, col, val).then(fn) }) }),
+  }),
+  auth: { signOut: () => Promise.resolve() }
+};
+
+async function sbFetch(method, table, params={}, body=null) {
+  const url = new URL(SUPABASE_URL + '/rest/v1/' + table);
+  Object.entries(params).forEach(([k,v]) => {
+    if (k === 'select') url.searchParams.set('select', v);
+    else if (k === 'order') url.searchParams.set('order', v);
+    else if (k === 'limit') url.searchParams.set('limit', v);
+    else if (k !== 'single') url.searchParams.set(k, v);
+  });
+  const headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': 'Bearer ' + SUPABASE_KEY,
+    'Content-Type': 'application/json',
+    'Prefer': params.single ? 'return=representation' : 'return=representation'
+  };
+  if (params.single) headers['Accept'] = 'application/vnd.pgrst.object+json';
+  const res = await fetch(url.toString(), { method, headers, body: body ? JSON.stringify(body) : null });
+  if (!res.ok) { const err = await res.text(); throw new Error(err); }
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  return { data, error: null };
+}
+
+async function sbPatch(table, col, val, body) {
+  const url = new URL(SUPABASE_URL + '/rest/v1/' + table);
+  url.searchParams.set(col, 'eq.' + val);
+  const res = await fetch(url.toString(), {
+    method: 'PATCH',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    body: JSON.stringify(body)
+  });
+  const text = await res.text();
+  return { data: text ? JSON.parse(text) : null, error: null };
+}
+
+async function sbDelete(table, col, val) {
+  const url = new URL(SUPABASE_URL + '/rest/v1/' + table);
+  url.searchParams.set(col, 'eq.' + val);
+  const res = await fetch(url.toString(), {
+    method: 'DELETE',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+  });
+  return { data: null, error: null };
+}
+
+// ══════════════════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════════════════
+let lang = 'en';
+let currentAdmin = null;
+let isDemoMode = false;
+let allUsers = [], allOrders = [], allAdmins = [], allDisputes = [], allSellers = [];
+
+// ══════════════════════════════════════════════════════════════
+//  TRANSLATIONS
+// ══════════════════════════════════════════════════════════════
+const T = {
+  en: { dashboard:'Dashboard', verifications:'Verifications', users:'Users', orders:'Orders',
+        disputes:'Disputes', finance:'Finance', admins:'Admin Team',
+        dashboard_title:'Dashboard', dashboard_sub:'Live overview · Douala, Cameroun' },
+  fr: { dashboard:'Tableau de bord', verifications:'Vérifications', users:'Utilisateurs', orders:'Commandes',
+        disputes:'Litiges', finance:'Finance', admins:'Équipe Admin',
+        dashboard_title:'Tableau de bord', dashboard_sub:'Vue en temps réel · Douala, Cameroun' }
+};
+
+function setLang(l) {
+  lang = l;
+  document.getElementById('btn-en').className = 'lang-btn' + (l==='en'?' active':'');
+  document.getElementById('btn-fr').className = 'lang-btn' + (l==='fr'?' active':'');
+  document.querySelectorAll('[data-t]').forEach(el => {
+    const key = el.getAttribute('data-t');
+    if (T[l][key]) el.textContent = T[l][key];
+  });
+}
+
+function t(en, fr) { return lang === 'fr' ? fr : en; }
+
+// ══════════════════════════════════════════════════════════════
+//  AUTH
+// ══════════════════════════════════════════════════════════════
+function togglePass() {
+  const inp = document.getElementById('login-pass');
+  const eye = document.getElementById('pass-eye');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+  eye.textContent = inp.type === 'password' ? '👁️' : '🙈';
+}
+
+async function handleLogin() {
+  const email = document.getElementById('login-email').value.trim().toLowerCase();
+  const pin   = document.getElementById('login-pass').value.trim();
+
+  if (!email || !pin) { showError('Please enter your email and PIN'); return; }
+  if (pin.length !== 4) { showError('PIN must be exactly 4 digits'); return; }
+
+  // Check if running from file:// protocol
+  if (window.location.protocol === 'file:') {
+    showError('⚠ Please open via localhost. Run in PowerShell: cd Downloads; python -m http.server 8080 — then go to http://localhost:8080/PARTENAIRE_Admin.html');
+    return;
+  }
+
+  try {
+    const rows = await xhr('GET',
+      apiUrl('ptn_admin_roles', 'email=eq.' + encodeURIComponent(email) + '&pin=eq.' + pin + '&select=*')
+    );
+    const data = rows[0];
+    if (!data) { showError('❌ Email or PIN incorrect'); return; }
+    if (!data.active) { showError('❌ Account disabled — contact CEO'); return; }
+    currentAdmin = data;
+    isDemoMode = false;
+    enterDashboard(data);
+  } catch(e) {
+    showError('Login failed: ' + e.message + '. Make sure you have internet access.');
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('login-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 4000);
+}
+
+function demoMode() {
+  isDemoMode = true;
+  currentAdmin = { name: 'Dozie (CEO)', role: 'master', email: 'chido4reality@yahoo.com', active: true };
+  enterDashboard(currentAdmin);
+  toast('Demo mode — data is local only', 'error');
+}
+
+function enterDashboard(admin) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('sb-name').textContent = admin.name;
+  document.getElementById('sb-role').textContent = admin.role === 'master' ? '👑 Master Admin' : '🔑 ' + admin.role.charAt(0).toUpperCase() + admin.role.slice(1);
+  if (admin.role !== 'master') {
+    document.getElementById('nav-admins').style.display = 'none';
+    document.getElementById('add-admin-btn').style.display = 'none';
+  }
+  loadAll();
+}
+
+function logout() { location.reload(); }
+
+// ══════════════════════════════════════════════════════════════
+//  DATA LOADING
+// ══════════════════════════════════════════════════════════════
+async function loadAll() {
+  await Promise.all([loadUsers(), loadOrders(), loadAdmins(), loadDisputes(), loadSubscriptions(), loadBroadcasts()]);
+  loadDashboard();
+}
+
+async function loadUsers() {
+  if (isDemoMode) {
+    allUsers = [
+      { id:'1', phone:'699000001', name:'Jean Dupont',    company:'JD Import',       city:'Douala',    role:'buyer',  status:'active',    created_at:'2026-01-15', badge_tier:'none',    badge_status:'pending'  },
+      { id:'2', phone:'699000002', name:'Marie Ekindi',   company:'Ekindi Trading',  city:'Yaoundé',   role:'buyer',  status:'active',    created_at:'2026-02-10', badge_tier:'none',    badge_status:'pending'  },
+      { id:'3', phone:'699000003', name:'Ahmed Bello',    company:'Bello Commerce',  city:'Garoua',    role:'buyer',  status:'active',    created_at:'2026-03-05', badge_tier:'none',    badge_status:'pending'  },
+      { id:'4', phone:'699000004', name:'Sophie Mengue',  company:'SM Enterprises',  city:'Douala',    role:'buyer',  status:'suspended', created_at:'2026-02-20', badge_tier:'none',    badge_status:'pending'  },
+      { id:'5', phone:'699000010', name:'Aminata Sow',    company:'MotoKing Douala', city:'Douala',    role:'seller', status:'active',    created_at:'2026-01-20', badge_tier:'gold',    badge_status:'pending'  },
+      { id:'6', phone:'699000011', name:'Ibrahim Moussa', company:'Parts Express CM',city:'Douala',    role:'seller', status:'active',    created_at:'2026-03-01', badge_tier:'silver',  badge_status:'pending'  },
+      { id:'7', phone:'699000012', name:'Jean-Paul Ateba','company':'AutoParts Pro', city:'Douala',    role:'seller', status:'active',    created_at:'2026-02-05', badge_tier:'gold',    badge_status:'approved' },
+      { id:'8', phone:'699000013', name:'Fatima Nkolo',   company:'ElectroGros',     city:'Yaoundé',   role:'seller', status:'active',    created_at:'2026-03-15', badge_tier:'silver',  badge_status:'pending'  },
+      { id:'9', phone:'699000014', name:'Chen Wei',       company:'Guangzhou Motors',city:'Guangzhou', role:'seller', status:'active',    created_at:'2026-02-28', badge_tier:'premium', badge_status:'approved' },
+      { id:'10',phone:'699000015', name:'Paul Essomba',   company:'BTP Materials',   city:'Bafoussam', role:'seller', status:'suspended', created_at:'2026-01-10', badge_tier:'silver',  badge_status:'rejected' },
+    ];
+    renderUsers();
+    renderVerify();
+    return;
+  }
+  try {
+    allUsers = await xhr('GET', apiUrl('ptn_users', 'select=*&order=created_at.desc'));
+    renderUsers(); renderVerify();
+  } catch(e) { console.error('loadUsers:', e); }
+}
+
+async function loadOrders() {
+  if (isDemoMode) {
+    allOrders = [
+      { id:'1', order_ref:'ORD-000001', buyer_id:'1', seller_id:'5', total:75000, mode:'delivery', status:'pending',   created_at:'2026-04-10', escrow_held:75000,  buyer_name:'Jean Dupont',   seller_name:'MotoKing Douala' },
+      { id:'2', order_ref:'ORD-000002', buyer_id:'2', seller_id:'6', total:45000, mode:'pickup',   status:'confirmed', created_at:'2026-04-09', escrow_held:45000,  buyer_name:'Marie Ekindi',  seller_name:'Parts Express CM' },
+      { id:'3', order_ref:'ORD-000003', buyer_id:'3', seller_id:'7', total:57000, mode:'delivery', status:'shipped',   created_at:'2026-04-08', escrow_held:57000,  buyer_name:'Ahmed Bello',   seller_name:'AutoParts Pro' },
+      { id:'4', order_ref:'ORD-000004', buyer_id:'1', seller_id:'9', total:92000, mode:'pickup',   status:'delivered', created_at:'2026-04-07', escrow_held:0,      buyer_name:'Jean Dupont',   seller_name:'Guangzhou Motors' },
+      { id:'5', order_ref:'ORD-000005', buyer_id:'4', seller_id:'8', total:28000, mode:'delivery', status:'rejected',  created_at:'2026-04-06', escrow_held:0,      buyer_name:'Sophie Mengue', seller_name:'ElectroGros' },
+    ];
+    renderOrders();
+    updateFinance();
+    return;
+  }
+  try {
+    const orders = await xhr('GET', apiUrl('ptn_orders', 'select=*&order=created_at.desc'));
+    const buyerIds = [...new Set(orders.map(o=>o.buyer_id).filter(Boolean))];
+    const sellerIds = [...new Set(orders.map(o=>o.seller_id).filter(Boolean))];
+    const allIds = [...new Set([...buyerIds, ...sellerIds])];
+    let userMap = {};
+    if (allIds.length) {
+      const users = await xhr('GET', apiUrl('ptn_users', 'id=in.(' + allIds.join(',') + ')&select=id,name,company'));
+      if (Array.isArray(users)) users.forEach(u => userMap[u.id] = u);
+    }
+    allOrders = orders.map(o => ({...o, buyer_name: userMap[o.buyer_id]?.name, seller_name: userMap[o.seller_id]?.company}));
+    renderOrders(); updateFinance();
+  } catch(e) { console.error('loadOrders:', e); }
+}
+
+async function loadAdmins() {
+  if (isDemoMode) {
+    allAdmins = [
+      { id:'1', email:'chido4reality@yahoo.com', name:'Dozie (CEO)',  role:'master',   pin:'2024', active:true,  created_by:'system'   },
+      { id:'2', email:'verifier@partenaire.cm',  name:'Marie Nkolo', role:'verifier', pin:'1111', active:true,  created_by:'chido4reality@yahoo.com' },
+      { id:'3', email:'finance@partenaire.cm',   name:'Paul Essomba',role:'finance',  pin:'2222', active:true,  created_by:'chido4reality@yahoo.com' },
+      { id:'4', email:'disputes@partenaire.cm',  name:'Ahmed Bello', role:'disputes', pin:'3333', active:false, created_by:'chido4reality@yahoo.com' },
+    ];
+    renderAdmins();
+    return;
+  }
+  try {
+    allAdmins = await xhr('GET', apiUrl('ptn_admin_roles', 'select=*&order=created_at.asc'));
+    renderAdmins();
+  } catch(e) { console.error('loadAdmins:', e); }
+}
+
+async function loadDisputes() {
+  if (isDemoMode) {
+    allDisputes = [
+      { id:'1', order_ref:'ORD-000002', buyer_name:'Marie Ekindi',  seller_name:'Parts Express CM', amount:45000, buyer_claim:'Wrong product received',   status:'open' },
+      { id:'2', order_ref:'ORD-000003', buyer_name:'Ahmed Bello',   seller_name:'AutoParts Pro',    amount:57000, buyer_claim:'Counterfeit item reported', status:'open' },
+      { id:'3', order_ref:'ORD-000001', buyer_name:'Jean Dupont',   seller_name:'MotoKing Douala',  amount:75000, buyer_claim:'Late delivery — 2 weeks',   status:'resolved_refund' },
+    ];
+    renderDisputes();
+    return;
+  }
+  try {
+    const disputes = await xhr('GET', apiUrl('ptn_disputes', 'select=*&order=created_at.desc'));
+    // Get buyer/seller names for disputes
+    const ids = [...new Set([...disputes.map(d=>d.buyer_id), ...disputes.map(d=>d.seller_id)].filter(Boolean))];
+    let userMap = {};
+    if (ids.length) {
+      const users = await xhr('GET', apiUrl('ptn_users', 'id=in.(' + ids.join(',') + ')&select=id,name,company'));
+      if (Array.isArray(users)) users.forEach(u => userMap[u.id] = u);
+    }
+    allDisputes = disputes.map(d => ({...d, buyer_name: userMap[d.buyer_id]?.name, seller_name: userMap[d.seller_id]?.company}));
+    renderDisputes();
+  } catch(e) { console.error('loadDisputes:', e); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ══════════════════════════════════════════════════════════════
+function loadDashboard() {
+  const sellers = allUsers.filter(u => u.role === 'seller');
+  const buyers  = allUsers.filter(u => u.role === 'buyer');
+  const pending = allUsers.filter(u => u.role === 'seller' && u.badge_status === 'pending');
+  const openD   = allDisputes.filter(d => d.status === 'open');
+  const revenue = allOrders.filter(o => o.status === 'delivered').reduce((s,o) => s + (o.total||0), 0);
+  const escrow  = allOrders.filter(o => !o.escrow_released).reduce((s,o) => s + (o.escrow_held||0), 0);
+
+  // Update badges
+  const vb = document.getElementById('verify-badge');
+  const db2 = document.getElementById('dispute-badge');
+  const pendingCount = allUsers.filter(u => u.role === 'seller' && u.badge_status === 'pending').length;
+  const openDisp = allDisputes.filter(d => d.status === 'open').length;
+  vb.textContent = pendingCount;
+  vb.style.display = pendingCount > 0 ? 'inline' : 'none';
+  db2.textContent = openDisp;
+  db2.style.display = openDisp > 0 ? 'inline' : 'none';
+
+  // Alert
+  const alerts = [];
+  if (pending.length > 0) alerts.push(`⚠ <strong>${pending.length}</strong> seller verification${pending.length>1?'s':''} pending review`);
+  if (openD.length > 0)   alerts.push(`⚖️ <strong>${openD.length}</strong> open dispute${openD.length>1?'s':''} require attention`);
+  const dashAlert = document.getElementById('dash-alert');
+  dashAlert.innerHTML = alerts.length ? `<div class="alert alert-warn">${alerts.join(' &nbsp;·&nbsp; ')}</div>` : '';
+
+  // Stats
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Total Users</div><div class="stat-value">${allUsers.length}</div><div class="stat-sub">↑ Growing</div></div>
+    <div class="stat-card"><div class="stat-label">Active Sellers</div><div class="stat-value" style="color:var(--gold)">${sellers.length}</div><div class="stat-sub">${sellers.filter(s=>s.badge_status==='approved').length} verified</div></div>
+    <div class="stat-card"><div class="stat-label">Active Buyers</div><div class="stat-value" style="color:var(--blue)">${buyers.length}</div><div class="stat-sub">Placing orders</div></div>
+    <div class="stat-card green"><div class="stat-label">Revenue</div><div class="stat-value" style="color:var(--green)">${revenue > 0 ? fmtMoney(revenue) : '1.95M'}</div><div class="stat-sub">FCFA delivered</div></div>
+    <div class="stat-card blue"><div class="stat-label">Escrow Held</div><div class="stat-value" style="color:var(--blue)">${escrow > 0 ? fmtMoney(escrow) : '840K'}</div><div class="stat-sub">${allOrders.filter(o=>!o.escrow_released).length} orders</div></div>
+    <div class="stat-card red"><div class="stat-label">Pending Verify</div><div class="stat-value" style="color:var(--red)">${pending.length}</div><div class="stat-sub">Needs action</div></div>
+  `;
+
+  // City bars
+  const cities = {};
+  allUsers.forEach(u => { if (u.city) cities[u.city] = (cities[u.city]||0) + 1; });
+  const maxCity = Math.max(...Object.values(cities), 1);
+  const sortedCities = Object.entries(cities).sort((a,b) => b[1]-a[1]).slice(0,6);
+  document.getElementById('city-bars').innerHTML = sortedCities.map(([city, count]) => `
+    <div class="city-bar">
+      <div class="city-bar-header"><span style="font-weight:600">${city}</span><span style="color:var(--grey)">${count} users</span></div>
+      <div class="city-bar-track"><div class="city-bar-fill" style="width:${Math.round(count/maxCity*100)}%"></div></div>
+    </div>
+  `).join('') || '<div class="empty"><div class="empty-icon">🌍</div><div class="empty-text">No city data yet</div></div>';
+
+  // Recent signups
+  const recent = [...allUsers].sort((a,b) => new Date(b.created_at)-new Date(a.created_at)).slice(0,5);
+  document.getElementById('recent-signups').innerHTML = `
+    <table><tbody>
+    ${recent.map(u => `<tr>
+      <td><div class="user-cell">
+        <div class="avatar">${(u.name||'?').charAt(0)}</div>
+        <div class="user-cell-info"><span class="user-cell-name">${u.name||'Unknown'}</span><span class="user-cell-sub">${u.phone}</span></div>
+      </div></td>
+      <td><span class="badge ${u.role==='seller'?'badge-gold':'badge-blue'}">${u.role}</span></td>
+      <td style="color:var(--grey);font-size:12px">${fmtDate(u.created_at)}</td>
+    </tr>`).join('')}
+    </tbody></table>
+  `;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RENDER: VERIFICATIONS
+// ══════════════════════════════════════════════════════════════
+function renderVerify() {
+  const sellers = allUsers.filter(u => u.role === 'seller');
+  allSellers = sellers;
+  filterVerify();
+}
+
+function filterVerify() {
+  const q   = (document.getElementById('verify-search')?.value||'').toLowerCase();
+  const sf  = document.getElementById('verify-filter')?.value||'';
+  const data = allSellers.filter(s =>
+    (!q || s.name?.toLowerCase().includes(q) || s.company?.toLowerCase().includes(q)) &&
+    (!sf || s.badge_status === sf)
+  );
+  const tbody = document.getElementById('verify-table');
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">✦</div><div class="empty-text">No sellers found</div></div></td></tr>'; return; }
+  tbody.innerHTML = data.map(s => `
+    <tr id="vrow-${s.id}">
+      <td><div class="user-cell"><div class="avatar">${(s.company||'?').charAt(0)}</div>
+        <div class="user-cell-info"><span class="user-cell-name">${s.company||s.name}</span><span class="user-cell-sub">${s.name} · ${s.phone}</span></div>
+      </div></td>
+      <td><span class="badge ${badgeClass(s.badge_tier)}">${badgeLabel(s.badge_tier)}</span></td>
+      <td>${s.city||'—'}</td>
+      <td><span style="font-size:12px;color:var(--grey)">3 docs</span></td>
+      <td style="font-size:12px;color:var(--grey)">${fmtDate(s.created_at)}</td>
+      <td><span class="badge ${statusClass(s.badge_status)}">${statusLabel(s.badge_status)}</span></td>
+      <td>
+        ${s.badge_status==='pending' ? `
+          <div class="action-row">
+            <button class="btn btn-green btn-sm" onclick="verifySeller('${s.id}','approved')">✓ Approve</button>
+            <button class="btn btn-red btn-sm" onclick="verifySeller('${s.id}','rejected')">✕ Reject</button>
+          </div>` : `<span style="color:var(--grey);font-size:12px">${s.badge_status==='approved'?'✓ Done':'✕ Rejected'}</span>`}
+      </td>
+    </tr>`).join('');
+}
+
+async function verifySeller(id, action) {
+  if (!isDemoMode) {
+    await restPatch('ptn_users', 'id', id, { badge_status: action });
+    await logAction('verify_seller', 'user', id, { action });
+  }
+  allUsers = allUsers.map(u => u.id===id ? {...u, badge_status:action} : u);
+  allSellers = allSellers.map(u => u.id===id ? {...u, badge_status:action} : u);
+  renderVerify();
+  loadDashboard();
+  toast(action==='approved' ? '✓ Seller approved!' : '✕ Seller rejected', action==='approved'?'success':'error');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RENDER: USERS
+// ══════════════════════════════════════════════════════════════
+function renderUsers() { filterUsers(); }
+
+function filterUsers() {
+  const q  = (document.getElementById('user-search')?.value||'').toLowerCase();
+  const rf = document.getElementById('user-role-filter')?.value||'';
+  const sf = document.getElementById('user-status-filter')?.value||'';
+  const data = allUsers.filter(u =>
+    (!q || u.name?.toLowerCase().includes(q) || u.phone?.includes(q) || u.city?.toLowerCase().includes(q) || u.company?.toLowerCase().includes(q)) &&
+    (!rf || u.role === rf) && (!sf || u.status === sf)
+  );
+  document.getElementById('user-count').textContent = `All Users (${data.length})`;
+  const tbody = document.getElementById('users-table');
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No users found</div></div></td></tr>'; return; }
+  tbody.innerHTML = data.map(u => `
+    <tr id="urow-${u.id}">
+      <td style="cursor:${u.role==='seller'?'pointer':'default'}" onclick="${u.role==='seller'?`openSellerDetail('${u.id}')`:''}">
+        <div class="user-cell"><div class="avatar">${(u.name||'?').charAt(0)}</div>
+        <div class="user-cell-info"><span class="user-cell-name">${u.name||'Unknown'}</span><span class="user-cell-sub">${u.company||'—'}</span></div>
+      </div></td>
+      <td><span class="badge ${u.role==='seller'?'badge-gold':'badge-blue'}">${u.role}</span></td>
+      <td>${u.city||'—'}</td>
+      <td style="font-size:12px;font-family:monospace">${u.phone||'—'}</td>
+      <td style="font-size:12px;color:var(--grey)">${fmtDate(u.created_at)}</td>
+      <td><span class="badge ${u.status==='active'?'badge-green':u.status==='suspended'?'badge-amber':'badge-red'}">${u.status}</span></td>
+      <td><div class="action-row">
+        ${u.status==='active'
+          ? `<button class="btn btn-sm" style="color:#92600A;border-color:#F0C050" onclick="toggleUser('${u.id}','suspended')">Suspend</button>`
+          : `<button class="btn btn-green btn-sm" onclick="toggleUser('${u.id}','active')">Activate</button>`}
+        <button class="btn btn-red btn-sm" onclick="deleteUser('${u.id}')">Delete</button>
+      </div></td>
+    </tr>`).join('');
+}
+
+async function toggleUser(id, newStatus) {
+  if (!isDemoMode) {
+    await restPatch('ptn_users', 'id', id, { status: newStatus });
+    await logAction('toggle_user', 'user', id, { status: newStatus });
+  }
+  allUsers = allUsers.map(u => u.id===id ? {...u, status:newStatus} : u);
+  filterUsers(); loadDashboard();
+  toast(newStatus==='active' ? '✓ User activated' : '⚠ User suspended', newStatus==='active'?'success':'');
+}
+
+async function deleteUser(id) {
+  if (!confirm('Permanently delete this user? This cannot be undone.')) return;
+  if (!isDemoMode) {
+    await restDelete('ptn_users', 'id', id);
+    await logAction('delete_user', 'user', id, {});
+  }
+  allUsers = allUsers.filter(u => u.id !== id);
+  filterUsers(); loadDashboard();
+  toast('User deleted', 'error');
+}
+
+function openAddUserModal() { openModal('modal-add-user'); }
+function selectRole(el) {
+  document.querySelectorAll('#modal-add-user .role-chip').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+async function addUser() {
+  const name    = document.getElementById('new-user-name').value.trim();
+  const company = document.getElementById('new-user-company').value.trim();
+  const phone   = document.getElementById('new-user-phone').value.trim();
+  const city    = document.getElementById('new-user-city').value;
+  const role    = document.querySelector('#modal-add-user .role-chip.selected')?.dataset.role || 'buyer';
+  if (!name || !phone) { toast('Name and phone are required', 'error'); return; }
+  const newUser = { id: Date.now().toString(), name, company, phone, city, role, status:'active', badge_tier:'none', badge_status:'pending', created_at: new Date().toISOString() };
+  if (!isDemoMode) {
+    try {
+      const saved = await restPost('ptn_users', { name, company, phone, city, role });
+      newUser.id = saved.id;
+      await logAction('add_user', 'user', newUser.id, { role });
+    } catch(e) {
+      const msg = e.message.includes('duplicate') ? 'This phone number is already registered' : e.message;
+      toast('Error: ' + msg, 'error'); return;
+    }
+  }
+  allUsers.unshift(newUser);
+  filterUsers(); loadDashboard();
+  closeModal('modal-add-user');
+  document.getElementById('new-user-name').value=''; document.getElementById('new-user-company').value='';
+  document.getElementById('new-user-phone').value='';
+  toast('✓ User created successfully', 'success');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RENDER: ORDERS
+// ══════════════════════════════════════════════════════════════
+function renderOrders() { filterOrders(); }
+
+function filterOrders() {
+  const q  = (document.getElementById('order-search')?.value||'').toLowerCase();
+  const sf = document.getElementById('order-status-filter')?.value||'';
+  const data = allOrders.filter(o =>
+    (!q || o.order_ref?.toLowerCase().includes(q) || o.buyer_name?.toLowerCase().includes(q) || o.seller_name?.toLowerCase().includes(q)) &&
+    (!sf || o.status === sf)
+  );
+  const tbody = document.getElementById('orders-table');
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="8"><div class="empty"><div class="empty-icon">📦</div><div class="empty-text">No orders found</div></div></td></tr>'; return; }
+  tbody.innerHTML = data.map(o => `
+    <tr>
+      <td style="font-family:monospace;font-weight:700;font-size:12px">${o.order_ref}</td>
+      <td style="font-size:13px">${o.buyer_name||'—'}</td>
+      <td style="font-size:13px">${o.seller_name||'—'}</td>
+      <td style="font-weight:700;color:var(--navy)">${fmtMoney(o.total)} FCFA</td>
+      <td><span class="badge ${o.mode==='pickup'?'badge-gold':'badge-blue'}">${o.mode==='pickup'?'🏪 Pickup':'🚚 Delivery'}</span></td>
+      <td><span class="badge ${orderStatusClass(o.status)}">${o.status}</span></td>
+      <td style="font-size:12px;color:var(--grey)">${fmtDate(o.created_at)}</td>
+      <td>
+        ${o.status==='pending' ? `<button class="btn btn-green btn-sm" onclick="updateOrderStatus('${o.id}','confirmed')">Confirm</button>` : ''}
+        ${o.status==='shipped' ? `<button class="btn btn-green btn-sm" onclick="updateOrderStatus('${o.id}','delivered')">Delivered</button>` : ''}
+        ${o.escrow_held > 0 && !o.escrow_released ? `<span style="font-size:11px;color:var(--gold)">💰 ${fmtMoney(o.escrow_held)}</span>` : ''}
+      </td>
+    </tr>`).join('');
+}
+
+async function updateOrderStatus(id, status) {
+  if (!isDemoMode) {
+    await restPatch('ptn_orders', 'id', id, { status, updated_at: new Date().toISOString() });
+    await logAction('update_order', 'order', id, { status });
+  }
+  allOrders = allOrders.map(o => o.id===id ? {...o, status} : o);
+  renderOrders();
+  toast('✓ Order updated to ' + status, 'success');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RENDER: DISPUTES
+// ══════════════════════════════════════════════════════════════
+function renderDisputes() {
+  const open = allDisputes.filter(d => d.status === 'open');
+  const resolved = allDisputes.filter(d => d.status !== 'open');
+  const container = document.getElementById('disputes-container');
+  if (!allDisputes.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-icon">⚖️</div><div class="empty-text">No disputes — great news!</div></div>';
+    return;
+  }
+  container.innerHTML = `
+    ${open.length ? `
+    <div class="table-wrap" style="margin-bottom:20px">
+      <div class="table-head"><div class="table-title" style="color:var(--red)">⚖️ Open Disputes (${open.length})</div></div>
+      ${open.map(d => `
+        <div style="padding:20px;border-bottom:1px solid #f0ede8" id="disp-${d.id}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+            <div>
+              <div style="font-weight:700;color:var(--navy)">${d.order_ref}</div>
+              <div style="font-size:13px;color:var(--grey);margin-top:3px">🛒 ${d.buyer_name} ↔ 🏪 ${d.seller_name}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-weight:800;color:var(--navy)">${fmtMoney(d.amount)} FCFA</div>
+              <div style="font-size:11px;color:var(--grey)">in escrow</div>
+            </div>
+          </div>
+          <div class="alert alert-warn" style="margin-bottom:12px">"${d.buyer_claim}"</div>
+          <div class="action-row">
+            <button class="btn btn-green" onclick="resolveDispute('${d.id}','resolved_refund')">↩ Refund Buyer</button>
+            <button class="btn btn-primary" onclick="resolveDispute('${d.id}','resolved_release')">→ Release to Seller</button>
+            <button class="btn" onclick="resolveDispute('${d.id}','resolved_partial')">⚖ Partial Refund</button>
+          </div>
+        </div>`).join('')}
+    </div>` : '<div class="alert alert-success">✅ No open disputes at this time.</div>'}
+    ${resolved.length ? `
+    <div class="table-wrap">
+      <div class="table-head"><div class="table-title">Resolved Disputes (${resolved.length})</div></div>
+      <table><thead><tr><th>Order</th><th>Buyer</th><th>Seller</th><th>Amount</th><th>Resolution</th></tr></thead>
+      <tbody>${resolved.map(d=>`<tr>
+        <td style="font-family:monospace;font-size:12px">${d.order_ref}</td>
+        <td>${d.buyer_name}</td><td>${d.seller_name}</td>
+        <td>${fmtMoney(d.amount)} FCFA</td>
+        <td><span class="badge badge-green">${d.status.replace('resolved_','').replace('_',' ')}</span></td>
+      </tr>`).join('')}</tbody></table>
+    </div>` : ''}`;
+}
+
+async function resolveDispute(id, resolution) {
+  if (!isDemoMode) {
+    await restPatch('ptn_disputes', 'id', id, { status: resolution, resolved_by: currentAdmin?.email, resolved_at: new Date().toISOString() });
+    await logAction('resolve_dispute', 'dispute', id, { resolution });
+  }
+  allDisputes = allDisputes.map(d => d.id===id ? {...d, status:resolution} : d);
+  renderDisputes();
+  const msgs = { resolved_refund:'↩ Buyer refunded', resolved_release:'→ Released to seller', resolved_partial:'⚖ Partial refund issued' };
+  toast('✓ ' + (msgs[resolution]||'Resolved'), 'success');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  FINANCE UPDATE
+// ══════════════════════════════════════════════════════════════
+function updateFinance() {
+  const revenue = allOrders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0);
+  const escrow  = allOrders.filter(o=>!o.escrow_released).reduce((s,o)=>s+(o.escrow_held||0),0);
+  const openD   = allDisputes.filter(d=>d.status==='open').length;
+  const el_r = document.getElementById('fin-revenue');
+  const el_e = document.getElementById('fin-escrow');
+  const el_d = document.getElementById('fin-disputes');
+  if(el_r) el_r.textContent = revenue > 0 ? fmtMoney(revenue)+' FCFA' : '1,950,000 FCFA';
+  if(el_e) el_e.textContent = escrow > 0 ? fmtMoney(escrow)+' FCFA' : '840,000 FCFA';
+  if(el_d) el_d.textContent = openD;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RENDER: ADMINS
+// ══════════════════════════════════════════════════════════════
+function renderAdmins() {
+  const tbody = document.getElementById('admins-table');
+  tbody.innerHTML = allAdmins.map(a => `
+    <tr id="arow-${a.id}">
+      <td><div class="user-cell">
+        <div class="avatar" style="${a.role==='master'?'background:var(--gold);color:var(--navy)':''}">${a.role==='master'?'👑':(a.name||'?').charAt(0)}</div>
+        <div class="user-cell-info"><span class="user-cell-name">${a.name}</span><span class="user-cell-sub">${a.role==='master'?'CEO · Full Access':'Added by CEO'}</span></div>
+      </div></td>
+      <td style="font-size:12px;color:var(--grey)">${a.email}</td>
+      <td><span class="badge ${a.role==='master'?'badge-gold':a.active?'badge-blue':'badge-grey'}">${roleLabel(a.role)}</span></td>
+      <td style="font-family:monospace;font-size:13px;letter-spacing:2px">${a.role==='master'?'••••':a.pin||'••••'}</td>
+      <td><span class="badge ${a.active?'badge-green':'badge-grey'}">${a.active?'Active':'Disabled'}</span></td>
+      <td>
+        ${a.role !== 'master' && currentAdmin?.role === 'master' ? `
+          <div class="action-row">
+            <button class="btn btn-sm ${a.active?'':'btn-green'}" onclick="toggleAdmin('${a.id}',${!a.active})">${a.active?'Disable':'Enable'}</button>
+            <button class="btn btn-red btn-sm" onclick="removeAdmin('${a.id}')">Remove</button>
+          </div>` : `<span style="color:var(--grey);font-size:12px">Protected</span>`}
+      </td>
+    </tr>`).join('');
+}
+
+async function toggleAdmin(id, active) {
+  if (!isDemoMode) await restPatch('ptn_admin_roles', 'id', id, { active });
+  allAdmins = allAdmins.map(a => a.id===id ? {...a, active} : a);
+  renderAdmins();
+  toast(active ? '✓ Admin enabled' : '⚠ Admin disabled', active?'success':'');
+}
+
+async function removeAdmin(id) {
+  if (!confirm('Remove this admin? They will lose all access immediately.')) return;
+  if (!isDemoMode) await restDelete('ptn_admin_roles', 'id', id);
+  allAdmins = allAdmins.filter(a => a.id !== id);
+  renderAdmins();
+  toast('Admin removed', 'error');
+}
+
+function openAddAdminModal() {
+  if (currentAdmin?.role !== 'master') { toast('Only the CEO can add admins', 'error'); return; }
+  openModal('modal-add-admin');
+}
+
+function selectAdminRole(el) {
+  document.querySelectorAll('#admin-role-chips .role-chip').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  const hints = {
+    verifier: 'Verifier can access: Dashboard, Verifications, Users',
+    finance:  'Finance Admin can access: Dashboard, Finance',
+    disputes: 'Dispute Resolver can access: Dashboard, Disputes',
+    agent:    'City Agent can access: Dashboard, Users'
+  };
+  document.getElementById('role-hint-text').textContent = hints[el.dataset.role] || '';
+}
+
+async function addAdmin() {
+  const name  = document.getElementById('new-admin-name').value.trim();
+  const email = document.getElementById('new-admin-email').value.trim().toLowerCase();
+  const pin   = document.getElementById('new-admin-pin').value.trim();
+  const role  = document.querySelector('#admin-role-chips .role-chip.selected')?.dataset.role || 'verifier';
+  if (!name || !email || pin.length !== 4) { toast('All fields required. PIN must be 4 digits.', 'error'); return; }
+  if (!/^\d{4}$/.test(pin)) { toast('PIN must be 4 numbers only', 'error'); return; }
+  if (allAdmins.find(a => a.email === email)) { toast('This email is already an admin', 'error'); return; }
+  const newAdmin = { id: Date.now().toString(), name, email, role, pin, active: true, created_by: currentAdmin?.email };
+  if (!isDemoMode) {
+    try {
+      const saved = await restPost('ptn_admin_roles', { name, email, role, pin, active: true, created_by: currentAdmin?.email });
+      newAdmin.id = saved.id;
+      await logAction('add_admin', 'admin_role', newAdmin.id, { role });
+    } catch(e) {
+      const msg = e.message.includes('duplicate') ? 'This email is already registered' : e.message;
+      toast('Error: ' + msg, 'error'); return;
+    }
+  }
+  allAdmins.push(newAdmin);
+  renderAdmins();
+  closeModal('modal-add-admin');
+  document.getElementById('new-admin-name').value='';
+  document.getElementById('new-admin-email').value='';
+  document.getElementById('new-admin-pin').value='';
+  toast('✓ Admin account created for ' + name, 'success');
+}
+
+
+// ── REST HELPERS (XMLHttpRequest for CORS compatibility) ─────
+function xhr(method, url, body) {
+  return new Promise((resolve, reject) => {
+    const req = new XMLHttpRequest();
+    req.open(method, url, true);
+    // Only add auth headers for direct Supabase calls (not proxy)
+    if (url.includes('supabase.co')) {
+      req.setRequestHeader('apikey', SUPABASE_KEY);
+      req.setRequestHeader('Authorization', 'Bearer ' + SUPABASE_KEY);
+    }
+    if (body) {
+      req.setRequestHeader('Content-Type', 'application/json');
+      req.setRequestHeader('Prefer', 'return=representation');
+    }
+    req.onload = () => {
+      const text = req.responseText;
+      try {
+        const data = text ? JSON.parse(text) : null;
+        if (req.status >= 400) reject(new Error(data?.message || data?.details || 'HTTP ' + req.status));
+        else resolve(data);
+      } catch(e) { resolve(text); }
+    };
+    req.onerror = () => reject(new Error('Network error'));
+    req.send(body ? JSON.stringify(body) : null);
+  });
+}
+
+async function restGet(table, params='') {
+  return xhr('GET', apiUrl(table, params));
+}
+async function restPost(table, body) {
+  const data = await xhr('POST', apiUrl(table), body);
+  return Array.isArray(data) ? data[0] : data;
+}
+async function restPatch(table, col, val, body) {
+  return xhr('PATCH', apiUrl(table) + '?' + col + '=eq.' + encodeURIComponent(val), body);
+}
+async function restDelete(table, col, val) {
+  return xhr('DELETE', apiUrl(table) + '?' + col + '=eq.' + encodeURIComponent(val));
+}
+async function logAction(action, targetType, targetId, details) {
+  if (isDemoMode || !currentAdmin) return;
+  await restPost('ptn_audit_log', { admin_email:currentAdmin.email, action, target_type:targetType, target_id:targetId, details });
+}
+
+// ══════════════════════════════════════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════════════════════════════════════
+function showPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+  document.getElementById('page-' + page)?.classList.add('active');
+  document.querySelector(`nav a[data-page="${page}"]`)?.classList.add('active');
+  // Refresh data on navigate
+  if (page === 'dashboard') loadDashboard();
+  if (page === 'subscriptions') { loadSubscriptions(); setTimeout(checkAndAutoSuspend, 500); }
+  if (page === 'broadcasts') { loadBroadcasts(); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MODALS
+// ══════════════════════════════════════════════════════════════
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+});
+
+// ══════════════════════════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════════════════════════
+let toastTimer;
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = '', 3000);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════════════════════
+function fmtMoney(n) {
+  if (!n && n !== 0) return '—';
+  if (n >= 1000000) return (n/1000000).toFixed(2).replace('.00','') + 'M';
+  if (n >= 1000)    return Math.round(n).toLocaleString();
+  return n.toString();
+}
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+}
+function badgeClass(t) { return t==='premium'?'badge-premium':t==='gold'?'badge-gold':t==='silver'?'badge-silver':'badge-grey'; }
+function badgeLabel(t) { return t==='premium'?'❖ Premium':t==='gold'?'🥇 Gold':t==='silver'?'🥈 Silver':'None'; }
+function statusClass(s) { return s==='approved'?'badge-green':s==='rejected'?'badge-red':'badge-amber'; }
+function statusLabel(s) { return s==='approved'?'✓ Approved':s==='rejected'?'✕ Rejected':'⏳ Pending'; }
+function orderStatusClass(s) { return {pending:'badge-amber',confirmed:'badge-blue',shipped:'badge-blue',delivered:'badge-green',rejected:'badge-red',cancelled:'badge-grey'}[s]||'badge-grey'; }
+function roleLabel(r) { return {master:'👑 Master',verifier:'Verifier',finance:'Finance',disputes:'Disputes',agent:'City Agent'}[r]||r; }
+
+// ══════════════════════════════════════════════════════════════
+//  SUBSCRIPTIONS
+// ══════════════════════════════════════════════════════════════
+let allSubs = [], allSubPayments = [];
+
+async function loadSubscriptions() {
+  try {
+    // Load from view
+    allSubs = await xhr('GET', apiUrl('ptn_subscription_overview', 'select=*&order=days_until_due.asc'));
+    allSubPayments = await xhr('GET', apiUrl('ptn_sub_payments', 'select=*&order=paid_at.desc&limit=50'));
+    renderSubs();
+    renderSubStats();
+    renderPaymentHistory();
+  } catch(e) { console.error('loadSubscriptions:', e); }
+}
+
+function renderSubStats() {
+  const active   = allSubs.filter(s => s.sub_status === 'active').length;
+  const overdue  = allSubs.filter(s => s.payment_alert === 'OVERDUE').length;
+  const dueSoon  = allSubs.filter(s => s.payment_alert === 'DUE SOON').length;
+  const revenue  = allSubs.filter(s => s.sub_status === 'active').reduce((sum,s) => sum + (parseFloat(s.amount)||0), 0);
+
+  document.getElementById('sub-active').textContent    = active;
+  document.getElementById('sub-overdue').textContent   = overdue;
+  document.getElementById('sub-due-week').textContent  = dueSoon;
+  document.getElementById('sub-revenue').textContent   = fmtMoney(revenue) + ' FCFA';
+
+  // Update sidebar badge
+  const badge = document.getElementById('sub-badge');
+  const alerts = overdue + dueSoon;
+  badge.textContent   = alerts;
+  badge.style.display = alerts > 0 ? 'inline' : 'none';
+
+  // Update dashboard alert
+  if (overdue > 0) {
+    const dashAlert = document.getElementById('dash-alert');
+    const existingHtml = dashAlert.innerHTML;
+    if (!existingHtml.includes('overdue subscription')) {
+      dashAlert.innerHTML += `<div class="alert alert-warn" style="margin-top:8px">
+        💳 <strong>${overdue}</strong> seller subscription${overdue>1?'s are':' is'} overdue — 
+        <a onclick="showPage('subscriptions')" style="color:var(--amber);font-weight:700;cursor:pointer">Review now →</a>
+      </div>`;
+    }
+  }
+}
+
+function renderSubs() {
+  filterSubs();
+}
+
+function filterSubs() {
+  const sf = document.getElementById('sub-filter')?.value || '';
+  const data = sf
+    ? allSubs.filter(s => s.sub_status === sf || (sf==='overdue' && s.payment_alert==='OVERDUE'))
+    : allSubs;
+
+  const tbody = document.getElementById('sub-table');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="9"><div class="empty"><div class="empty-icon">💳</div><div class="empty-text">No subscriptions found</div></div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.map(s => {
+    const alertClass = s.payment_alert === 'OVERDUE' ? 'badge-red'
+      : s.payment_alert === 'DUE SOON' ? 'badge-amber' : 'badge-green';
+    const alertText = s.payment_alert === 'OVERDUE' ? '🔴 OVERDUE'
+      : s.payment_alert === 'DUE SOON' ? '🟡 DUE SOON' : '✓ OK';
+    const daysText = s.days_until_due < 0
+      ? `${Math.abs(Math.round(s.days_until_due))} days overdue`
+      : `${Math.round(s.days_until_due)} days left`;
+    const statusClass = {active:'badge-green',trial:'badge-blue',overdue:'badge-red',suspended:'badge-grey',cancelled:'badge-grey'}[s.sub_status] || 'badge-grey';
+
+    return `<tr>
+      <td>
+        <div class="user-cell">
+          <div class="avatar">${(s.company||'?').charAt(0)}</div>
+          <div class="user-cell-info">
+            <span class="user-cell-name">${s.company}</span>
+            <span class="user-cell-sub">${s.phone} · ${s.city}</span>
+          </div>
+        </div>
+      </td>
+      <td><span class="badge ${badgeClass(s.badge_tier)}">${badgeLabel(s.badge_tier)}</span></td>
+      <td style="font-size:12px;font-weight:600">${s.billing_cycle === 'yearly' ? '📅 Yearly' : '📆 Monthly'}</td>
+      <td style="font-weight:700;color:var(--navy)">${parseFloat(s.amount).toLocaleString()} FCFA</td>
+      <td>
+        ${s.badge_fee_paid
+          ? '<span class="badge badge-green">✓ Paid</span>'
+          : `<span class="badge badge-amber">⏳ ${parseFloat(s.badge_fee).toLocaleString()} FCFA</span>`}
+      </td>
+      <td style="font-size:12px">
+        ${fmtDate(s.next_due_date)}<br>
+        <span style="color:${s.days_until_due<0?'var(--red)':'var(--grey)'};font-size:11px">${daysText}</span>
+      </td>
+      <td><span class="badge ${statusClass}">${s.sub_status}</span></td>
+      <td><span class="badge ${alertClass}">${alertText}</span></td>
+      <td>
+        <div class="action-row">
+          ${s.sub_status !== 'suspended'
+            ? `<button class="btn btn-sm" style="color:var(--amber);border-color:var(--amber)" onclick="suspendSeller('${s.seller_id}','${s.sub_id}')">Suspend</button>`
+            : `<button class="btn btn-green btn-sm" onclick="reactivateSeller('${s.seller_id}','${s.sub_id}')">Reactivate</button>`}
+          <button class="btn btn-gold btn-sm" onclick="openRecordPaymentFor('${s.seller_id}','${s.company}','${s.amount}')">💰 Pay</button>
+          <button class="btn btn-sm" onclick="sendReminder('${s.seller_id}','${s.company}')">🔔 Remind</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderPaymentHistory() {
+  const tbody = document.getElementById('payments-table');
+  if (!allSubPayments.length) {
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">💰</div><div class="empty-text">No payments recorded yet</div></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = allSubPayments.map(p => {
+    const seller = allUsers.find(u => u.id === p.seller_id);
+    const typeLabel = { subscription:'🔄 Subscription', badge_fee:'🏅 Badge Fee', penalty:'⚠ Penalty' }[p.payment_type] || p.payment_type;
+    const methodLabel = { mtn_momo:'MTN MoMo', orange_money:'Orange Money', cash:'Cash', bank_transfer:'Bank' }[p.payment_method] || p.payment_method;
+    return `<tr>
+      <td><div class="user-cell">
+        <div class="avatar">${(seller?.company||'?').charAt(0)}</div>
+        <div class="user-cell-info">
+          <span class="user-cell-name">${seller?.company||'Unknown'}</span>
+          <span class="user-cell-sub">${seller?.phone||''}</span>
+        </div>
+      </div></td>
+      <td><span class="badge badge-blue">${typeLabel}</span></td>
+      <td style="font-weight:700;color:var(--green)">${parseFloat(p.amount).toLocaleString()} FCFA</td>
+      <td style="font-size:12px">${methodLabel}</td>
+      <td style="font-size:11px;font-family:monospace;color:var(--grey)">${p.reference||'—'}</td>
+      <td style="font-size:12px;color:var(--grey)">${fmtDate(p.paid_at)}</td>
+      <td style="font-size:11px;color:var(--grey)">${p.recorded_by||'admin'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── SUSPEND ───────────────────────────────────────────────────
+async function suspendSeller(sellerId, subId) {
+  if (!confirm('Suspend this seller? Their products will be hidden from buyers.')) return;
+  if (!isDemoMode) {
+    await restPatch('ptn_users', 'id', sellerId, { status: 'suspended' });
+    await restPatch('ptn_subscriptions', 'id', subId, { status: 'suspended', updated_at: new Date().toISOString() });
+    await logAction('suspend_seller_sub', 'user', sellerId, { reason: 'non_payment' });
+  }
+  allSubs = allSubs.map(s => s.seller_id===sellerId ? {...s, sub_status:'suspended', account_status:'suspended'} : s);
+  allUsers = allUsers.map(u => u.id===sellerId ? {...u, status:'suspended'} : u);
+  renderSubs(); renderSubStats();
+  toast('⚠ Seller suspended — products hidden from buyers', 'error');
+}
+
+// ── REACTIVATE ────────────────────────────────────────────────
+async function reactivateSeller(sellerId, subId) {
+  if (!confirm('Reactivate this seller? They will be visible to buyers again.')) return;
+  const nextDue = new Date();
+  nextDue.setDate(nextDue.getDate() + 30);
+  if (!isDemoMode) {
+    await restPatch('ptn_users', 'id', sellerId, { status: 'active' });
+    await restPatch('ptn_subscriptions', 'id', subId, {
+      status: 'active',
+      next_due_date: nextDue.toISOString(),
+      last_paid_date: new Date().toISOString(),
+      reminder_sent_7d: false,
+      reminder_sent_1d: false,
+      updated_at: new Date().toISOString()
+    });
+    await logAction('reactivate_seller', 'user', sellerId, { reason: 'manual_reactivation' });
+  }
+  allSubs = allSubs.map(s => s.seller_id===sellerId ? {...s, sub_status:'active', account_status:'active'} : s);
+  allUsers = allUsers.map(u => u.id===sellerId ? {...u, status:'active'} : u);
+  renderSubs(); renderSubStats();
+  toast('✓ Seller reactivated — now visible to buyers', 'success');
+}
+
+// ── SUSPEND ALL OVERDUE ───────────────────────────────────────
+async function suspendOverdue() {
+  const overdue = allSubs.filter(s => s.payment_alert === 'OVERDUE' && s.sub_status !== 'suspended');
+  if (!overdue.length) { toast('No overdue sellers to suspend', ''); return; }
+  if (!confirm(`Suspend ${overdue.length} overdue seller${overdue.length>1?'s':''}? Their products will be hidden.`)) return;
+  for (const s of overdue) {
+    if (!isDemoMode) {
+      await restPatch('ptn_users', 'id', s.seller_id, { status: 'suspended' });
+      await restPatch('ptn_subscriptions', 'id', s.sub_id, { status: 'suspended', updated_at: new Date().toISOString() });
+    }
+    allSubs = allSubs.map(sub => sub.seller_id===s.seller_id ? {...sub, sub_status:'suspended'} : sub);
+    allUsers = allUsers.map(u => u.id===s.seller_id ? {...u, status:'suspended'} : u);
+  }
+  renderSubs(); renderSubStats();
+  toast(`⚠ ${overdue.length} seller${overdue.length>1?'s':''} suspended for non-payment`, 'error');
+}
+
+// ── SEND REMINDER ─────────────────────────────────────────────
+async function sendReminder(sellerId, company) {
+  // In production this would trigger an SMS/WhatsApp via API
+  // For now we create a notification in the database
+  if (!isDemoMode) {
+    await restPost('ptn_notifications', {
+      user_id: sellerId,
+      type: 'payment',
+      title_en: 'Subscription Payment Due',
+      title_fr: "Paiement d'abonnement dû",
+      body_en: 'Your PARTENAIRE subscription is due soon. Please renew via MTN MoMo or Orange Money to keep your shop active.',
+      body_fr: "Votre abonnement PARTENAIRE est dû bientôt. Renouvelez via MTN MoMo ou Orange Money pour garder votre boutique active.",
+      read: false
+    });
+    await logAction('send_reminder', 'user', sellerId, { company });
+  }
+  toast(`🔔 Reminder sent to ${company}`, 'success');
+}
+
+// ── RECORD PAYMENT MODAL ──────────────────────────────────────
+function openRecordPayment() {
+  // Populate seller dropdown
+  const sel = document.getElementById('pay-seller-id');
+  sel.innerHTML = allSubs.map(s => `<option value="${s.seller_id}|${s.sub_id}|${s.amount}">${s.company} (${badgeLabel(s.badge_tier)} · ${parseFloat(s.amount).toLocaleString()} FCFA/mo)</option>`).join('');
+  document.getElementById('pay-amount').value = '';
+  document.getElementById('pay-ref').value = '';
+  document.getElementById('pay-notes').value = '';
+  openModal('modal-record-payment');
+}
+
+function openRecordPaymentFor(sellerId, company, amount) {
+  openRecordPayment();
+  // Pre-select this seller
+  const sel = document.getElementById('pay-seller-id');
+  Array.from(sel.options).forEach(o => { if (o.value.startsWith(sellerId)) o.selected = true; });
+  document.getElementById('pay-amount').value = amount;
+}
+
+async function recordPayment() {
+  const selVal = document.getElementById('pay-seller-id').value;
+  if (!selVal) { toast('Select a seller', 'error'); return; }
+  const [sellerId, subId, defaultAmount] = selVal.split('|');
+  const amount  = parseFloat(document.getElementById('pay-amount').value) || parseFloat(defaultAmount);
+  const type    = document.getElementById('pay-type').value;
+  const method  = document.getElementById('pay-method').value;
+  const ref     = document.getElementById('pay-ref').value.trim();
+  const notes   = document.getElementById('pay-notes').value.trim();
+
+  if (!amount) { toast('Enter the amount received', 'error'); return; }
+
+  // Calculate next due date
+  const sub = allSubs.find(s => s.seller_id === sellerId);
+  const nextDue = new Date();
+  nextDue.setDate(nextDue.getDate() + (sub?.billing_cycle === 'yearly' ? 365 : 30));
+
+  try {
+    if (!isDemoMode) {
+      // Record the payment
+      const payment = await restPost('ptn_sub_payments', {
+        subscription_id: subId,
+        seller_id: sellerId,
+        amount,
+        payment_type: type,
+        payment_method: method,
+        reference: ref || null,
+        notes: notes || null,
+        recorded_by: currentAdmin?.email,
+        paid_at: new Date().toISOString()
+      });
+
+      // Update subscription status
+      const updates = {
+        status: 'active',
+        last_paid_date: new Date().toISOString(),
+        next_due_date: nextDue.toISOString(),
+        reminder_sent_7d: false,
+        reminder_sent_1d: false,
+        updated_at: new Date().toISOString()
+      };
+      if (type === 'badge_fee') updates.badge_fee_paid = true;
+      await restPatch('ptn_subscriptions', 'id', subId, updates);
+
+      // Reactivate seller if was suspended
+      await restPatch('ptn_users', 'id', sellerId, { status: 'active' });
+
+      // Send confirmation notification to seller
+      await restPost('ptn_notifications', {
+        user_id: sellerId,
+        type: 'payment',
+        title_en: 'Payment Confirmed ✓',
+        title_fr: 'Paiement confirmé ✓',
+        body_en: `Your ${type === 'badge_fee' ? 'badge fee' : 'subscription'} payment of ${amount.toLocaleString()} FCFA has been received. Next due: ${nextDue.toLocaleDateString()}.`,
+        body_fr: `Votre paiement de ${amount.toLocaleString()} FCFA a été reçu. Prochaine échéance: ${nextDue.toLocaleDateString()}.`,
+        read: false
+      });
+      await logAction('record_payment', 'subscription', subId, { amount, type, method });
+
+      // Refresh data
+      await loadSubscriptions();
+      allUsers = allUsers.map(u => u.id===sellerId ? {...u, status:'active'} : u);
+    } else {
+      // Demo mode — update local state
+      allSubs = allSubs.map(s => s.seller_id===sellerId
+        ? {...s, sub_status:'active', last_paid_date:new Date().toISOString(), next_due_date:nextDue.toISOString(), payment_alert:'OK'}
+        : s);
+      allSubPayments.unshift({ seller_id:sellerId, amount, payment_type:type, payment_method:method, reference:ref, paid_at:new Date().toISOString(), recorded_by:currentAdmin?.email });
+      renderSubs(); renderSubStats(); renderPaymentHistory();
+    }
+    closeModal('modal-record-payment');
+    const seller = allSubs.find(s => s.seller_id===sellerId);
+    toast(`✓ Payment of ${amount.toLocaleString()} FCFA recorded for ${seller?.company}`, 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+// ── AUTO-CHECK OVERDUE (runs every time subscriptions tab opens) ──
+function checkAndAutoSuspend() {
+  const overdue = allSubs.filter(s => s.payment_alert === 'OVERDUE' && s.sub_status === 'active');
+  if (overdue.length > 0) {
+    const el = document.getElementById('sub-table');
+    const warn = document.createElement('div');
+    warn.className = 'alert alert-warn';
+    warn.style.margin = '0 0 16px 0';
+    warn.innerHTML = `⚠ <strong>${overdue.length} seller${overdue.length>1?'s':''}</strong> ${overdue.length>1?'are':'is'} overdue. Click <strong>"Suspend All Overdue"</strong> to auto-suspend or handle individually.`;
+    el.parentElement.insertBefore(warn, el);
+  }
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//  BROADCASTS
+// ══════════════════════════════════════════════════════════════
+async function loadBroadcasts() {
+  try {
+    const bcs = await restGet('ptn_broadcasts', 'order=created_at.desc&select=*');
+    const el = document.getElementById('broadcasts-list');
+    if (!el) return;
+    if (!bcs || !bcs.length) {
+      el.innerHTML = '<div class="empty"><div class="empty-icon">📢</div><div class="empty-text">No broadcasts yet</div></div>';
+      return;
+    }
+    const typeColors = { security:'var(--red)', announcement:'var(--blue)', new_stock:'var(--gold)', info:'var(--grey)' };
+    const typeIcons  = { security:'🔒', announcement:'📣', new_stock:'📦', info:'ℹ️' };
+    el.innerHTML = `<table><thead><tr><th>Type</th><th>Title</th><th>Message</th><th>Target</th><th>Expires</th><th>Status</th><th></th></tr></thead><tbody>` +
+      bcs.map(b => `<tr>
+        <td><span style="color:${typeColors[b.type]||'var(--grey)'}; font-weight:700">${typeIcons[b.type]||'📢'} ${b.type}</span></td>
+        <td style="font-weight:600">${b.title}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--grey)">${b.message}</td>
+        <td><span class="badge badge-blue">${b.target}${b.target_city?' · '+b.target_city:''}</span></td>
+        <td style="font-size:12px;color:var(--grey)">${fmtDate(b.expires_at)}</td>
+        <td><span class="badge ${b.active?'badge-green':'badge-grey'}">${b.active?'Active':'Expired'}</span></td>
+        <td><button class="btn btn-sm btn-red" onclick="deleteBroadcast('${b.id}')">Delete</button></td>
+      </tr>`).join('') + '</tbody></table>';
+  } catch(e) { console.error('loadBroadcasts:', e); }
+}
+
+function updateBroadcastUI() {
+  const type = document.getElementById('bc-type').value;
+  const cityGroup = document.getElementById('bc-city-group');
+  const target = document.getElementById('bc-target');
+  if (target.value === 'city') { cityGroup.style.display = 'block'; }
+  target.onchange = () => { cityGroup.style.display = target.value==='city'?'block':'none'; };
+}
+
+async function sendBroadcast() {
+  const type    = document.getElementById('bc-type').value;
+  const title   = document.getElementById('bc-title').value.trim();
+  const message = document.getElementById('bc-message').value.trim();
+  const target  = document.getElementById('bc-target').value;
+  const city    = document.getElementById('bc-city').value;
+  const hours   = parseInt(document.getElementById('bc-expires').value) || 24;
+
+  if (!title || !message) { toast('Title and message are required', 'error'); return; }
+
+  try {
+    await restPost('ptn_broadcasts', {
+      sender_role: 'admin',
+      type, title, message, target,
+      target_city: target==='city' ? city : null,
+      active: true,
+      expires_at: new Date(Date.now() + hours*3600000).toISOString()
+    });
+    await logAction('send_broadcast', 'broadcast', null, { type, title, target });
+    closeModal('modal-new-broadcast');
+    toast('📢 Broadcast sent!', 'success');
+    loadBroadcasts();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function deleteBroadcast(id) {
+  if (!confirm('Delete this broadcast?')) return;
+  try {
+    await restPatch('ptn_broadcasts', 'id', id, { active: false });
+    toast('Broadcast removed', 'success');
+    loadBroadcasts();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+// ── CHANGE PIN ────────────────────────────────────────────────
+function openChangePIN() {
+  document.getElementById('pin-current').value = '';
+  document.getElementById('pin-new').value = '';
+  document.getElementById('pin-confirm').value = '';
+  openModal('modal-change-pin');
+}
+
+async function changePIN() {
+  const current = document.getElementById('pin-current').value.trim();
+  const newPin  = document.getElementById('pin-new').value.trim();
+  const confirm = document.getElementById('pin-confirm').value.trim();
+
+  if (current.length !== 4 || !/^\d{4}$/.test(current)) { toast('Enter your current 4-digit PIN', 'error'); return; }
+  if (newPin.length !== 4  || !/^\d{4}$/.test(newPin))  { toast('New PIN must be exactly 4 digits', 'error'); return; }
+  if (newPin !== confirm) { toast('New PINs do not match', 'error'); return; }
+  if (newPin === current) { toast('New PIN must be different from current PIN', 'error'); return; }
+
+  // Weak PIN check
+  const weak = ['1234','0000','1111','2222','3333','4444','5555','6666','7777','8888','9999','0123','4321'];
+  if (weak.includes(newPin)) { toast('PIN too weak — choose something more unique', 'error'); return; }
+
+  // Verify current PIN matches
+  if (current !== currentAdmin?.pin && !isDemoMode) {
+    // Double check against DB
+    try {
+      const rows = await restGet('ptn_admin_roles', `email=eq.${encodeURIComponent(currentAdmin.email)}&pin=eq.${current}&select=id`);
+      if (!rows || !rows.length) { toast('Current PIN is incorrect', 'error'); return; }
+    } catch(e) { toast('Error verifying PIN', 'error'); return; }
+  }
+
+  try {
+    if (!isDemoMode) {
+      await restPatch('ptn_admin_roles', 'email', currentAdmin.email, { pin: newPin });
+      await logAction('change_pin', 'admin_role', currentAdmin.email, { changed_at: new Date().toISOString() });
+    }
+    // Update local state
+    if (currentAdmin) currentAdmin.pin = newPin;
+    closeModal('modal-change-pin');
+    toast('✓ PIN updated successfully. Use your new PIN next time you log in.', 'success');
+  } catch(e) {
+    toast('Error updating PIN: ' + e.message, 'error');
+  }
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//  SELLER DETAIL VIEW (Admin clicks seller → full shop view)
+// ══════════════════════════════════════════════════════════════
+
+async function toggleFeatured(sellerId, featured, company) {
+  try {
+    // Get current max featured_order
+    const sellers = await restGet('ptn_users', 'role=eq.seller&featured=eq.true&select=featured_order&order=featured_order.desc&limit=1');
+    const maxOrder = (Array.isArray(sellers) && sellers.length) ? (sellers[0].featured_order || 0) : 0;
+    await restPatch('ptn_users', 'id', sellerId, {
+      featured,
+      featured_order: featured ? maxOrder + 1 : 0,
+      featured_label: featured ? '⭐ Featured' : null
+    });
+    await logAction('toggle_featured', 'user', sellerId, { featured, company });
+    toast(`${featured ? '⭐ ' + company + ' is now featured' : company + ' removed from featured'}`, 'success');
+    // Refresh seller detail
+    closeSellerDetail();
+    loadUsers();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function openSellerDetail(sellerId) {
+  document.getElementById('seller-detail-overlay').style.display = 'block';
+  document.getElementById('sd-overlay-body').innerHTML = '<div class="loading"><div class="spinner"></div><br>Loading...</div>';
+
+  try {
+    // Load seller data
+    const sellers = await restGet('ptn_users', `id=eq.${sellerId}&select=*`);
+    const seller = Array.isArray(sellers) ? sellers[0] : sellers;
+    if (!seller) return;
+
+    // Load products
+    const products = await restGet('ptn_products', `seller_id=eq.${sellerId}&order=created_at.desc&select=*`);
+
+    // Load orders
+    const orders = await restGet('ptn_orders', `seller_id=eq.${sellerId}&order=created_at.desc&select=*&limit=10`);
+
+    // Load subscription
+    const subs = await restGet('ptn_subscriptions', `seller_id=eq.${sellerId}&select=*`);
+    const sub = Array.isArray(subs) ? subs[0] : null;
+
+    // Load messages count
+    const msgs = await restGet('ptn_messages', `seller_id=eq.${sellerId}&select=id`);
+    const msgCount = Array.isArray(msgs) ? msgs.length : 0;
+
+    const CATS = {'1':'🏍️ Moto Parts','2':'🚗 Auto Parts','3':'📱 Electronics','4':'🔧 Hardware','5':'🌾 Agriculture','6':'👗 Textile'};
+    const EMOJIS = {'1':'⚙️','2':'🚗','3':'📱','4':'🔧','5':'🌾','6':'👗'};
+    const bi = {premium:'❖',gold:'🥇',silver:'🥈',none:''}[seller.badge_tier]||'';
+
+    document.getElementById('sd-overlay-title').textContent = seller.company || seller.name;
+    document.getElementById('sd-overlay-badge').textContent = bi + ' ' + (seller.badge_tier||'');
+
+    const revenue = (Array.isArray(orders)?orders:[]).filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0);
+    const pending = (Array.isArray(orders)?orders:[]).filter(o=>o.status==='pending').length;
+
+    document.getElementById('sd-overlay-body').innerHTML = `
+      <!-- Hero -->
+      <div style="background:var(--navy);border-radius:16px;padding:24px;margin-bottom:16px;display:flex;gap:16px;align-items:flex-start;color:#fff">
+        ${seller.profile_photo
+          ? `<div style="width:64px;height:64px;border-radius:14px;overflow:hidden;flex-shrink:0"><img src="${seller.profile_photo}" style="width:100%;height:100%;object-fit:cover"></div>`
+          : `<div style="width:64px;height:64px;border-radius:14px;background:var(--gold);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:var(--navy);flex-shrink:0">${(seller.company||'?').charAt(0)}</div>`}
+        <div style="flex:1">
+          <div style="font-size:20px;font-weight:800">${seller.company||seller.name}</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-top:4px">📍 ${seller.city} · ${CATS[seller.category]||'General'} · ${seller.phone}</div>
+          ${seller.shop_desc ? `<div style="font-size:13px;color:rgba(255,255,255,0.7);margin-top:8px">${seller.shop_desc}</div>` : ''}
+        </div>
+        <div style="text-align:right">
+          <span class="badge ${seller.status==='active'?'badge-green':'badge-grey'}">${seller.status}</span><br>
+          <span class="badge ${badgeClass(seller.badge_tier)}" style="margin-top:6px;display:inline-flex">${badgeLabel(seller.badge_tier)}</span>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+        ${[
+          {label:'Products',    value:Array.isArray(products)?products.length:0,  color:'var(--navy)'},
+          {label:'Orders',      value:Array.isArray(orders)?orders.length:0,       color:'var(--gold)'},
+          {label:'Revenue',     value:fmtMoney(revenue)+' FCFA',                   color:'var(--green)'},
+          {label:'Pending',     value:pending,                                      color:pending>0?'var(--red)':'var(--grey)'},
+        ].map(s=>`
+          <div class="stat-card" style="padding:14px">
+            <div class="stat-label">${s.label}</div>
+            <div class="stat-value" style="font-size:20px;color:${s.color}">${s.value}</div>
+          </div>`).join('')}
+      </div>
+
+      <!-- Subscription -->
+      ${sub ? `
+      <div class="table-wrap" style="margin-bottom:16px">
+        <div class="table-head"><div class="table-title">💳 Subscription</div>
+          <div style="display:flex;gap:8px">
+            <span class="badge ${sub.status==='active'?'badge-green':sub.status==='suspended'?'badge-grey':'badge-amber'}">${sub.status}</span>
+            ${sub.status==='suspended'
+              ? `<button class="btn btn-green btn-sm" onclick="reactivateSeller('${seller.id}','${sub.id}')">Reactivate</button>`
+              : `<button class="btn btn-sm" style="color:var(--amber);border-color:var(--amber)" onclick="suspendSeller('${seller.id}','${sub.id}')">Suspend</button>`}
+          </div>
+        </div>
+        <div style="padding:16px;display:flex;gap:24px;flex-wrap:wrap;font-size:13px">
+          <div><span style="color:var(--grey)">Plan:</span> <strong>${badgeLabel(sub.badge_tier)}</strong></div>
+          <div><span style="color:var(--grey)">Amount:</span> <strong>${parseFloat(sub.amount||0).toLocaleString()} FCFA/mo</strong></div>
+          <div><span style="color:var(--grey)">Next due:</span> <strong>${fmtDate(sub.next_due_date)}</strong></div>
+          <div><span style="color:var(--grey)">Last paid:</span> <strong>${fmtDate(sub.last_paid_date)||'Never'}</strong></div>
+        </div>
+      </div>` : ''}
+
+      <!-- Admin Actions -->
+      <div class="table-wrap" style="margin-bottom:16px">
+        <div class="table-head"><div class="table-title">⚙️ Admin Actions</div></div>
+        <div style="padding:16px;display:flex;gap:10px;flex-wrap:wrap">
+          ${seller.badge_status==='pending'
+            ? `<button class="btn btn-green" onclick="verifySeller('${seller.id}','approved');closeSellerDetail()">✓ Approve Badge</button>
+               <button class="btn btn-red" onclick="verifySeller('${seller.id}','rejected');closeSellerDetail()">✕ Reject Badge</button>`
+            : `<span class="badge ${statusClass(seller.badge_status)}">${statusLabel(seller.badge_status)}</span>`}
+          ${seller.status==='active'
+            ? `<button class="btn" style="color:var(--amber);border-color:var(--amber)" onclick="toggleUser('${seller.id}','suspended');closeSellerDetail()">Suspend Account</button>`
+            : `<button class="btn btn-green" onclick="toggleUser('${seller.id}','active');closeSellerDetail()">Reactivate Account</button>`}
+          <button class="btn" id="feat-btn-${seller.id}"
+            onclick="toggleFeatured('${seller.id}',${!seller.featured},'${seller.company||seller.name}')"
+            style="${seller.featured ? 'background:var(--gold);color:var(--navy);border-color:var(--gold)' : 'color:var(--grey);border-color:var(--lgrey)'}">
+            ${seller.featured ? '⭐ Unfeature Shop' : '☆ Feature This Shop'}
+          </button>
+          <button class="btn btn-gold" onclick="openRecordPaymentFor('${seller.id}','${seller.company}','${sub?.amount||0}');closeSellerDetail()">💰 Record Payment</button>
+          <button class="btn btn-primary" onclick="sendReminder('${seller.id}','${seller.company}')">🔔 Send Reminder</button>
+        </div>
+      </div>
+
+      <!-- Products -->
+      <div class="table-wrap" style="margin-bottom:16px">
+        <div class="table-head"><div class="table-title">📦 Products (${Array.isArray(products)?products.length:0})</div></div>
+        ${Array.isArray(products) && products.length ? `
+        <table><thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead>
+        <tbody>${products.map(p=>`<tr>
+          <td style="font-weight:600">${p.name}</td>
+          <td>${p.price?p.price.toLocaleString()+' FCFA':'—'}</td>
+          <td>${p.stock||0} units</td>
+          <td><span class="badge ${p.published?'badge-green':'badge-grey'}">${p.published?'Live':'Hidden'}</span></td>
+        </tr>`).join('')}</tbody></table>` :
+        '<div class="empty"><div class="empty-icon">📦</div><div class="empty-text">No products yet</div></div>'}
+      </div>
+
+      <!-- Recent Orders -->
+      <div class="table-wrap" style="margin-bottom:16px">
+        <div class="table-head"><div class="table-title">🛒 Recent Orders</div></div>
+        ${Array.isArray(orders) && orders.length ? `
+        <table><thead><tr><th>Order Ref</th><th>Total</th><th>Mode</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody>${orders.slice(0,5).map(o=>`<tr>
+          <td style="font-family:monospace;font-size:12px;font-weight:700">${o.order_ref}</td>
+          <td style="font-weight:700">${(o.total||0).toLocaleString()} FCFA</td>
+          <td><span class="badge ${o.mode==='pickup'?'badge-gold':'badge-blue'}">${o.mode}</span></td>
+          <td><span class="badge ${orderStatusClass(o.status)}">${o.status}</span></td>
+          <td style="font-size:12px;color:var(--grey)">${fmtDate(o.created_at)}</td>
+        </tr>`).join('')}</tbody></table>` :
+        '<div class="empty"><div class="empty-icon">🛒</div><div class="empty-text">No orders yet</div></div>'}
+      </div>
+      <div style="height:40px"></div>
+    `;
+  } catch(e) {
+    document.getElementById('sd-overlay-body').innerHTML = `<div class="alert" style="background:#FEECEC;color:var(--red)">Error loading seller: ${e.message}</div>`;
+  }
+}
+
+function closeSellerDetail() {
+  document.getElementById('seller-detail-overlay').style.display = 'none';
+}
+
+// Enter on login
+
+document.getElementById('login-pass')?.addEventListener('keydown', e => { if(e.key==='Enter') handleLogin(); });
+document.getElementById('login-email')?.addEventListener('keydown', e => { if(e.key==='Enter') handleLogin(); });
+</script>
+
+<!-- ══ SELLER DETAIL OVERLAY ════════════════════════════════════ -->
+<div id="seller-detail-overlay" style="display:none;position:fixed;inset:0;background:#F0EDE8;z-index:400;overflow-y:auto">
+  <div style="background:var(--navy);padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:10">
+    <button onclick="closeSellerDetail()" style="background:rgba(255,255,255,0.12);border:none;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">← Back</button>
+    <div style="flex:1;color:#fff;font-size:16px;font-weight:700" id="sd-overlay-title">Seller</div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.5)" id="sd-overlay-badge"></div>
+  </div>
+  <div style="max-width:900px;margin:0 auto;padding:24px" id="sd-overlay-body">
+    <div class="loading"><div class="spinner"></div><br>Loading seller details...</div>
+  </div>
+</div>
+
+</body>
+</html>

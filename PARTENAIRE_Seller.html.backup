@@ -1,0 +1,2696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://ftxttdagpioieyzaijdc.supabase.co; img-src * data: blob:; media-src * data: blob:; connect-src *;">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PARTENAIRE ✦ Seller Portal</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
+:root{
+  --navy:#1A2B4A;--gold:#C9A84C;--white:#fff;--light:#F4F1EC;
+  --grey:#8A8A8A;--lgrey:#E8E8E8;--red:#E84040;--green:#2E7D32;
+  --greenl:#E8F5E9;--blue:#185FA5;--bluel:#E6F1FB;--amber:#92600A;--amberl:#FEF9EC;
+}
+body{background:#F0EDE8;color:var(--navy);min-height:100vh}
+
+/* ── SCREENS ── */
+.screen{display:none;min-height:100vh}
+.screen.active{display:flex;flex-direction:column}
+
+/* ── AUTH SCREENS ── */
+.auth-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--navy);padding:20px}
+.auth-box{background:#fff;border-radius:20px;padding:40px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+.auth-logo{font-size:26px;font-weight:900;letter-spacing:3px;color:var(--navy);text-align:center;margin-bottom:4px}
+.auth-logo span{color:var(--gold)}
+.auth-sub{text-align:center;color:var(--grey);font-size:13px;margin-bottom:28px}
+.auth-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--grey);display:block;margin-bottom:6px}
+.auth-input{width:100%;padding:13px 16px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:15px;color:var(--navy);background:#fff;margin-bottom:16px;outline:none;transition:border .2s}
+.auth-input:focus{border-color:var(--gold)}
+.auth-btn{width:100%;padding:14px;background:var(--navy);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:background .2s;margin-bottom:12px}
+.auth-btn:hover{background:#243b65}
+.auth-btn.gold{background:var(--gold);color:var(--navy)}
+.auth-btn.gold:hover{background:#b8963e}
+.auth-error{color:var(--red);font-size:13px;text-align:center;margin-bottom:12px;display:none}
+.auth-hint{background:#f8f6f0;border-radius:10px;padding:12px;font-size:12px;color:var(--grey);margin-top:8px;text-align:center;line-height:1.6}
+.auth-link{text-align:center;font-size:13px;color:var(--grey);margin-top:12px;cursor:pointer}
+.auth-link span{color:var(--gold);font-weight:700;cursor:pointer}
+.otp-row{display:flex;gap:10px;justify-content:center;margin-bottom:20px}
+.otp-box{width:60px;height:60px;border:2px solid var(--lgrey);border-radius:12px;font-size:24px;font-weight:700;color:var(--navy);text-align:center;outline:none;background:#fff;transition:border .2s}
+.otp-box:focus{border-color:var(--gold)}
+.phone-row{display:flex;gap:8px;margin-bottom:16px}
+.country-code{background:#f8f6f0;border:1.5px solid var(--lgrey);border-radius:10px;padding:13px 14px;font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap}
+.step-dots{display:flex;gap:6px;justify-content:center;margin-bottom:24px}
+.step-dot{width:8px;height:8px;border-radius:4px;background:var(--lgrey);transition:all .3s}
+.step-dot.active{background:var(--gold);width:20px}
+
+/* ── MAIN APP ── */
+#app-screen{background:#F0EDE8}
+.app-header{background:var(--navy);padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.app-header-logo{font-size:16px;font-weight:900;letter-spacing:2px;color:#fff}
+.app-header-logo span{color:var(--gold)}
+.app-header-right{display:flex;align-items:center;gap:12px}
+.header-shop{font-size:13px;color:rgba(255,255,255,0.7);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.header-btn{background:rgba(255,255,255,0.1);border:none;color:#fff;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:background .2s}
+.header-btn:hover{background:rgba(255,255,255,0.2)}
+.header-notif{position:relative;background:rgba(255,255,255,0.1);border:none;color:#fff;width:36px;height:36px;border-radius:8px;cursor:pointer;font-size:16px;transition:background .2s}
+.header-notif:hover{background:rgba(255,255,255,0.2)}
+.notif-dot{position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:4px;background:var(--red);display:none}
+
+/* ── TABS ── */
+.tab-bar{background:#fff;border-bottom:1px solid var(--lgrey);display:flex;padding:0 24px;gap:0;position:sticky;top:60px;z-index:99}
+.tab{padding:14px 20px;font-size:13px;font-weight:600;color:var(--grey);cursor:pointer;border-bottom:2.5px solid transparent;transition:all .15s;white-space:nowrap}
+.tab:hover{color:var(--navy)}
+.tab.active{color:var(--navy);border-bottom-color:var(--gold)}
+.tab-badge{background:var(--red);color:#fff;font-size:10px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:4px;display:none}
+
+/* ── TAB PAGES ── */
+.tab-page{display:none;padding:24px;max-width:1000px;margin:0 auto}
+.tab-page.active{display:block}
+
+/* ── CARDS ── */
+.card{background:#fff;border-radius:14px;padding:20px;margin-bottom:16px}
+.card-title{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px}
+.card-sub{font-size:12px;color:var(--grey);margin-bottom:16px}
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+.stat-box{background:#fff;border-radius:12px;padding:16px;text-align:center}
+.stat-num{font-size:28px;font-weight:800;color:var(--navy)}
+.stat-lbl{font-size:11px;color:var(--grey);margin-top:4px;text-transform:uppercase;letter-spacing:0.4px}
+
+/* ── BADGE CARD ── */
+.badge-card{border-radius:14px;padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;gap:14px;border:1.5px solid}
+.badge-card.gold{background:var(--amberl);border-color:#F0C050}
+.badge-card.silver{background:#F4F4F4;border-color:#ccc}
+.badge-card.premium{background:var(--bluel);border-color:var(--blue)}
+.badge-card.none{background:#fff;border-color:var(--lgrey)}
+.badge-icon{font-size:32px}
+.badge-info-title{font-size:15px;font-weight:700}
+.badge-info-sub{font-size:12px;color:var(--grey);margin-top:2px}
+.badge-status{margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px}
+.badge-status.pending{background:var(--amberl);color:var(--amber)}
+.badge-status.approved{background:var(--greenl);color:var(--green)}
+.badge-status.rejected{background:#FEECEC;color:var(--red)}
+
+/* ── PRODUCTS ── */
+.products-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:20px}
+.product-card{background:#fff;border-radius:14px;padding:16px;position:relative;transition:box-shadow .2s}
+.product-card:hover{box-shadow:0 4px 20px rgba(0,0,0,0.08)}
+.product-photo{width:100%;height:120px;background:#f8f6f0;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:48px;margin-bottom:12px}
+.product-name{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px}
+.product-price{font-size:14px;font-weight:800;color:var(--gold)}
+.product-stock{font-size:11px;color:var(--grey);margin-top:3px}
+.product-actions{display:flex;gap:6px;margin-top:10px}
+.product-published{position:absolute;top:10px;right:10px;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px}
+.product-published.yes{background:var(--greenl);color:var(--green)}
+.product-published.no{background:#FEECEC;color:var(--red)}
+.add-product-btn{border:2px dashed var(--gold);border-radius:14px;padding:30px;text-align:center;cursor:pointer;transition:all .2s;color:var(--gold);font-weight:700;font-size:14px}
+.add-product-btn:hover{background:var(--amberl)}
+
+/* ── ORDERS ── */
+.order-card{background:#fff;border-radius:14px;padding:18px;margin-bottom:12px;cursor:pointer;transition:box-shadow .2s}
+.order-card:hover{box-shadow:0 4px 20px rgba(0,0,0,0.08)}
+.order-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.order-ref{font-size:13px;font-weight:700;color:var(--navy);font-family:monospace}
+.order-buyer{font-size:13px;color:var(--grey)}
+.order-items{font-size:12px;color:var(--grey);margin-bottom:8px}
+.order-footer{display:flex;align-items:center;justify-content:space-between}
+.order-total{font-size:16px;font-weight:800;color:var(--navy)}
+.order-mode{font-size:11px;color:var(--grey)}
+
+/* ── ORDER DETAIL ── */
+#order-detail-screen{display:none;position:fixed;inset:0;background:#F0EDE8;z-index:200;overflow-y:auto}
+.detail-header{background:var(--navy);padding:16px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0}
+.detail-back{background:rgba(255,255,255,0.1);border:none;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600}
+.detail-title{color:#fff;font-size:16px;font-weight:700}
+.detail-body{max-width:700px;margin:24px auto;padding:0 24px}
+
+/* ── PROFILE ── */
+/* ── PROFILE PHOTO ── */
+.profile-avatar{width:72px;height:72px;border-radius:16px;background:var(--gold);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:var(--navy);margin-bottom:12px;cursor:pointer;position:relative;overflow:hidden;transition:opacity .2s;flex-shrink:0}
+.profile-avatar:hover{opacity:0.85}
+.profile-avatar img{width:100%;height:100%;object-fit:cover;border-radius:16px}
+.profile-avatar-overlay{position:absolute;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s;border-radius:16px;font-size:20px}
+.profile-avatar:hover .profile-avatar-overlay{opacity:1}
+.profile-hero-row{display:flex;align-items:flex-start;gap:16px}
+
+/* ── FORM ── */
+.form-group{margin-bottom:16px}
+.form-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--grey);display:block;margin-bottom:6px}
+.form-input{width:100%;padding:12px 14px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:14px;color:var(--navy);background:#fff;outline:none;transition:border .2s}
+.form-input:focus{border-color:var(--gold)}
+.form-select{width:100%;padding:12px 14px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:14px;color:var(--navy);background:#fff;outline:none;cursor:pointer}
+.form-textarea{width:100%;padding:12px 14px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:14px;color:var(--navy);background:#fff;outline:none;resize:vertical;min-height:90px}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:8px;border:1.5px solid var(--lgrey);font-size:13px;font-weight:600;cursor:pointer;background:#fff;color:var(--navy);transition:all .15s}
+.btn:hover{background:#f8f7f4}
+.btn-primary{background:var(--navy);color:#fff;border-color:var(--navy)}
+.btn-primary:hover{background:#243b65}
+.btn-gold{background:var(--gold);color:var(--navy);border-color:var(--gold);font-weight:700}
+.btn-gold:hover{background:#b8963e}
+.btn-green{background:var(--green);color:#fff;border-color:var(--green)}
+.btn-green:hover{background:#1b5e20}
+.btn-red{color:var(--red);border-color:var(--red);background:transparent}
+.btn-red:hover{background:#FEECEC}
+.btn-sm{padding:6px 12px;font-size:12px}
+.btn-block{width:100%;justify-content:center;padding:13px}
+
+/* ── MODAL ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border-radius:20px;padding:32px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;position:relative}
+.modal-title{font-size:18px;font-weight:800;color:var(--navy);margin-bottom:4px}
+.modal-sub{font-size:13px;color:var(--grey);margin-bottom:20px}
+.modal-close{position:absolute;top:16px;right:16px;background:var(--lgrey);border:none;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:16px;color:var(--grey)}
+
+/* ── STATUS BADGES ── */
+.status{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap}
+.s-pending{background:var(--amberl);color:var(--amber)}
+.s-confirmed{background:var(--bluel);color:var(--blue)}
+.s-shipped{background:var(--bluel);color:var(--blue)}
+.s-delivered{background:var(--greenl);color:var(--green)}
+.s-rejected{background:#FEECEC;color:var(--red)}
+
+/* ── TRACKER ── */
+.tracker{display:flex;flex-direction:column;gap:0;margin:16px 0}
+.tracker-step{display:flex;align-items:flex-start;gap:14px;padding-bottom:16px;position:relative}
+.tracker-step:not(:last-child)::after{content:'';position:absolute;left:13px;top:28px;bottom:0;width:2px;background:var(--lgrey)}
+.tracker-step.done::after{background:var(--green)}
+.tracker-dot{width:28px;height:28px;border-radius:50%;background:var(--lgrey);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;z-index:1}
+.tracker-step.done .tracker-dot{background:var(--greenl);color:var(--green);font-weight:700}
+.tracker-step.active .tracker-dot{background:var(--navy);color:#fff;font-weight:700}
+.tracker-label{font-size:13px;font-weight:600;color:var(--grey);padding-top:5px}
+.tracker-step.done .tracker-label{color:var(--green)}
+.tracker-step.active .tracker-label{color:var(--navy)}
+
+/* ── ALERT ── */
+.alert{border-radius:12px;padding:14px 16px;font-size:13px;margin-bottom:16px;line-height:1.5}
+.alert-warn{background:var(--amberl);border:1px solid #F0C050;color:var(--amber)}
+.alert-info{background:var(--bluel);border:1px solid #9EC5F0;color:var(--blue)}
+.alert-success{background:var(--greenl);border:1px solid #A5D6A7;color:var(--green)}
+
+/* ── EMPTY ── */
+.empty{text-align:center;padding:48px 20px;color:var(--grey)}
+.empty-icon{font-size:40px;margin-bottom:12px}
+
+/* ── DIVIDER ── */
+.divider{height:1px;background:var(--lgrey);margin:16px 0}
+
+/* ── TOAST ── */
+#toast{position:fixed;bottom:24px;right:24px;background:var(--navy);color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:500;z-index:9999;transform:translateY(100px);opacity:0;transition:all .3s;max-width:320px}
+#toast.show{transform:translateY(0);opacity:1}
+#toast.success{background:var(--green)}
+#toast.error{background:var(--red)}
+
+.loading{text-align:center;padding:40px;color:var(--grey)}
+.spinner{display:inline-block;width:24px;height:24px;border:3px solid var(--lgrey);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+@media(max-width:600px){
+  .stat-row{grid-template-columns:repeat(3,1fr)}
+  .products-grid{grid-template-columns:1fr 1fr}
+  .tab-page{padding:16px}
+  .detail-body{padding:0 16px}
+}
+
+/* ── BROADCAST POPUP ── */
+#broadcast-popup{position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:1000;max-width:500px;width:90%;border-radius:14px;padding:16px 20px;display:none;box-shadow:0 8px 32px rgba(0,0,0,0.2);animation:slideDown .3s ease}
+@keyframes slideDown{from{transform:translateX(-50%) translateY(-20px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
+#broadcast-popup.security{background:#E84040;color:#fff;border:2px solid #c0392b}
+#broadcast-popup.announcement{background:#185FA5;color:#fff;border:2px solid #1a4a8a}
+#broadcast-popup.new_stock{background:var(--navy);color:#fff;border:2px solid var(--gold)}
+#broadcast-popup.info{background:var(--navy);color:#fff}
+.bc-close{position:absolute;top:10px;right:14px;background:rgba(255,255,255,0.2);border:none;color:#fff;width:24px;height:24px;border-radius:12px;cursor:pointer;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center}
+
+/* ── MOMO PAYMENT MODAL ── */
+.momo-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:600;display:none;align-items:center;justify-content:center;padding:20px}
+.momo-overlay.open{display:flex}
+.momo-box{background:#fff;border-radius:20px;padding:32px;max-width:380px;width:100%;text-align:center;position:relative}
+.momo-icon{font-size:56px;margin-bottom:12px}
+.momo-title{font-size:20px;font-weight:800;color:var(--navy);margin-bottom:6px}
+.momo-amount{font-size:28px;font-weight:900;color:var(--gold);margin:12px 0}
+.momo-sub{font-size:13px;color:var(--grey);margin-bottom:20px;line-height:1.5}
+.momo-phone-row{display:flex;gap:8px;margin-bottom:16px}
+.momo-cc{background:#f8f6f0;border:1.5px solid var(--lgrey);border-radius:10px;padding:11px 14px;font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap}
+.momo-phone-input{flex:1;padding:11px 14px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:15px;color:var(--navy);outline:none}
+.momo-operator{display:flex;gap:10px;margin-bottom:20px;justify-content:center}
+.op-btn{flex:1;padding:12px;border:2px solid var(--lgrey);border-radius:12px;cursor:pointer;background:#fff;font-size:13px;font-weight:700;transition:all .15s}
+.op-btn.selected.mtn{border-color:#FFC107;background:#FFFDE7;color:#F57F17}
+.op-btn.selected.orange{border-color:#FF6D00;background:#FFF3E0;color:#E65100}
+.momo-pay-btn{width:100%;padding:14px;border-radius:12px;border:none;font-size:15px;font-weight:800;cursor:pointer}
+.momo-pay-btn.mtn{background:#FFC107;color:#1A2B4A}
+.momo-pay-btn.orange{background:#FF6D00;color:#fff}
+.momo-pay-btn:disabled{opacity:0.5;cursor:not-allowed}
+.momo-status{margin-top:16px;padding:12px;border-radius:10px;font-size:13px;font-weight:600;display:none}
+.momo-status.processing{background:var(--amberl);color:var(--amber);display:block}
+.momo-status.success{background:var(--greenl);color:var(--green);display:block}
+.momo-status.failed{background:#FEECEC;color:var(--red);display:block}
+.sandbox-badge{background:#E8F5E9;color:var(--green);font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;margin-bottom:16px;display:inline-block}
+</style>
+
+<script>
+// Show warning if opened via file://
+window.addEventListener('DOMContentLoaded', function() {
+  if (window.location.protocol === 'file:') {
+    const warn = document.createElement('div');
+    warn.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#E84040;color:#fff;text-align:center;padding:12px;font-size:13px;font-weight:600;z-index:99999';
+    warn.innerHTML = '⚠️ You are opening this file directly. Buttons will not work. <strong>Run: python -m http.server 8080</strong> in PowerShell then open <strong>http://localhost:8080</strong>';
+    document.body.prepend(warn);
+  }
+});
+</script>
+</head>
+<body>
+
+<!-- ══ SCREEN: SUSPENDED ══════════════════════════════════════ -->
+<div class="screen" id="screen-suspended">
+  <div class="auth-wrap" style="background:#1a0a0a">
+    <div class="auth-box" style="text-align:center">
+      <div style="font-size:56px;margin-bottom:16px">⚠️</div>
+      <div class="auth-logo" style="color:var(--red)">Account Suspended</div>
+      <div class="auth-sub" style="margin-bottom:24px">Your subscription payment is overdue. Your shop is temporarily hidden from buyers.</div>
+      <div style="background:#f8f6f0;border-radius:12px;padding:16px;margin-bottom:20px;text-align:left">
+        <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px">To reactivate your account:</div>
+        <div style="font-size:13px;color:var(--grey);line-height:1.8">
+          1. Pay your subscription via <strong>MTN MoMo or Orange Money</strong><br>
+          2. Send your payment reference to admin<br>
+          3. Admin will reactivate your account within 24h
+        </div>
+      </div>
+      <div style="background:var(--amberl);border:1px solid #F0C050;border-radius:12px;padding:14px;margin-bottom:20px">
+        <div style="font-size:13px;font-weight:700;color:var(--amber)">📞 Contact Admin</div>
+        <div style="font-size:13px;color:var(--amber);margin-top:4px">WhatsApp: +237 6XX XXX XXX<br>Email: admin@partenaire.cm</div>
+      </div>
+      <div id="suspended-sub-info" style="margin-bottom:20px"></div>
+      <button class="auth-btn" onclick="signOut()" style="background:#f8f6f0;color:var(--navy)">← Sign Out</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SCREEN 1: PHONE LOGIN ══════════════════════════════════ -->
+<div class="screen active" id="screen-phone">
+  <div class="auth-wrap">
+    <div class="auth-box">
+      <div class="auth-logo">PARTENAIRE <span>✦</span></div>
+      <div class="auth-sub">Seller Portal · Portail Vendeur</div>
+      <div class="step-dots">
+        <div class="step-dot active"></div>
+        <div class="step-dot"></div>
+        <div class="step-dot"></div>
+      </div>
+      <label class="auth-label">Phone Number</label>
+      <div class="phone-row">
+        <div class="country-code">🇨🇲 +237</div>
+        <input class="auth-input" id="phone-input" type="tel" placeholder="699 000 000" maxlength="9" style="margin-bottom:0;flex:1">
+      </div>
+      <div style="height:16px"></div>
+      <button class="auth-btn gold" id="btn-send-otp" onclick="sendOTP()">Envoyer le code / Send Code →</button>
+      <div class="auth-error" id="phone-error"></div>
+      <div class="auth-hint">
+        <strong>Demo sellers:</strong><br>
+        699000010 — MotoKing Douala (Gold)<br>
+        699000011 — Parts Express CM (Silver)<br>
+        699000014 — Guangzhou Motors (Premium)
+      </div>
+      <div class="auth-link">Nouveau vendeur? / New seller? <span onclick="goToRegister()">Créer votre boutique →</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SCREEN 2: OTP ══════════════════════════════════════════ -->
+<div class="screen" id="screen-otp">
+  <div class="auth-wrap">
+    <div class="auth-box">
+      <div class="auth-logo">PARTENAIRE <span>✦</span></div>
+      <div class="auth-sub" id="otp-sub">Code sent to +237 —</div>
+      <div class="step-dots">
+        <div class="step-dot"></div>
+        <div class="step-dot active"></div>
+        <div class="step-dot"></div>
+      </div>
+      <div class="otp-row">
+        <input class="otp-box" id="otp0" maxlength="1" type="tel" oninput="otpNext(0,this)" onkeydown="otpBack(0,event)">
+        <input class="otp-box" id="otp1" maxlength="1" type="tel" oninput="otpNext(1,this)" onkeydown="otpBack(1,event)">
+        <input class="otp-box" id="otp2" maxlength="1" type="tel" oninput="otpNext(2,this)" onkeydown="otpBack(2,event)">
+        <input class="otp-box" id="otp3" maxlength="1" type="tel" oninput="otpNext(3,this)" onkeydown="otpBack(3,event)">
+      </div>
+      <div class="auth-error" id="otp-error"></div>
+      <button class="auth-btn gold" onclick="verifyOTP()">Vérifier / Verify Code →</button>
+      <button class="auth-btn" onclick="showScreen('screen-phone')" style="background:#f8f6f0;color:var(--navy)">← Changer le numéro / Change Number</button>
+      <div class="auth-hint">Code OTP demo / Demo OTP code: <strong>1234</strong></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SCREEN 3: REGISTER ═════════════════════════════════════ -->
+<div class="screen" id="screen-register">
+  <div class="auth-wrap" style="align-items:flex-start;padding-top:40px">
+    <div class="auth-box" style="max-width:500px">
+      <div class="auth-logo">PARTENAIRE <span>✦</span></div>
+      <div class="auth-sub">Create your seller account</div>
+      <div class="step-dots">
+        <div class="step-dot"></div>
+        <div class="step-dot"></div>
+        <div class="step-dot active"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="auth-label">Owner Name</label>
+          <input class="auth-input" id="reg-name" placeholder="Jean Dupont">
+        </div>
+        <div>
+          <label class="auth-label">Company Name</label>
+          <input class="auth-input" id="reg-company" placeholder="MotoKing Sarl">
+        </div>
+      </div>
+      <label class="auth-label">Phone Number</label>
+      <div class="phone-row" style="margin-bottom:16px">
+        <div class="country-code">🇨🇲 +237</div>
+        <input class="auth-input" id="reg-phone" type="tel" placeholder="699 000 000" maxlength="9" style="margin-bottom:0;flex:1">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="auth-label">City</label>
+          <select class="auth-input" id="reg-city" style="margin-bottom:0">
+            <option>Douala</option><option>Yaoundé</option><option>Bafoussam</option>
+            <option>Garoua</option><option>Maroua</option><option>Bertoua</option><option>Ebolowa</option>
+          </select>
+        </div>
+        <div>
+          <label class="auth-label">Category</label>
+          <select class="auth-input" id="reg-category" style="margin-bottom:0">
+            <option value="1">🏍️ Moto Parts</option>
+            <option value="2">🚗 Auto Parts</option>
+            <option value="3">📱 Electronics</option>
+            <option value="4">🔧 Hardware</option>
+            <option value="5">🌾 Agriculture</option>
+            <option value="6">👗 Textile</option>
+          </select>
+        </div>
+      </div>
+      <div style="height:12px"></div>
+      <label class="auth-label">Shop Description</label>
+      <textarea class="auth-input" id="reg-desc" placeholder="Tell buyers what you sell..." style="height:80px;resize:none;margin-bottom:16px"></textarea>
+      <label class="auth-label">Choose Your Badge & Subscription</label>
+      <!-- Billing toggle -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;background:#f8f6f0;border-radius:10px;padding:10px 14px">
+        <span style="font-size:13px;color:var(--grey);font-weight:600">Monthly</span>
+        <div style="position:relative;width:44px;height:24px;cursor:pointer" onclick="toggleBilling()">
+          <div style="position:absolute;inset:0;background:var(--navy);border-radius:12px;transition:background .2s" id="billing-track"></div>
+          <div style="position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:9px;transition:transform .2s" id="billing-thumb"></div>
+        </div>
+        <span style="font-size:13px;color:var(--navy);font-weight:600">Yearly</span>
+        <span style="font-size:11px;background:var(--greenl);color:var(--green);padding:2px 8px;border-radius:10px;font-weight:700;margin-left:4px">Save up to 2 months</span>
+      </div>
+      <div id="badge-selector" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px"></div>
+      <style>
+        .badge-option{border:1.5px solid var(--lgrey);border-radius:10px;padding:12px 14px;cursor:pointer;font-size:13px;transition:all .15s}
+        .badge-option:hover{border-color:var(--gold)}
+        .badge-option.selected{border-color:var(--gold);background:var(--amberl)}
+      </style>
+      <div class="auth-error" id="reg-error"></div>
+      <button class="auth-btn gold" onclick="registerSeller()">Créer ma boutique / Create My Shop →</button>
+      <div class="auth-link">Already have an account? <span onclick="showScreen('screen-phone')">Sign in →</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MAIN APP ═══════════════════════════════════════════════ -->
+<div class="screen" id="app-screen">
+  <div class="app-header">
+    <div class="app-header-logo">PARTENAIRE <span>✦</span></div>
+    <div class="app-header-right">
+      <div class="header-shop" id="header-shop-name">My Shop</div>
+      <!-- Language toggle -->
+      <div style="display:flex;background:rgba(255,255,255,0.12);border-radius:20px;padding:3px;gap:2px">
+        <button id="lang-en" onclick="setLang('en')" style="padding:4px 10px;border-radius:16px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:var(--gold);color:var(--navy)">EN</button>
+        <button id="lang-fr" onclick="setLang('fr')" style="padding:4px 10px;border-radius:16px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:rgba(255,255,255,0.6)">FR</button>
+      </div>
+      <button class="header-notif" onclick="switchTab('tab-notifications')" id="notif-btn">
+        🔔<div class="notif-dot" id="notif-dot"></div>
+      </button>
+      <button class="header-btn" id="btn-signout" onclick="signOut()">Sign Out</button>
+    </div>
+  </div>
+
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchTab('tab-dashboard')" id="tab-dashboard">📊 <span id="lbl-dashboard">Dashboard</span></div>
+    <div class="tab" onclick="switchTab('tab-products')" id="tab-products">📦 <span id="lbl-products">Products</span></div>
+    <div class="tab" onclick="switchTab('tab-orders')" id="tab-orders">🛒 <span id="lbl-orders">Orders</span> <span class="tab-badge" id="order-badge">0</span></div>
+    <div class="tab" onclick="switchTab('tab-profile')" id="tab-profile">🏪 <span id="lbl-profile">Shop Profile</span></div>
+    <div class="tab" onclick="switchTab('tab-notifications')" id="tab-notifications">🔔 <span id="lbl-notifs">Notifications</span></div>
+  </div>
+
+  <!-- DASHBOARD TAB -->
+  <div class="tab-page active" id="page-dashboard">
+    <div class="stat-row">
+      <div class="stat-box"><div class="stat-num" id="st-products">—</div><div class="stat-lbl">Products</div></div>
+      <div class="stat-box"><div class="stat-num" id="st-orders">—</div><div class="stat-lbl">Orders</div></div>
+      <div class="stat-box"><div class="stat-num" id="st-revenue">—</div><div class="stat-lbl">Revenue</div></div>
+    </div>
+    <div id="badge-status-card"></div>
+    <div class="card">
+      <div class="card-title">📦 Recent Orders</div>
+      <div class="card-sub">Your latest incoming orders</div>
+      <div id="recent-orders"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">📈 Quick Actions</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
+        <button class="btn btn-gold" onclick="openAddProduct()">+ Add Product</button>
+        <button class="btn btn-primary" onclick="switchTab('tab-orders')">View All Orders</button>
+        <button class="btn" id="promo-blast-btn" style="display:none;color:var(--gold);border-color:var(--gold);font-weight:700" onclick="openPromoBlast()">📢 Promo Blast</button>
+        <button class="btn" onclick="switchTab('tab-profile')">Edit Shop Profile</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRODUCTS TAB -->
+  <div class="tab-page" id="page-products">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div>
+        <div style="font-size:18px;font-weight:800">My Products</div>
+        <div style="font-size:13px;color:var(--grey)" id="product-count">Loading...</div>
+      </div>
+      <button class="btn btn-gold" onclick="openAddProduct()">+ Add Product</button>
+    </div>
+    <div class="products-grid" id="products-grid">
+      <div class="loading"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <!-- ORDERS TAB -->
+  <div class="tab-page" id="page-orders">
+    <div style="margin-bottom:20px">
+      <div style="font-size:18px;font-weight:800;margin-bottom:4px">Orders</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm active-filter" onclick="filterOrders('all',this)">All</button>
+        <button class="btn btn-sm" onclick="filterOrders('pending',this)">Pending</button>
+        <button class="btn btn-sm" onclick="filterOrders('confirmed',this)">Confirmed</button>
+        <button class="btn btn-sm" onclick="filterOrders('shipped',this)">Shipped</button>
+        <button class="btn btn-sm" onclick="filterOrders('delivered',this)">Delivered</button>
+      </div>
+    </div>
+    <div id="orders-list"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- PROFILE TAB -->
+  <div class="tab-page" id="page-profile">
+    <div class="profile-hero" id="profile-hero">
+      <div class="profile-hero-row">
+        <!-- Clickable profile photo -->
+        <div class="profile-avatar" id="profile-avatar" onclick="document.getElementById('profile-photo-input').click()" title="Click to change photo">
+          <span id="profile-avatar-text">?</span>
+          <div class="profile-avatar-overlay">📷</div>
+        </div>
+        <input type="file" id="profile-photo-input" accept="image/*" style="display:none" onchange="handleProfilePhoto(this)">
+        <div>
+          <div class="profile-name" id="profile-name">Loading...</div>
+          <div class="profile-sub" id="profile-sub">—</div>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <div style="font-size:11px;background:rgba(201,168,76,0.2);color:var(--gold);padding:4px 10px;border-radius:20px;font-weight:700">🏪 Seller Account</div>
+            <div id="also-buyer-badge" style="display:none;font-size:11px;background:rgba(255,255,255,0.15);color:#fff;padding:4px 10px;border-radius:20px;cursor:pointer;font-weight:600" onclick="switchToBuyer()">🛒 Also a Buyer →</div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:12px">📷 Click your photo to update it</div>
+    </div>
+    <div id="badge-card-profile"></div>
+    <div class="card">
+      <div class="card-title">Edit Shop Info</div>
+      <div class="card-sub">This information is visible to buyers</div>
+      <div class="form-group">
+        <label class="form-label">Company Name</label>
+        <input class="form-input" id="edit-company" placeholder="Your company name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Owner Name</label>
+        <input class="form-input" id="edit-name" placeholder="Your name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">City</label>
+        <select class="form-select" id="edit-city">
+          <option>Douala</option><option>Yaoundé</option><option>Bafoussam</option>
+          <option>Garoua</option><option>Maroua</option><option>Bertoua</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Shop Description</label>
+        <textarea class="form-textarea" id="edit-desc" placeholder="Tell buyers what you sell..."></textarea>
+      </div>
+      <button class="btn btn-gold btn-block" onclick="saveProfile()">✓ Save Changes</button>
+    </div>
+    <div class="card">
+      <div class="card-title">🛒 Also Buy on PARTENAIRE?</div>
+      <div class="card-sub">Mid-wholesalers can use the same phone number as both a seller AND a buyer</div>
+      <div id="dual-role-section">
+        <div class="alert alert-info" style="margin-bottom:12px">
+          💡 Your seller account and buyer account share the same phone number. Switch between them anytime.
+        </div>
+        <button class="btn btn-primary btn-block" id="buyer-register-btn" onclick="registerAsBuyer()">
+          🛒 Activate My Buyer Account
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Verification Documents</div>
+      <div class="card-sub">Submit these to get your badge approved by admin</div>
+      <div id="docs-section">
+        <div class="alert alert-info" id="verify-info-msg">📋 Submit documents to complete your verification. Admin will review within 48 hours.</div>
+        <div id="verify-submitted-msg" class="alert alert-success" style="display:none">
+          ✅ <strong>Application submitted!</strong> Admin will review your documents within 48 hours. You will be notified once approved.
+        </div>
+        <div id="docs-list" style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f8f6f0;border-radius:10px" id="doc-row-id_photo">
+            <span style="font-size:13px">📷 Photo of your ID or passport</span>
+            <button class="btn btn-sm btn-gold" onclick="attachDoc('id_photo',this)">Attach</button>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f8f6f0;border-radius:10px" id="doc-row-business_reg">
+            <span style="font-size:13px">📄 Business registration document</span>
+            <button class="btn btn-sm btn-gold" onclick="attachDoc('business_reg',this)">Attach</button>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f8f6f0;border-radius:10px" id="doc-row-shop_photo">
+            <span style="font-size:13px">🏪 Photo of your physical shop</span>
+            <button class="btn btn-sm btn-gold" onclick="attachDoc('shop_photo',this)">Attach</button>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" id="submit-verify-btn" style="margin-top:16px" onclick="submitVerification()">📤 Submit for Verification</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- NOTIFICATIONS TAB -->
+  <div class="tab-page" id="page-notifications">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div style="font-size:18px;font-weight:800">Notifications</div>
+      <button class="btn btn-sm" onclick="markAllRead()">Mark all read</button>
+    </div>
+    <div id="notifications-list"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
+<!-- ══ ORDER DETAIL SCREEN ════════════════════════════════════ -->
+<div id="order-detail-screen">
+  <div class="detail-header">
+    <button class="detail-back" onclick="closeOrderDetail()">← Back</button>
+    <div class="detail-title" id="detail-title">Order Details</div>
+  </div>
+  <div class="detail-body" id="detail-body"></div>
+</div>
+
+<!-- ══ MODAL: ADD / EDIT PRODUCT — SNAP STYLE ════════════════ -->
+<div class="modal-overlay" id="modal-product">
+  <div class="modal" style="max-width:520px">
+    <button class="modal-close" onclick="closeModal('modal-product')">✕</button>
+    <div class="modal-title" id="product-modal-title">📸 Add Product</div>
+    <div class="modal-sub">Snap a photo, fill in details, go live instantly</div>
+    <input type="hidden" id="edit-product-id">
+
+    <!-- Camera / Photo Zone -->
+    <div id="camera-zone" onclick="snapPhoto()" style="
+      width:100%;height:160px;background:var(--navy);border-radius:14px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      cursor:pointer;margin-bottom:20px;position:relative;overflow:hidden;
+      transition:background .2s;user-select:none" title="Click to snap photo">
+      <div id="camera-emoji" style="font-size:48px;margin-bottom:8px">📸</div>
+      <div style="color:#fff;font-size:14px;font-weight:600" id="camera-label">Tap to snap product photo</div>
+      <div style="color:rgba(255,255,255,0.5);font-size:11px;margin-top:4px" id="camera-sub">Click here to take or upload a photo</div>
+      <!-- Hidden real file input -->
+      <input type="file" id="photo-file-input" accept="image/*" capture="environment"
+        style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%"
+        onchange="handlePhotoUpload(this)">
+    </div>
+
+    <!-- Photo thumbnails strip -->
+    <div id="photo-strip" style="display:none;flex-direction:row;gap:8px;margin-bottom:16px;flex-wrap:wrap"></div>
+
+    <!-- Product info form -->
+    <div class="form-group">
+      <label class="form-label">Product Name *</label>
+      <input class="form-input" id="p-name" placeholder="e.g. Piston Bajaj Boxer 150cc">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Price (FCFA)</label>
+        <input class="form-input" id="p-price" type="number" placeholder="e.g. 1500">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Stock Quantity</label>
+        <input class="form-input" id="p-stock" type="number" placeholder="e.g. 100">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <select class="form-select" id="p-category">
+          <option value="1">🏍️ Moto Parts</option>
+          <option value="2">🚗 Auto Parts</option>
+          <option value="3">📱 Electronics</option>
+          <option value="4">🔧 Hardware</option>
+          <option value="5">🌾 Agriculture</option>
+          <option value="6">👗 Textile</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Visibility</label>
+        <select class="form-select" id="p-published">
+          <option value="true">✓ Live — visible to buyers</option>
+          <option value="false">Hidden — draft</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Publish button -->
+    <button class="btn btn-gold btn-block" id="save-product-btn" onclick="saveProduct()" style="margin-top:4px">
+      🚀 Publish Product Now
+    </button>
+    <div style="font-size:11px;color:var(--grey);text-align:center;margin-top:8px">
+      Goes live immediately — buyers can see it right away
+    </div>
+  </div>
+</div>
+
+<!-- ══ TOAST ══ -->
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  CONFIG
+// ══════════════════════════════════════════════════════════════
+const SUPABASE_URL = 'https://ftxttdagpioieyzaijdc.supabase.co'; // direct fallback
+const API_BASE = window.location.hostname === 'localhost' ? '' : SUPABASE_URL;
+
+// Proxy helper — routes through local server when on localhost to avoid CORS
+function apiUrl(table, params='') {
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return '/api/' + table + (params ? '?' + params : '');
+  }
+  return SUPABASE_URL + '/rest/v1/' + table + (params ? '?' + params : '');
+}
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0eHR0ZGFncGlvaWV5emFpamRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MTc1MTAsImV4cCI6MjA5MDA5MzUxMH0.QQwoyo370gaDi-5I0DRJuHJtSa6FG6EFbJ1_QdR9u1g';
+const HEADERS = { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json' };
+
+// XHR helper — routes through local proxy to avoid CORS
+function xhr(method, url, body) {
+  return new Promise((resolve, reject) => {
+    const req = new XMLHttpRequest();
+    req.open(method, url, true);
+    if (url.includes('supabase.co')) {
+      req.setRequestHeader('apikey', SUPABASE_KEY);
+      req.setRequestHeader('Authorization', 'Bearer ' + SUPABASE_KEY);
+    }
+    if (body) {
+      req.setRequestHeader('Content-Type', 'application/json');
+      req.setRequestHeader('Prefer', 'return=representation');
+    }
+    req.onload = () => {
+      const text = req.responseText;
+      try {
+        const data = text ? JSON.parse(text) : null;
+        if (req.status >= 400) reject(new Error(data?.message || data?.details || 'HTTP ' + req.status));
+        else resolve(data);
+      } catch(e) { resolve(text); }
+    };
+    req.onerror = () => reject(new Error('Network error'));
+    req.send(body ? JSON.stringify(body) : null);
+  });
+}
+
+const CATS = { '1':'🏍️ Moto Parts','2':'🚗 Auto Parts','3':'📱 Electronics','4':'🔧 Hardware','5':'🌾 Agriculture','6':'👗 Textile' };
+const EMOJIS = { '1':'⚙️','2':'🚗','3':'📱','4':'🔧','5':'🌾','6':'👗' };
+
+// ══════════════════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════════════════
+let currentSeller = null;
+let allProducts = [], allOrders = [], allNotifs = [];
+let currentOrderFilter = 'all';
+
+// ══════════════════════════════════════════════════════════════
+//  REST HELPERS
+// ══════════════════════════════════════════════════════════════
+async function GET(table, params='') {
+  return xhr('GET', apiUrl(table, params));
+}
+async function POST(table, body) {
+  const data = await xhr('POST', apiUrl(table), body);
+  return Array.isArray(data) ? data[0] : data;
+}
+async function PATCH(table, col, val, body) {
+  return xhr('PATCH', apiUrl(table) + '?' + col + '=eq.' + encodeURIComponent(val), body);
+}
+async function DELETE(table, col, val) {
+  return xhr('DELETE', apiUrl(table) + '?' + col + '=eq.' + encodeURIComponent(val));
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SCREENS
+// ══════════════════════════════════════════════════════════════
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function goToRegister() { showScreen('screen-register'); }
+
+// ══════════════════════════════════════════════════════════════
+//  AUTH — PHONE + OTP
+// ══════════════════════════════════════════════════════════════
+let loginPhone = '';
+
+function otpNext(idx, el) {
+  if (el.value.length > 1) el.value = el.value.slice(-1);
+  if (el.value && idx < 3) {
+    document.getElementById('otp' + (idx + 1)).focus();
+  }
+  if (idx === 3 && el.value) {
+    const full = [0,1,2,3].map(i => document.getElementById('otp'+i).value).join('');
+    if (full.length === 4) setTimeout(verifyOTP, 100);
+  }
+}
+
+function otpBack(idx, e) {
+  if (e.key === 'Backspace' && !e.target.value && idx > 0) {
+    const prev = document.getElementById('otp' + (idx - 1));
+    prev.value = '';
+    prev.focus();
+  }
+}
+
+async function sendOTP() {
+  const phone = document.getElementById('phone-input').value.trim().replace(/\s/g,'');
+  if (phone.length < 8) { showAuthError('phone-error','Enter a valid phone number'); return; }
+  loginPhone = phone;
+
+  // Check if running from file:// (will always fail to fetch)
+  if (window.location.protocol === 'file:') {
+    showAuthError('phone-error','⚠ Open via localhost, not file://. Run: python -m http.server 8080 then visit http://localhost:8080/PARTENAIRE_Seller.html');
+    return;
+  }
+
+  try {
+    // Check if seller exists
+    const sellers = await GET('ptn_users', `phone=eq.${phone}&role=eq.seller&select=id,name,company`);
+    if (!sellers.length) {
+      // Check if they exist as buyer only
+      const buyers = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&select=id,name,company`);
+      if (buyers.length) {
+        showAuthError('phone-error','This number is registered as a buyer. Register as a seller to get a seller account, or use the same number — you can have both.');
+      } else {
+        showAuthError('phone-error','No seller account found for this number. Please register first.');
+      }
+      return;
+    }
+    // Store OTP session
+    // Clean up old sessions for this phone first
+    try {
+      const oldSessions = await GET('ptn_otp_sessions', `phone=eq.${phone}&select=id`);
+      for (const s of oldSessions) {
+        await xhr('DELETE', apiUrl('ptn_otp_sessions') + '?id=eq.' + s.id);
+      }
+    } catch(e) {}
+    // Create fresh OTP session (demo: always 1234)
+    await POST('ptn_otp_sessions', { phone, otp: '1234', expires_at: new Date(Date.now() + 60*60*1000).toISOString() });
+    document.getElementById('otp-sub').textContent = `Code sent to +237 ${phone}`;
+    showScreen('screen-otp');
+    setTimeout(() => document.getElementById('otp0').focus(), 300);
+  } catch(e) {
+    showAuthError('phone-error', e.message);
+  }
+}
+
+async function verifyOTP() {
+  const otp = [0,1,2,3].map(i => document.getElementById('otp'+i).value).join('');
+  if (otp.length !== 4) { showAuthError('otp-error','Enter the 4-digit code'); return; }
+
+  try {
+    // First try unused session
+    let sessions = await GET('ptn_otp_sessions',
+      `phone=eq.${loginPhone}&otp=eq.${otp}&used=eq.false&select=id,expires_at`);
+    
+    // If no unused session found, check if OTP is correct but already used (re-verify)
+    if (!sessions.length) {
+      const usedSessions = await GET('ptn_otp_sessions',
+        `phone=eq.${loginPhone}&otp=eq.${otp}&select=id,expires_at,used`);
+      if (!usedSessions.length) {
+        showAuthError('otp-error','❌ Wrong code. Demo OTP is always 1234'); return;
+      }
+      // OTP matches but was used — allow if within 5 min of creation
+      sessions = usedSessions;
+    }
+
+    const session = sessions[0];
+    // Mark as used (ignore if already used)
+    try { await PATCH('ptn_otp_sessions','id',session.id,{used:true}); } catch(e) {}
+
+    // Load seller profile
+    const sellers = await GET('ptn_users', `phone=eq.${loginPhone}&role=eq.seller&select=*`);
+    currentSeller = sellers[0];
+
+    // Check if they also have a buyer account
+    const buyers = await GET('ptn_users', `phone=eq.${loginPhone}&role=eq.buyer&select=id`);
+    currentSeller._hasBuyerAccount = buyers.length > 0;
+
+    // Check if suspended for non-payment
+    if (currentSeller.status === 'suspended') {
+      showSuspendedScreen();
+      return;
+    }
+    enterApp();
+  } catch(e) {
+    showAuthError('otp-error', e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  REGISTER
+// ══════════════════════════════════════════════════════════════
+async function registerSeller() {
+  const name    = document.getElementById('reg-name').value.trim();
+  const company = document.getElementById('reg-company').value.trim();
+  const phone   = document.getElementById('reg-phone').value.trim().replace(/\s/g,'');
+  const city    = document.getElementById('reg-city').value;
+  const cat     = document.getElementById('reg-category').value;
+  const desc    = document.getElementById('reg-desc').value.trim();
+  const badge   = document.querySelector('#badge-selector .badge-option.selected')?.dataset.badge || 'silver';
+  const billing = billingYearly ? 'yearly' : 'monthly';
+  const pricing = PRICING[badge];
+  const subFee  = billingYearly ? pricing.yearly : pricing.monthly;
+
+  if (!name || !company || phone.length < 8) {
+    showAuthError('reg-error','Name, company and phone are required');
+    return;
+  }
+
+  try {
+    // Check phone not already registered
+    const existing = await GET('ptn_users', `phone=eq.${phone}&select=id`);
+    if (existing.length) { showAuthError('reg-error','This phone is already registered. Sign in instead.'); return; }
+
+    // Create seller
+    const seller = await POST('ptn_users', {
+      phone, name, company, city, category: cat, role: 'seller',
+      shop_desc: desc, badge_tier: badge, badge_status: 'pending', status: 'active'
+    });
+    // Log badge payment intent
+    await POST('ptn_badge_payments', {
+      seller_id: seller.id, badge_tier: badge,
+      badge_fee: pricing.badge_fee || PRICING[badge].badge,
+      monthly_fee: subFee, payment_method: 'mobile_money', paid: false
+    }).catch(() => {});  // non-blocking
+
+    currentSeller = seller;
+    toast('✓ Shop created! Welcome to PARTENAIRE', 'success');
+    enterApp();
+  } catch(e) {
+    showAuthError('reg-error', e.message.includes('duplicate') ? 'Phone already registered' : e.message);
+  }
+}
+
+// ── BILLING TOGGLE ───────────────────────────────────────────
+const PRICING = {
+  silver:  { badge:10000, monthly:3000,  yearly:10000, icon:'🥈', label:'Silver',      perks:'Max 50 listings · Chat access · Pickup with 2% deposit' },
+  gold:    { badge:15000, monthly:8000,  yearly:15000, icon:'🥇', label:'Gold',         perks:'Unlimited listings · Free pickup 2 months · Search priority' },
+  premium: { badge:25000, monthly:15000, yearly:15000, icon:'❖',  label:'Gold Premium', perks:'Free pickup FOREVER · Top search ranking · Exclusive badge' },
+};
+let billingYearly = false;
+
+function toggleBilling() {
+  billingYearly = !billingYearly;
+  document.getElementById('billing-thumb').style.transform = billingYearly ? 'translateX(20px)' : 'translateX(0)';
+  document.getElementById('billing-track').style.background = billingYearly ? 'var(--green)' : 'var(--navy)';
+  renderBadgeSelector();
+}
+
+function renderBadgeSelector() {
+  const selected = document.querySelector('.badge-option.selected')?.dataset.badge || 'silver';
+  const container = document.getElementById('badge-selector');
+  container.innerHTML = Object.entries(PRICING).map(([key, p]) => {
+    const fee = billingYearly ? p.yearly : p.monthly;
+    const saving = billingYearly ? `<span style="font-size:10px;background:var(--greenl);color:var(--green);padding:2px 6px;border-radius:8px;margin-left:6px;font-weight:700">Save ${((p.monthly*12-p.yearly)/1000).toFixed(0)}K/yr</span>` : '';
+    return `<div class="badge-option ${key===selected?'selected':''}" data-badge="${key}" onclick="selectBadge(this)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>${p.icon} ${p.label}</strong>
+        <span style="font-size:13px;color:var(--gold);font-weight:800">${fee.toLocaleString()} FCFA/${billingYearly?'yr':'mo'}${saving}</span>
+      </div>
+      <div style="font-size:11px;color:var(--grey);margin-top:3px">
+        Badge: <strong>${p.badge.toLocaleString()} FCFA</strong> one-time · ${p.perks}
+      </div>
+    </div>`;
+  }).join('');
+  // Re-attach click handlers
+  document.querySelectorAll('.badge-option').forEach(el => {
+    el.addEventListener('click', function() { selectBadge(this); });
+  });
+}
+
+function selectBadge(el) {
+  document.querySelectorAll('#badge-selector .badge-option').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  APP ENTRY
+// ══════════════════════════════════════════════════════════════
+function enterApp() {
+  // Set French as default for Cameroon
+  setLang('fr');
+  showScreen('app-screen');
+  document.getElementById('header-shop-name').textContent = currentSeller.company || 'My Shop';
+  document.getElementById('edit-company').value = currentSeller.company || '';
+  document.getElementById('edit-name').value     = currentSeller.name || '';
+  document.getElementById('edit-desc').value     = currentSeller.shop_desc || '';
+  const cityEl = document.getElementById('edit-city');
+  if (currentSeller.city) {
+    Array.from(cityEl.options).forEach(o => { if(o.value===currentSeller.city||o.text===currentSeller.city) o.selected=true; });
+  }
+  // Update dual role button
+  const buyerBtn = document.getElementById('buyer-register-btn');
+  if (currentSeller._hasBuyerAccount) {
+    buyerBtn.textContent = '🛒 Switch to Buyer Portal';
+    buyerBtn.className = 'btn btn-gold btn-block';
+    buyerBtn.onclick = switchToBuyer;
+  }
+  renderProfileHero();
+  loadAll();
+  startSellerSync();
+  checkBroadcasts("sellers", currentSeller.city);
+  broadcastInterval = setInterval(() => checkBroadcasts("sellers", currentSeller.city), 60000);
+
+  // Show Promo Blast button only for Premium and Gold sellers
+  const promoBtn = document.getElementById('promo-blast-btn');
+  if (promoBtn && (currentSeller.badge_tier === 'premium' || currentSeller.badge_tier === 'gold')) {
+    promoBtn.style.display = 'inline-flex';
+  }
+}
+
+async function loadAll() {
+  await Promise.all([loadProducts(), loadOrders(), loadNotifications()]);
+  renderDashboard();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PRODUCTS
+// ══════════════════════════════════════════════════════════════
+async function loadProducts() {
+  try {
+    allProducts = await GET('ptn_products', `seller_id=eq.${currentSeller.id}&order=created_at.desc&select=*`);
+    renderProducts();
+  } catch(e) { console.error('loadProducts:', e); }
+}
+
+function renderProducts() {
+  const grid = document.getElementById('products-grid');
+  const count = document.getElementById('product-count');
+  const pub = allProducts.filter(p => p.published).length;
+  count.textContent = `${allProducts.length} products · ${pub} published`;
+  document.getElementById('st-products').textContent = allProducts.length;
+
+  if (!allProducts.length) {
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1">
+      <div class="empty-icon">📦</div>
+      <div>No products yet</div>
+      <button class="btn btn-gold" style="margin-top:16px" onclick="openAddProduct()">+ Add your first product</button>
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = allProducts.map(p => `
+    <div class="product-card">
+      <div class="product-published ${p.published?'yes':'no'}">${p.published?'✓ Live':'Hidden'}</div>
+      <div class="product-photo">${p.photo_url && p.photo_url.startsWith('data:') ? `<img src="${p.photo_url}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">` : EMOJIS[p.category]||'📦'}</div>
+      <div class="product-name">${p.name}</div>
+      <div class="product-price">${p.price ? p.price.toLocaleString()+' FCFA' : 'Price on request'}</div>
+      <div class="product-stock">Stock: ${p.stock||0} units · ${CATS[p.category]||'General'}</div>
+      <div class="product-actions">
+        <button class="btn btn-sm" onclick="openEditProduct('${p.id}')">✏️ Edit</button>
+        <button class="btn btn-sm btn-red" onclick="deleteProduct('${p.id}')">Delete</button>
+      </div>
+    </div>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PHOTO / CAMERA
+// ══════════════════════════════════════════════════════════════
+let productPhotos = []; // array of { dataUrl, emoji }
+const PHOTO_EMOJIS = ['⚙️','🔩','🛢️','🔧','⛓️','🔨','📱','🚗','🏗️','🌾','👗','📦'];
+
+function snapPhoto() {
+  // The hidden file input handles real camera — this adds demo photo feedback
+  // Visual flash effect
+  const zone = document.getElementById('camera-zone');
+  zone.style.background = '#fff';
+  setTimeout(() => { zone.style.background = 'var(--navy)'; }, 150);
+}
+
+function handlePhotoUpload(input) {
+  const files = input.files;
+  if (!files.length) return;
+
+  Array.from(files).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      productPhotos.push({ dataUrl: e.target.result, emoji: null });
+      renderPhotoStrip();
+      // Update camera zone to show photo count
+      document.getElementById('camera-emoji').textContent = '✅';
+      document.getElementById('camera-label').textContent = `${productPhotos.length} photo${productPhotos.length>1?'s':''} added`;
+      document.getElementById('camera-sub').textContent = 'Click to add more photos';
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderPhotoStrip() {
+  const strip = document.getElementById('photo-strip');
+  if (!productPhotos.length) { strip.style.display = 'none'; return; }
+  strip.style.display = 'flex';
+  strip.innerHTML = productPhotos.map((p, i) => `
+    <div style="position:relative;width:80px;height:80px;border-radius:10px;overflow:hidden;flex-shrink:0;border:2px solid var(--gold)">
+      ${p.dataUrl
+        ? `<img src="${p.dataUrl}" style="width:100%;height:100%;object-fit:cover">`
+        : `<div style="width:100%;height:100%;background:#f8f6f0;display:flex;align-items:center;justify-content:center;font-size:32px">${p.emoji||'📦'}</div>`
+      }
+      <button onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(232,64,64,0.9);color:#fff;border:none;border-radius:4px;width:18px;height:18px;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700">✕</button>
+    </div>`).join('');
+}
+
+function removePhoto(idx) {
+  productPhotos.splice(idx, 1);
+  renderPhotoStrip();
+  if (!productPhotos.length) {
+    document.getElementById('camera-emoji').textContent = '📸';
+    document.getElementById('camera-label').textContent = 'Tap to snap product photo';
+    document.getElementById('camera-sub').textContent = 'Click here to take or upload a photo';
+  } else {
+    document.getElementById('camera-label').textContent = `${productPhotos.length} photo${productPhotos.length>1?'s':''} added`;
+  }
+}
+
+function openAddProduct() {
+  productPhotos = [];
+  document.getElementById('product-modal-title').textContent = '📸 Add Product';
+  document.getElementById('save-product-btn').textContent = '🚀 Publish Product Now';
+  document.getElementById('edit-product-id').value = '';
+  document.getElementById('p-name').value = '';
+  document.getElementById('p-price').value = '';
+  document.getElementById('p-stock').value = '';
+  document.getElementById('p-category').value = '1';
+  document.getElementById('p-published').value = 'true';
+  document.getElementById('camera-emoji').textContent = '📸';
+  document.getElementById('camera-label').textContent = 'Tap to snap product photo';
+  document.getElementById('camera-sub').textContent = 'Click here to take or upload a photo';
+  document.getElementById('camera-zone').style.background = 'var(--navy)';
+  document.getElementById('photo-file-input').value = '';
+  renderPhotoStrip();
+  openModal('modal-product');
+  setTimeout(() => document.getElementById('p-name').focus(), 300);
+}
+
+function openEditProduct(id) {
+  const p = allProducts.find(x => x.id === id);
+  if (!p) return;
+  productPhotos = p.photo_url ? [{ dataUrl: null, emoji: EMOJIS[p.category]||'📦' }] : [];
+  document.getElementById('product-modal-title').textContent = '✏️ Edit Product';
+  document.getElementById('save-product-btn').textContent = '✓ Save Changes';
+  document.getElementById('edit-product-id').value = id;
+  document.getElementById('p-name').value = p.name;
+  document.getElementById('p-price').value = p.price || '';
+  document.getElementById('p-stock').value = p.stock || '';
+  document.getElementById('p-category').value = p.category || '1';
+  document.getElementById('p-published').value = String(p.published);
+  // Show existing photo in camera zone
+  document.getElementById('camera-emoji').textContent = EMOJIS[p.category]||'📦';
+  document.getElementById('camera-label').textContent = 'Current photo — click to change';
+  document.getElementById('camera-sub').textContent = 'Click to upload a new photo';
+  document.getElementById('camera-zone').style.background = '#1A2B4A';
+  renderPhotoStrip();
+  openModal('modal-product');
+}
+
+async function saveProduct() {
+  const id    = document.getElementById('edit-product-id').value;
+  const name  = document.getElementById('p-name').value.trim();
+  const price = parseFloat(document.getElementById('p-price').value) || null;
+  const stock = parseInt(document.getElementById('p-stock').value) || 0;
+  const cat   = document.getElementById('p-category').value;
+  const pub   = document.getElementById('p-published').value === 'true';
+
+  if (!name) { toast('Product name is required', 'error'); return; }
+
+  // Use first photo dataUrl if available
+  const photoUrl = productPhotos[0]?.dataUrl || null;
+
+  const btn = document.getElementById('save-product-btn');
+  btn.textContent = 'Publishing...'; btn.disabled = true;
+
+  try {
+    if (id) {
+      await PATCH('ptn_products','id',id,{ name, price, stock, category: cat, published: pub, photo_url: photoUrl });
+      allProducts = allProducts.map(p => p.id===id ? {...p,name,price,stock,category:cat,published:pub,photo_url:photoUrl} : p);
+      toast('✓ Product updated', 'success');
+    } else {
+      const saved = await POST('ptn_products',{ seller_id:currentSeller.id, name, price, stock, category:cat, published:pub, photo_url:photoUrl });
+      allProducts.unshift(saved);
+      if (pub) toast('🚀 Product published — buyers can see it now!', 'success');
+      else toast('✓ Product saved as draft', 'success');
+    }
+    renderProducts();
+    closeModal('modal-product');
+    // Switch to products tab to show the new product
+    if (!id) switchTab('tab-products');
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.textContent = id ? '✓ Save Changes' : '🚀 Publish Product Now';
+    btn.disabled = false;
+  }
+}
+
+async function deleteProduct(id) {
+  if (!confirm('Delete this product permanently?')) return;
+  try {
+    await DELETE('ptn_products','id',id);
+    allProducts = allProducts.filter(p => p.id !== id);
+    renderProducts();
+    toast('Product deleted', 'error');
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ORDERS
+// ══════════════════════════════════════════════════════════════
+async function loadOrders() {
+  try {
+    const orders = await GET('ptn_orders', `seller_id=eq.${currentSeller.id}&order=created_at.desc&select=*`);
+    // Get buyer names
+    const buyerIds = [...new Set(orders.map(o=>o.buyer_id).filter(Boolean))];
+    let buyerMap = {};
+    if (buyerIds.length) {
+      const buyers = await GET('ptn_users', `id=in.(${buyerIds.join(',')})&select=id,name,phone,company`);
+      buyers.forEach(b => buyerMap[b.id] = b);
+    }
+    allOrders = orders.map(o => ({...o, buyer: buyerMap[o.buyer_id]}));
+    renderOrders();
+    renderRecentOrders();
+    updateOrderBadge();
+  } catch(e) { console.error('loadOrders:', e); }
+}
+
+function renderOrders() {
+  const list = document.getElementById('orders-list');
+  const filtered = currentOrderFilter==='all' ? allOrders : allOrders.filter(o=>o.status===currentOrderFilter);
+  document.getElementById('st-orders').textContent = allOrders.length;
+
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty"><div class="empty-icon">🛒</div><div>No ${currentOrderFilter==='all'?'':currentOrderFilter+' '}orders yet</div></div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(o => `
+    <div class="order-card" onclick="openOrderDetail('${o.id}')">
+      <div class="order-header">
+        <div class="order-ref">${o.order_ref}</div>
+        <span class="status s-${o.status}">${o.status}</span>
+      </div>
+      <div class="order-buyer">👤 ${o.buyer?.name||'Buyer'} · ${o.buyer?.phone||''}</div>
+      <div class="order-items">${Array.isArray(o.items)?o.items.map(i=>`${i.name} × ${i.qty}`).join(', '):'—'}</div>
+      <div class="order-footer">
+        <div class="order-total">${(o.total||0).toLocaleString()} FCFA</div>
+        <div class="order-mode">${o.mode==='pickup'?'🏪 Pickup':'🚚 Delivery'} · ${fmtDate(o.created_at)}</div>
+      </div>
+    </div>`).join('');
+}
+
+function renderRecentOrders() {
+  const el = document.getElementById('recent-orders');
+  const recent = allOrders.slice(0,3);
+  if (!recent.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">🛒</div><div>No orders yet</div></div>'; return; }
+  el.innerHTML = recent.map(o => `
+    <div class="order-card" onclick="openOrderDetail('${o.id}')" style="margin-bottom:10px">
+      <div class="order-header">
+        <div class="order-ref">${o.order_ref}</div>
+        <span class="status s-${o.status}">${o.status}</span>
+      </div>
+      <div class="order-footer">
+        <div class="order-total">${(o.total||0).toLocaleString()} FCFA</div>
+        <div class="order-mode">${fmtDate(o.created_at)}</div>
+      </div>
+    </div>`).join('');
+}
+
+function updateOrderBadge() {
+  const pending = allOrders.filter(o => o.status==='pending').length;
+  const badge = document.getElementById('order-badge');
+  badge.textContent = pending;
+  badge.style.display = pending > 0 ? 'inline' : 'none';
+}
+
+function filterOrders(status, btn) {
+  currentOrderFilter = status;
+  document.querySelectorAll('.tab-page.active .btn-sm').forEach(b => b.classList.remove('btn-primary'));
+  btn.classList.add('btn-primary');
+  renderOrders();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ORDER DETAIL
+// ══════════════════════════════════════════════════════════════
+function openOrderDetail(id) {
+  const o = allOrders.find(x => x.id===id);
+  if (!o) return;
+  document.getElementById('detail-title').textContent = o.order_ref;
+
+  const isPickup = o.mode === 'pickup';
+
+  // Different steps and labels for pickup vs delivery
+  const steps = isPickup
+    ? ['pending','confirmed','ready','delivered']
+    : ['pending','confirmed','shipped','delivered'];
+  const labels = isPickup
+    ? { pending:'Order Placed', confirmed:'Confirmed', ready:'Ready for Pickup', delivered:'Picked Up' }
+    : { pending:'Order Placed', confirmed:'Confirmed', shipped:'Shipped', delivered:'Delivered' };
+
+  const curIdx = steps.indexOf(o.status);
+
+  const tracker = steps.map((step,i) => {
+    const done = i < curIdx;
+    const active = i === curIdx;
+    return `<div class="tracker-step ${done?'done':active?'active':''}">
+      <div class="tracker-dot">${done?'✓':i+1}</div>
+      <div class="tracker-label">${labels[step]||step}</div>
+    </div>`;
+  }).join('');
+
+  const items = Array.isArray(o.items) ? o.items : [];
+
+  // Action buttons — pickup uses "Ready for Pickup" instead of "Mark as Shipped"
+  const actionBtns = o.status==='pending'
+    ? `
+      <!-- Confirm & Request Payment -->
+      <button class="btn btn-green btn-block" style="margin-bottom:8px;padding:13px;font-size:14px"
+        onclick="confirmAndRequestPayment('${o.id}','${o.buyer_id}','${o.order_ref}',${o.total||0})">
+        ✅ Confirm & Request Payment
+      </button>
+      <!-- Adjust Order -->
+      <button class="btn btn-block" style="margin-bottom:8px;padding:13px;font-size:14px;color:var(--gold);border-color:var(--gold);font-weight:700"
+        onclick="openAdjustOrder('${o.id}')">
+        ✏️ Adjust Order & Counter-Offer
+      </button>
+      <!-- Reject -->
+      <button class="btn btn-red btn-block" style="padding:13px;font-size:14px"
+        onclick="updateOrderStatus('${o.id}','rejected')">
+        ✕ Reject Order
+      </button>`
+    : o.status==='confirmed'
+    ? isPickup
+      ? `<button class="btn btn-primary btn-block" onclick="updateOrderStatus('${o.id}','ready')" style="background:#E67E22;border-color:#E67E22">📦 Mark as Ready for Pickup</button>`
+      : `<button class="btn btn-primary btn-block" onclick="updateOrderStatus('${o.id}','shipped')">🚚 Mark as Shipped</button>`
+    : o.status==='shipped'
+    ? `<button class="btn btn-green btn-block" onclick="updateOrderStatus('${o.id}','delivered')">✅ Confirm Delivered</button>`
+    : o.status==='ready'
+    ? `<button class="btn btn-green btn-block" onclick="updateOrderStatus('${o.id}','delivered')">✅ Confirm Picked Up by Customer</button>`
+    : o.status==='delivered'
+    ? `<div class="alert alert-success">✅ ${isPickup?'Order picked up':'Order delivered'}. Escrow funds released to your account.</div>`
+    : `<div class="alert" style="background:#FEECEC;border:1px solid var(--red);color:var(--red)">✕ Order rejected.</div>`;
+
+  document.getElementById('detail-body').innerHTML = `
+    <div class="card" style="margin-top:0">
+      <div class="card-title">👤 Buyer Information</div>
+      <div style="font-size:14px;margin-top:8px">
+        <div style="margin-bottom:6px"><strong>Name:</strong> ${o.buyer?.name||'—'}</div>
+        <div style="margin-bottom:6px"><strong>Phone:</strong> ${o.buyer?.phone||'—'}</div>
+        <div style="margin-bottom:6px"><strong>Company:</strong> ${o.buyer?.company||'—'}</div>
+        <div><strong>Mode:</strong> ${o.mode==='pickup'?'🏪 In-store Pickup':'🚚 Delivery'}</div>
+      </div>
+    </div>
+    ${o.counter_status==='pending' ? `
+    <div class="alert" style="background:var(--amberl);border:1px solid #F0C050;color:var(--amber);border-radius:12px;padding:14px;margin-bottom:12px">
+      ✏️ <strong>Counter-offer sent</strong> — waiting for buyer response<br>
+      <small>New total: ${(o.counter_total||0).toLocaleString()} FCFA</small>
+      ${o.counter_note ? `<br><small>Note: ${o.counter_note}</small>` : ''}
+    </div>` : ''}
+    <div class="card">
+      <div class="card-title">📦 Items Ordered</div>
+      <div style="margin-top:8px">
+        ${items.map(item=>`
+          <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f0ede8">
+            <div>
+              <div style="font-weight:600;font-size:13px">${item.name}</div>
+              <div style="font-size:12px;color:var(--grey)">Qty: ${item.qty}</div>
+            </div>
+            <div style="font-weight:700">${(item.price||0).toLocaleString()} FCFA</div>
+          </div>`).join('')}
+        <div style="display:flex;justify-content:space-between;padding:12px 0;font-weight:800;font-size:16px">
+          <div>Total</div>
+          <div style="color:var(--navy)">${(o.total||0).toLocaleString()} FCFA</div>
+        </div>
+        <div style="font-size:12px;color:var(--grey)">💰 Escrow held: ${(o.escrow_held||0).toLocaleString()} FCFA</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">📍 Order Progress</div>
+      <div class="tracker" style="margin-top:12px">${tracker}</div>
+    </div>
+    <div class="card">${actionBtns}</div>
+    <div style="height:40px"></div>`;
+
+  document.getElementById('order-detail-screen').style.display = 'block';
+}
+
+function closeOrderDetail() {
+  document.getElementById('order-detail-screen').style.display = 'none';
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//  CONFIRM & REQUEST PAYMENT
+// ══════════════════════════════════════════════════════════════
+async function confirmAndRequestPayment(orderId, buyerId, orderRef, total) {
+  try {
+    // Update order: confirmed + payment_requested
+    await PATCH('ptn_orders', 'id', orderId, {
+      status: 'confirmed',
+      payment_requested: true,
+      payment_requested_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+    allOrders = allOrders.map(o => o.id===orderId ? {...o, status:'confirmed', payment_requested:true} : o);
+
+    // Notify buyer with payment request
+    await POST('ptn_notifications', {
+      user_id: buyerId,
+      buyer_id: buyerId,
+      type: 'payment',
+      order_id: orderId,
+      title_en: '💳 Please Pay for Your Order',
+      title_fr: '💳 Veuillez payer votre commande',
+      body_en: `Order ${orderRef} confirmed! Amount: ${total.toLocaleString()} FCFA. Tap to pay now via MTN MoMo or Orange Money.`,
+      body_fr: `Commande ${orderRef} confirmée! Montant: ${total.toLocaleString()} FCFA. Appuyez pour payer via MTN MoMo ou Orange Money.`,
+      read: false
+    });
+
+    renderOrders();
+    updateOrderBadge();
+    closeOrderDetail();
+    toast('✅ Order confirmed! Payment request sent to buyer.', 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ADJUST ORDER — seller edits items and sends counter-offer
+// ══════════════════════════════════════════════════════════════
+let adjustOrderId   = null;
+let adjustOrderData = null;
+
+function openAdjustOrder(orderId) {
+  const o = allOrders.find(x => x.id === orderId);
+  if (!o) return;
+  adjustOrderId   = orderId;
+  adjustOrderData = o;
+
+  const items = Array.isArray(o.items) ? o.items : [];
+
+  document.getElementById('adjust-order-ref').textContent   = o.order_ref;
+  document.getElementById('adjust-buyer-name').textContent  = o.buyerName || 'Buyer';
+  document.getElementById('adjust-original-total').textContent = (o.total||0).toLocaleString() + ' FCFA';
+
+  // Build editable rows
+  document.getElementById('adjust-rows').innerHTML = items.map((item, i) => `
+    <tr>
+      <td style="padding:8px 6px;font-size:13px;color:var(--grey)">${item.name}</td>
+      <td style="padding:8px 6px">
+        <input type="number" min="1" value="${item.qty||1}" id="adj-qty-${i}"
+          oninput="updateAdjustTotal()"
+          style="width:70px;padding:6px 8px;border:1.5px solid var(--lgrey);border-radius:8px;font-size:13px;text-align:center">
+      </td>
+      <td style="padding:8px 6px">
+        <input type="number" min="0" value="${item.price||0}" id="adj-price-${i}"
+          oninput="updateAdjustTotal()"
+          style="width:100px;padding:6px 8px;border:1.5px solid var(--lgrey);border-radius:8px;font-size:13px">
+      </td>
+      <td style="padding:8px 6px;font-weight:700;font-size:13px" id="adj-sub-${i}">
+        ${((item.price||0)*(item.qty||1)).toLocaleString()} FCFA
+      </td>
+    </tr>`).join('');
+
+  updateAdjustTotal();
+  openModal('modal-adjust-order');
+}
+
+function updateAdjustTotal() {
+  const o = adjustOrderData;
+  if (!o) return;
+  const items = Array.isArray(o.items) ? o.items : [];
+  let total = 0;
+  items.forEach((item, i) => {
+    const qty   = parseFloat(document.getElementById(`adj-qty-${i}`)?.value)   || 0;
+    const price = parseFloat(document.getElementById(`adj-price-${i}`)?.value) || 0;
+    const sub   = qty * price;
+    total += sub;
+    const subEl = document.getElementById(`adj-sub-${i}`);
+    if (subEl) subEl.textContent = sub.toLocaleString() + ' FCFA';
+  });
+  const totalEl = document.getElementById('adjust-new-total');
+  if (totalEl) totalEl.textContent = total.toLocaleString() + ' FCFA';
+}
+
+async function sendCounterOffer() {
+  const o = adjustOrderData;
+  if (!o) return;
+  const items = Array.isArray(o.items) ? o.items : [];
+  const note  = document.getElementById('adjust-note')?.value.trim() || '';
+
+  const counterItems = items.map((item, i) => ({
+    name:  item.name,
+    qty:   parseFloat(document.getElementById(`adj-qty-${i}`)?.value)   || item.qty   || 1,
+    price: parseFloat(document.getElementById(`adj-price-${i}`)?.value) || item.price || 0
+  }));
+  const counterTotal = counterItems.reduce((s, i) => s + i.qty * i.price, 0);
+
+  try {
+    await PATCH('ptn_orders', 'id', adjustOrderId, {
+      counter_items:  counterItems,
+      counter_total:  counterTotal,
+      counter_note:   note,
+      counter_status: 'pending',
+      updated_at:     new Date().toISOString()
+    });
+
+    // Notify buyer
+    await POST('ptn_notifications', {
+      user_id:  o.buyer_id,
+      buyer_id: o.buyer_id,
+      type:     'order',
+      order_id: adjustOrderId,
+      title_en: '✏️ Seller Adjusted Your Order',
+      title_fr: '✏️ Le vendeur a modifié votre commande',
+      body_en:  `Order ${o.order_ref}: New total ${counterTotal.toLocaleString()} FCFA (was ${(o.total||0).toLocaleString()} FCFA). ${note ? 'Note: '+note : ''} Tap to review & pay.`,
+      body_fr:  `Commande ${o.order_ref}: Nouveau total ${counterTotal.toLocaleString()} FCFA (était ${(o.total||0).toLocaleString()} FCFA). ${note ? 'Note: '+note : ''} Appuyez pour voir et payer.`,
+      read: false
+    });
+
+    closeModal('modal-adjust-order');
+    closeOrderDetail();
+    toast('✏️ Counter-offer sent to buyer!', 'success');
+    await loadOrders();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function updateOrderStatus(id, status) {
+  try {
+    await PATCH('ptn_orders','id',id,{ status, updated_at: new Date().toISOString() });
+    allOrders = allOrders.map(o => o.id===id ? {...o,status} : o);
+    renderOrders();
+    updateOrderBadge();
+    closeOrderDetail();
+
+    // Notify buyer
+    const order = allOrders.find(o => o.id===id);
+    if (order?.buyer_id) {
+      const notifMap = {
+        confirmed: { en:'Your order has been confirmed by the seller!',          fr:'Votre commande a été confirmée par le vendeur!' },
+        shipped:   { en:'Your order is on its way! 🚚',                          fr:'Votre commande est en route! 🚚' },
+        ready:     { en:'Your order is ready for pickup! Come collect it. 📦',   fr:'Votre commande est prête! Venez la récupérer. 📦' },
+        delivered: { en:'Order delivered. Payment released. Thank you! ✅',      fr:'Commande livrée. Paiement libéré. Merci! ✅' },
+        rejected:  { en:'Sorry, your order was rejected by the seller.',         fr:'Désolé, votre commande a été refusée par le vendeur.' },
+      };
+      const n = notifMap[status];
+      if (n) {
+        try {
+          await POST('ptn_notifications', {
+            user_id: order.buyer_id,
+            type: 'order',
+            title_en: `Order ${order.order_ref} Update`,
+            title_fr: `Mise à jour commande ${order.order_ref}`,
+            body_en: n.en,
+            body_fr: n.fr,
+            read: false
+          });
+        } catch(e) {}
+      }
+    }
+
+    const msgs = {
+      confirmed: '✓ Order confirmed — buyer notified',
+      shipped:   '🚚 Marked as shipped — buyer notified',
+      ready:     '📦 Marked as ready for pickup — buyer notified',
+      delivered: '✅ Delivered — escrow funds released',
+      rejected:  'Order rejected'
+    };
+    toast(msgs[status]||'Updated', status==='rejected'?'error':'success');
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════
+async function loadNotifications() {
+  try {
+    allNotifs = await GET('ptn_notifications', `user_id=eq.${currentSeller.id}&order=created_at.desc&select=*`);
+    // Also load unread messages count
+    try {
+      const unreadMsgs = await GET('ptn_messages',
+        `seller_id=eq.${currentSeller.id}&read=eq.false&select=id`);
+      const msgCount = Array.isArray(unreadMsgs) ? unreadMsgs.length : 0;
+      if (msgCount > 0 && !allNotifs.find(n => n.type==='message')) {
+        allNotifs.unshift({
+          id: 'msg-notif',
+          type: 'message',
+          title_en: `${msgCount} unread message${msgCount>1?'s':''}`,
+          title_fr: `${msgCount} message${msgCount>1?'s':''} non lu${msgCount>1?'s':''}`,
+          body_en: 'You have buyer messages waiting for your reply',
+          body_fr: 'Des acheteurs vous ont envoyé des messages',
+          read: false,
+          created_at: new Date().toISOString()
+        });
+      }
+    } catch(e2) {}
+    renderNotifications();
+    updateNotifBadge();
+  } catch(e) {
+    // If no notifs yet, show demo ones
+    allNotifs = [
+      { id:'n1', type:'order', title_en:'New order received', body_en:'Jean Dupont placed an order for 75,000 FCFA', read:false, created_at:new Date().toISOString() },
+      { id:'n2', type:'verify', title_en:'Badge under review', body_en:'Your badge application is being reviewed by admin', read:true, created_at:new Date().toISOString() },
+    ];
+    renderNotifications();
+    updateNotifBadge();
+  }
+}
+
+function renderNotifications() {
+  const el = document.getElementById('notifications-list');
+  if (!allNotifs.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🔔</div><div>No notifications yet</div></div>';
+    return;
+  }
+  const typeIcon = { order:'📦', verify:'✦', payment:'💰', message:'💬', delivery:'🚚' };
+  el.innerHTML = allNotifs.map(n => {
+    const buyerId = n.buyer_id || '';
+    const buyerName = (n.title_en||'').replace('New message from ','').trim();
+    const actions = n.type==='message'
+      ? `<div style="display:flex;gap:8px;margin-top:10px">
+           <button onclick="openSellerChat('${buyerId}','${buyerName}');markRead('${n.id}')" style="padding:6px 14px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">💬 Reply to Buyer</button>
+           <button onclick="markRead('${n.id}')" style="padding:6px 12px;background:#f8f6f0;color:var(--grey);border:1px solid var(--lgrey);border-radius:8px;font-size:12px;cursor:pointer">Mark read</button>
+         </div>`
+      : n.type==='order'
+      ? `<div style="margin-top:8px"><button onclick="switchTab('tab-orders');markRead('${n.id}')" style="padding:6px 14px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">View Orders →</button></div>`
+      : `<div style="margin-top:8px"><button onclick="markRead('${n.id}')" style="padding:6px 12px;background:#f8f6f0;color:var(--grey);border:1px solid var(--lgrey);border-radius:8px;font-size:12px;cursor:pointer">✓ Mark read</button></div>`;
+
+    return `<div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start;${!n.read?'border-left:3px solid var(--gold)':''}">
+      <div style="font-size:24px;width:36px;text-align:center;flex-shrink:0">${typeIcon[n.type]||'🔔'}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:13px;color:${n.read?'var(--grey)':'var(--navy)'}">${n.title_en||n.title_fr||'Notification'}</div>
+        <div style="font-size:12px;color:var(--grey);margin-top:3px;line-height:1.5">${n.body_en||n.body_fr||''}</div>
+        <div style="font-size:11px;color:var(--gold);margin-top:6px">${fmtDate(n.created_at)}</div>
+        ${actions}
+      </div>
+      ${!n.read?'<div style="width:8px;height:8px;border-radius:4px;background:var(--gold);margin-top:6px;flex-shrink:0"></div>':''}
+    </div>`;
+  }).join('');
+}
+
+async function markRead(id) {
+  allNotifs = allNotifs.map(n => n.id===id ? {...n,read:true} : n);
+  renderNotifications(); updateNotifBadge();
+  try { await PATCH('ptn_notifications','id',id,{read:true}); } catch(e){}
+}
+
+async function markAllRead() {
+  allNotifs = allNotifs.map(n => ({...n,read:true}));
+  renderNotifications(); updateNotifBadge();
+  toast('All notifications marked as read','success');
+}
+
+function updateNotifBadge() {
+  const unread = allNotifs.filter(n => !n.read).length;
+  document.getElementById('notif-dot').style.display = unread > 0 ? 'block' : 'none';
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PROFILE & DASHBOARD
+// ══════════════════════════════════════════════════════════════
+function renderProfileHero() {
+  const s = currentSeller;
+
+  // Avatar — photo or initial
+  const avatarEl = document.getElementById('profile-avatar');
+  const avatarText = document.getElementById('profile-avatar-text');
+  if (s.profile_photo) {
+    avatarEl.style.background = 'transparent';
+    avatarText.innerHTML = `<img src="${s.profile_photo}" style="width:72px;height:72px;object-fit:cover;border-radius:16px">`;
+  } else {
+    avatarEl.style.background = 'var(--gold)';
+    avatarText.textContent = (s.company||'?').charAt(0).toUpperCase();
+  }
+
+  document.getElementById('profile-name').textContent = s.company || 'My Shop';
+  document.getElementById('profile-sub').textContent = `${s.name||''} · 📍 ${s.city||''} · ${CATS[s.category]||''}`;
+
+  // Show "Also a Buyer" badge if applicable
+  const buyerBadge = document.getElementById('also-buyer-badge');
+  if (s._hasBuyerAccount) {
+    buyerBadge.style.display = 'block';
+    buyerBadge.textContent = '🛒 Switch to Buyer →';
+  } else {
+    buyerBadge.style.display = 'none';
+  }
+
+  // Badge card
+  const badgeCfg = {
+    gold:    { cls:'gold',    icon:'🥇', label:'Gold Badge',    color:'var(--amber)' },
+    silver:  { cls:'silver',  icon:'🥈', label:'Silver Badge',  color:'var(--grey)'  },
+    premium: { cls:'premium', icon:'❖',  label:'Gold Premium',  color:'var(--blue)'  },
+    none:    { cls:'none',    icon:'⏳', label:'No Badge Yet',  color:'var(--grey)'  },
+  };
+  const bc = badgeCfg[s.badge_tier||'none'];
+  const statusCls = s.badge_status==='approved'?'approved':s.badge_status==='rejected'?'rejected':'pending';
+  const statusTxt = s.badge_status==='approved'?'✓ Approved':s.badge_status==='rejected'?'✕ Rejected':'⏳ Pending Review';
+  const html = `<div class="badge-card ${bc.cls}" style="margin-bottom:16px">
+    <div class="badge-icon">${bc.icon}</div>
+    <div><div class="badge-info-title" style="color:${bc.color}">${bc.label}</div>
+    <div class="badge-info-sub">Badge status: <strong>${statusTxt}</strong></div></div>
+    <div class="badge-status ${statusCls}">${statusTxt}</div>
+  </div>`;
+  document.getElementById('badge-card-profile').innerHTML = html;
+  document.getElementById('badge-status-card').innerHTML = html;
+}
+
+// ── PROFILE PHOTO ────────────────────────────────────────────
+function handleProfilePhoto(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const dataUrl = e.target.result;
+    currentSeller.profile_photo = dataUrl;
+    renderProfileHero();
+    // Save to Supabase
+    try {
+      await PATCH('ptn_users','id',currentSeller.id,{ profile_photo: dataUrl });
+      toast('✓ Profile photo updated', 'success');
+    } catch(err) { toast('Photo saved locally (demo)', 'success'); }
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── DUAL ROLE — Register as Buyer too ────────────────────────
+async function registerAsBuyer() {
+  if (currentSeller._hasBuyerAccount) {
+    switchToBuyer(); return;
+  }
+  // Create a buyer account with the same phone
+  try {
+    const buyer = await POST('ptn_users', {
+      phone: currentSeller.phone,
+      name: currentSeller.name,
+      company: currentSeller.company,
+      city: currentSeller.city,
+      category: currentSeller.category,
+      role: 'buyer',
+      status: 'active',
+      profile_photo: currentSeller.profile_photo || null
+    });
+    currentSeller._hasBuyerAccount = true;
+    renderProfileHero();
+    toast('✓ Buyer account created — same phone number', 'success');
+  } catch(e) {
+    if (e.message.includes('duplicate')) {
+      currentSeller._hasBuyerAccount = true;
+      renderProfileHero();
+      toast('Buyer account already exists for this number', 'success');
+    } else {
+      toast('Error: ' + e.message, 'error');
+    }
+  }
+}
+
+function switchToBuyer() {
+  // In a full sync this would open the buyer portal
+  // For now show a clear message
+  toast('🛒 Buyer portal coming soon — same phone, same account', 'success');
+}
+
+function renderDashboard() {
+  const revenue = allOrders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0);
+  document.getElementById('st-revenue').textContent = revenue > 0 ? (revenue/1000).toFixed(0)+'K' : '0';
+}
+
+async function saveProfile() {
+  const company = document.getElementById('edit-company').value.trim();
+  const name    = document.getElementById('edit-name').value.trim();
+  const city    = document.getElementById('edit-city').value;
+  const desc    = document.getElementById('edit-desc').value.trim();
+  if (!company) { toast('Company name required','error'); return; }
+  try {
+    await PATCH('ptn_users','id',currentSeller.id,{company,name,city,shop_desc:desc});
+    currentSeller = {...currentSeller,company,name,city,shop_desc:desc};
+    document.getElementById('header-shop-name').textContent = company;
+    renderProfileHero();
+    toast('✓ Profile saved','success');
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  VERIFICATION DOCS
+// ══════════════════════════════════════════════════════════════
+let attachedDocs = {};
+
+function attachDoc(type, btn) {
+  attachedDocs[type] = true;
+  btn.textContent = '✓ Attached';
+  btn.className = 'btn btn-sm btn-green';
+  toast('Document attached (demo mode)', 'success');
+}
+
+async function submitVerification() {
+  if (Object.keys(attachedDocs).length < 1) {
+    toast('Please attach at least one document', 'error'); return;
+  }
+  const btn = document.getElementById('submit-verify-btn');
+  btn.textContent = 'Submitting...'; btn.disabled = true;
+  try {
+    for (const [type] of Object.entries(attachedDocs)) {
+      await POST('ptn_verification_docs', {
+        seller_id: currentSeller.id, doc_type: type,
+        file_url: 'demo://' + type, reviewed: false, approved: false
+      });
+    }
+  } catch(e) { /* demo mode — continue anyway */ }
+
+  // Show submitted state
+  document.getElementById('verify-info-msg').style.display = 'none';
+  document.getElementById('docs-list').style.display = 'none';
+  document.getElementById('submit-verify-btn').style.display = 'none';
+  document.getElementById('verify-submitted-msg').style.display = 'block';
+
+  // Update badge status card to show "pending review"
+  currentSeller = { ...currentSeller, badge_status: 'pending' };
+  renderProfileHero();
+  toast('✓ Application submitted — admin will review within 48h', 'success');
+  attachedDocs = {};
+}
+
+// ══════════════════════════════════════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════════════════════════════════════
+function switchTab(tabId) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  document.getElementById('page-' + tabId.replace('tab-','page-').replace('tab-','')) ;
+  const pageId = 'page-' + tabId.replace('tab-','');
+  const page = document.getElementById(pageId);
+  if (page) page.classList.add('active');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SIGN OUT
+// ══════════════════════════════════════════════════════════════
+function showSuspendedScreen() {
+  showScreen('screen-suspended');
+  // Load their subscription details
+  GET('ptn_subscriptions', `seller_id=eq.${currentSeller.id}&select=*`)
+    .then(subs => {
+      const sub = subs[0];
+      if (!sub) return;
+      const el = document.getElementById('suspended-sub-info');
+      const PRICING = { silver:{monthly:3000,yearly:10000}, gold:{monthly:8000,yearly:15000}, premium:{monthly:15000,yearly:15000} };
+      const price = PRICING[sub.badge_tier]?.[sub.billing_cycle] || sub.amount;
+      el.innerHTML = `<div style="background:#fff;border:1.5px solid var(--lgrey);border-radius:12px;padding:14px;text-align:left">
+        <div style="font-size:12px;font-weight:700;color:var(--grey);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">Your Subscription</div>
+        <div style="font-size:13px;color:var(--navy);line-height:1.9">
+          Plan: <strong>${badgeLabelSimple(sub.badge_tier)}</strong><br>
+          Cycle: <strong>${sub.billing_cycle === 'yearly' ? 'Yearly' : 'Monthly'}</strong><br>
+          Amount due: <strong style="color:var(--red)">${parseFloat(price).toLocaleString()} FCFA</strong><br>
+          Due date: <strong>${new Date(sub.next_due_date).toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})}</strong>
+        </div>
+      </div>`;
+    }).catch(() => {});
+}
+
+function badgeLabelSimple(t) {
+  return t==='premium'?'❖ Gold Premium':t==='gold'?'🥇 Gold':t==='silver'?'🥈 Silver':'None';
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//  BILINGUAL SUPPORT
+// ══════════════════════════════════════════════════════════════
+let currentLang = 'fr'; // Default French for Cameroon
+
+const SELLER_T = {
+  en: {
+    dashboard: '📊 Dashboard', products: '📦 Products', orders: '🛒 Orders',
+    profile: '🏪 Shop Profile', notifications: '🔔 Notifications',
+    signout: 'Sign Out', myShop: 'My Shop',
+    noOrders: 'No orders yet', noProducts: 'No products yet',
+    addProduct: '+ Add Product', viewAllOrders: 'View All Orders',
+    editShop: 'Edit Shop Profile', recentOrders: '📦 Recent Orders',
+    latestOrders: 'Your latest incoming orders',
+    quickActions: '📈 Quick Actions',
+    saveChanges: '✓ Save Changes',
+    companyName: 'Company Name', ownerName: 'Owner Name',
+    city: 'City', shopDesc: 'Shop Description',
+    verificationDocs: 'Verification Documents',
+    submitVerif: '📤 Submit for Verification',
+    submitted: '✅ Application submitted! Admin will review within 48 hours.',
+    markShipped: '🚚 Mark as Shipped', markDelivered: '✅ Confirm Delivered',
+    markReady: '📦 Mark as Ready for Pickup', markPickedUp: '✅ Confirm Picked Up',
+    confirmOrder: '✓ Confirm Order', rejectOrder: '✕ Reject Order',
+    pendingVerif: '⏳ Pending Review', approved: '✓ Approved', rejected: '✕ Rejected',
+    products_label: 'Products', orders_label: 'Orders', revenue_label: 'Revenue',
+    publish: '🚀 Publish Product Now', saveProduct: '✓ Save Changes',
+    addItem: '+ Add Product', editProduct: '✏️ Edit Product',
+    liveVisible: '✓ Live — visible to buyers', hidden: 'Hidden — draft',
+    allNotifs: 'All notifications marked as read',
+    profileSaved: '✓ Profile saved', photoUpdated: '✓ Profile photo updated',
+    buyerAccount: '🛒 Also a Buyer?', activateBuyer: 'Activate My Buyer Account',
+    switchBuyer: '🛒 Switch to Buyer Portal',
+    phone_label: 'Phone Number', send_code: 'Send Verification Code →',
+    verify: 'Verify Code →', change_number: '← Change Number',
+    create_shop: 'Create My Shop →', already_account: 'Already have an account?',
+    signin: 'Sign in →',
+  },
+  fr: {
+    dashboard: '📊 Tableau de bord', products: '📦 Produits', orders: '🛒 Commandes',
+    profile: '🏪 Profil Boutique', notifications: '🔔 Notifications',
+    signout: 'Déconnexion', myShop: 'Ma Boutique',
+    noOrders: 'Aucune commande', noProducts: 'Aucun produit',
+    addProduct: '+ Ajouter Produit', viewAllOrders: 'Voir toutes les commandes',
+    editShop: 'Modifier le profil boutique', recentOrders: '📦 Commandes récentes',
+    latestOrders: 'Vos dernières commandes entrantes',
+    quickActions: '📈 Actions rapides',
+    saveChanges: '✓ Enregistrer',
+    companyName: 'Nom de la société', ownerName: 'Nom du gérant',
+    city: 'Ville', shopDesc: 'Description de la boutique',
+    verificationDocs: 'Documents de vérification',
+    submitVerif: '📤 Soumettre pour vérification',
+    submitted: "✅ Demande soumise! L'admin examinera sous 48 heures.",
+    markShipped: '🚚 Marquer comme expédié', markDelivered: '✅ Confirmer la livraison',
+    markReady: '📦 Prêt pour retrait', markPickedUp: '✅ Confirmer le retrait',
+    confirmOrder: '✓ Confirmer la commande', rejectOrder: '✕ Rejeter',
+    pendingVerif: '⏳ En attente', approved: '✓ Approuvé', rejected: '✕ Rejeté',
+    products_label: 'Produits', orders_label: 'Commandes', revenue_label: 'Revenus',
+    publish: '🚀 Publier maintenant', saveProduct: '✓ Enregistrer',
+    addItem: '+ Ajouter un produit', editProduct: '✏️ Modifier le produit',
+    liveVisible: '✓ En ligne — visible aux acheteurs', hidden: 'Masqué — brouillon',
+    allNotifs: 'Toutes les notifications marquées comme lues',
+    profileSaved: '✓ Profil enregistré', photoUpdated: '✓ Photo de profil mise à jour',
+    buyerAccount: '🛒 Aussi acheteur?', activateBuyer: 'Activer mon compte acheteur',
+    switchBuyer: '🛒 Basculer vers le portail acheteur',
+    phone_label: 'Numéro de téléphone', send_code: 'Envoyer le code de vérification →',
+    verify: 'Vérifier le code →', change_number: '← Changer le numéro',
+    create_shop: 'Créer ma boutique →', already_account: 'Vous avez déjà un compte?',
+    signin: 'Se connecter →',
+  }
+};
+
+function t(key) { return SELLER_T[currentLang]?.[key] || SELLER_T['en'][key] || key; }
+
+function setLang(lang) {
+  currentLang = lang;
+  // Update toggle buttons
+  document.getElementById('lang-en').style.background = lang==='en' ? 'var(--gold)' : 'transparent';
+  document.getElementById('lang-en').style.color = lang==='en' ? 'var(--navy)' : 'rgba(255,255,255,0.6)';
+  document.getElementById('lang-fr').style.background = lang==='fr' ? 'var(--gold)' : 'transparent';
+  document.getElementById('lang-fr').style.color = lang==='fr' ? 'var(--navy)' : 'rgba(255,255,255,0.6)';
+  // Update all labelled elements
+  applyTranslations();
+  // Re-render dynamic content
+  if (currentSeller) {
+    renderProducts();
+    renderOrders();
+    renderNotifications();
+  }
+}
+
+function applyTranslations() {
+  // Tabs
+  // Tab labels
+  const spanMap = {
+    'lbl-dashboard': t('dashboard'), 'lbl-products': t('products'),
+    'lbl-orders': t('orders'), 'lbl-profile': t('profile'),
+    'lbl-notifs': t('notifications')
+  };
+  Object.entries(spanMap).forEach(([id, label]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = label;
+  });
+  // Sign out button
+  const so = document.getElementById('btn-signout');
+  if (so) so.textContent = t('signout');
+  // Header shop name
+  const hs = document.getElementById('header-shop-name');
+  if (hs && hs.textContent === 'My Shop' || hs?.textContent === 'Ma Boutique') {
+    hs.textContent = t('myShop');
+  }
+  // Auth screens
+  updateAuthText();
+}
+
+function updateAuthText() {
+  // Login screen
+  const phoneLabel = document.querySelector('label[for="phone-input"], .auth-label');
+  // Update auth hint
+  const hint = document.querySelector('.auth-hint');
+  const authSub = document.querySelector('.auth-sub');
+  if (authSub) {
+    authSub.textContent = currentLang === 'fr'
+      ? 'Portail Vendeur · Connexion avec votre téléphone'
+      : 'Seller Portal · Portail Vendeur';
+  }
+}
+
+
+
+
+// ══════════════════════════════════════════════════════════════
+//  SELLER CHAT — Reply to buyers
+// ══════════════════════════════════════════════════════════════
+let scBuyerId = null;
+let scBuyerName = '';
+let scMessages = [];
+let scRecording = false;
+let scMediaRecorder = null;
+let scAudioChunks = [];
+let scPollInterval = null;
+let scLastMsgTime = null;
+
+async function openSellerChat(buyerId, buyerName) {
+  if (!buyerId || buyerId === 'undefined') {
+    // Find buyer from recent messages
+    try {
+      const msgs = await GET('ptn_messages',
+        `seller_id=eq.${currentSeller.id}&order=created_at.desc&limit=1&select=buyer_id`);
+      if (msgs && msgs.length) {
+        buyerId = msgs[0].buyer_id;
+      }
+    } catch(e) {}
+  }
+
+  scBuyerId  = buyerId;
+  scBuyerName = buyerName || 'Buyer';
+  scMessages  = [];
+
+  const overlay = document.getElementById('seller-chat-overlay');
+  overlay.style.display = 'flex';
+  overlay.style.flexDirection = 'column';
+
+  document.getElementById('sc-buyer-name').textContent = scBuyerName;
+
+  // Load buyer phone
+  try {
+    const buyers = await GET('ptn_users', `id=eq.${buyerId}&select=phone,name,company`);
+    if (buyers && buyers[0]) {
+      const b = buyers[0];
+      document.getElementById('sc-buyer-name').textContent = b.name || b.company || scBuyerName;
+      document.getElementById('sc-buyer-phone').textContent = '+237 ' + b.phone;
+    }
+  } catch(e) {}
+
+  // Load messages
+  const msgEl = document.getElementById('sc-messages');
+  msgEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--grey)"><div class="spinner"></div></div>';
+
+  try {
+    const msgs = await GET('ptn_messages',
+      `buyer_id=eq.${buyerId}&seller_id=eq.${currentSeller.id}&order=created_at.asc&select=*`);
+    scMessages = msgs || [];
+    renderScMessages();
+    // Mark messages as read
+    try {
+      await fetch(apiUrl('ptn_messages') + '?seller_id=eq.' + currentSeller.id + '&buyer_id=eq.' + buyerId + '&read=eq.false',
+        { method:'PATCH', headers:{...HEADERS_CONST, Prefer:'return=representation'}, body:JSON.stringify({read:true}) });
+    } catch(e) {}
+  } catch(e) {
+    msgEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--grey)">Start a conversation with this buyer</div>';
+  }
+  setTimeout(() => { const el = document.getElementById('sc-messages'); if(el) el.scrollTop = el.scrollHeight; }, 100);
+
+  // Start real-time polling — check for new messages every 3 seconds
+  if (scPollInterval) clearInterval(scPollInterval);
+  scLastMsgTime = scMessages.length > 0
+    ? scMessages[scMessages.length-1].created_at
+    : new Date(0).toISOString();
+
+  scPollInterval = setInterval(async () => {
+    if (!scBuyerId || !currentSeller) return;
+    try {
+      const newMsgs = await GET('ptn_messages',
+        `buyer_id=eq.${scBuyerId}&seller_id=eq.${currentSeller.id}&created_at=gt.${encodeURIComponent(scLastMsgTime)}&order=created_at.asc&select=*`);
+      if (newMsgs && newMsgs.length > 0) {
+        newMsgs.forEach(m => scMessages.push(m));
+        scLastMsgTime = scMessages[scMessages.length-1].created_at;
+        renderScMessages();
+        // Mark incoming buyer messages as read
+        const unread = newMsgs.filter(m => m.sender_role === 'buyer');
+        if (unread.length) {
+          try {
+            await fetch(apiUrl('ptn_messages') + '?seller_id=eq.' + currentSeller.id + '&buyer_id=eq.' + scBuyerId + '&read=eq.false',
+              { method:'PATCH', headers:{apikey:SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=representation'}, body:JSON.stringify({read:true}) });
+          } catch(e) {}
+        }
+      }
+    } catch(e) {}
+  }, 3000);
+}
+
+const HEADERS_CONST = { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json' };
+
+// Audio store — same pattern as buyer portal (proven to work)
+const scAudioStore = {};
+let scAudioIdx = 0;
+
+function renderScMessages() {
+  const el = document.getElementById('sc-messages');
+  if (!scMessages.length) {
+    el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--grey);font-size:13px">No messages yet — start the conversation!</div>';
+    return;
+  }
+
+  el.innerHTML = scMessages.map((m, idx) => {
+    const isSeller = m.sender_role === 'seller';
+    const time = new Date(m.created_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    let bubble = '';
+
+    if (m.type === 'image') {
+      bubble = `<img src="${m.content}" style="max-width:200px;border-radius:12px;cursor:pointer;display:block" onclick="window.open(this.src)">`;
+    } else if (m.type === 'voice') {
+      // Use native HTML5 audio element with controls — browser handles playback natively
+      // This works regardless of codec because the browser uses its own player
+      bubble = `<div style="padding:4px 0">
+        <div style="font-size:11px;font-weight:600;margin-bottom:6px;opacity:0.7">🎤 Voice message</div>
+        <audio controls preload="metadata" style="height:36px;width:220px;outline:none;border-radius:20px;display:block"
+          src="${m.content || ''}">
+          Your browser does not support audio.
+        </audio>
+      </div>`;
+    } else {
+      bubble = (m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    return `<div style="display:flex;flex-direction:column;align-items:${isSeller?'flex-end':'flex-start'};margin-bottom:8px;max-width:80%;${isSeller?'align-self:flex-end':'align-self:flex-start'}">
+      <div style="padding:10px 14px;border-radius:${isSeller?'16px 16px 4px 16px':'16px 16px 16px 4px'};background:${isSeller?'var(--navy)':'#fff'};color:${isSeller?'#fff':'var(--navy)'};font-size:13px;line-height:1.5;box-shadow:0 1px 4px rgba(0,0,0,0.08)">${bubble}</div>
+      <div style="font-size:10px;color:var(--grey);margin-top:2px">${time}</div>
+    </div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function scPlayAudio(idx, btn) {
+  // Legacy — not used with native audio controls
+}
+
+async function scSendMsg() {
+  const input = document.getElementById('sc-input');
+  const text = input?.value.trim();
+  if (!text || !scBuyerId) return;
+
+  // Add to local messages immediately
+  const sentAt = new Date().toISOString();
+  scMessages.push({ content:text, sender_role:'seller', type:'text', created_at:sentAt });
+  scLastMsgTime = sentAt;
+  renderScMessages();
+  input.value = '';
+  input.style.height = 'auto';
+
+  // Save to DB
+  try {
+    await POST('ptn_messages', {
+      buyer_id: scBuyerId,
+      seller_id: currentSeller.id,
+      sender_role: 'seller',
+      content: text,
+      type: 'text',
+      read: false
+    });
+    // Notify buyer
+    await POST('ptn_notifications', {
+      user_id: scBuyerId,
+      type: 'message',
+      title_en: 'Reply from ' + (currentSeller.company||'Seller'),
+      title_fr: 'Réponse de ' + (currentSeller.company||'Vendeur'),
+      body_en: text.slice(0,80) + (text.length>80?'...':''),
+      body_fr: text.slice(0,80) + (text.length>80?'...':''),
+      read: false
+    });
+  } catch(e) { console.log('Chat error:', e.message); }
+}
+
+function scSendImage(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async e => {
+    const dataUrl = e.target.result;
+    scMessages.push({ content:dataUrl, sender_role:'seller', type:'image', created_at:new Date().toISOString() });
+    renderScMessages();
+    try {
+      await POST('ptn_messages', {
+        buyer_id: scBuyerId, seller_id: currentSeller.id,
+        sender_role:'seller', content:dataUrl, type:'image', read:false
+      });
+    } catch(err) {}
+    input.value = '';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function scToggleVoice() {
+  if (!scRecording) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Detect best mime type — store it in closure so onstop can access it
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : '';
+
+      scMediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      scAudioChunks = [];
+
+      // Collect data in chunks
+      scMediaRecorder.ondataavailable = e => {
+        if (e.data && e.data.size > 0) scAudioChunks.push(e.data);
+      };
+
+      scMediaRecorder.onstop = () => {
+        // Stop mic — releases the red dot in browser tab
+        stream.getTracks().forEach(t => t.stop());
+
+        if (scAudioChunks.length === 0) {
+          toast('No audio recorded', 'error');
+          return;
+        }
+
+        // Build blob with the actual recorded mime type
+        const recordedMime = scMediaRecorder.mimeType || mimeType || 'audio/webm';
+        const blob = new Blob(scAudioChunks, { type: recordedMime });
+
+        // Convert to base64 data URL
+        const reader = new FileReader();
+        reader.onload = async ev => {
+          const base64Audio = ev.target.result;
+          const sentAt = new Date().toISOString();
+
+          // Add to local chat immediately
+          scMessages.push({ content: base64Audio, sender_role: 'seller', type: 'voice', created_at: sentAt });
+          scLastMsgTime = sentAt;
+          renderScMessages();
+          toast('🎤 Voice message sent', 'success');
+
+          // Save to Supabase
+          try {
+            await POST('ptn_messages', {
+              buyer_id: scBuyerId,
+              seller_id: currentSeller.id,
+              sender_role: 'seller',
+              content: base64Audio,
+              type: 'voice',
+              read: false
+            });
+            await POST('ptn_notifications', {
+              user_id: scBuyerId,
+              buyer_id: scBuyerId,
+              type: 'message',
+              title_en: '🎤 Voice message from ' + (currentSeller.company || 'Seller'),
+              title_fr: '🎤 Message vocal de ' + (currentSeller.company || 'Vendeur'),
+              body_en: 'Tap to listen',
+              body_fr: 'Appuyez pour écouter',
+              read: false
+            });
+          } catch(err) { console.log('Voice DB save error:', err.message); }
+        };
+        reader.onerror = () => toast('Failed to process audio', 'error');
+        reader.readAsDataURL(blob);
+      };
+
+      // Start recording — request data every 250ms so chunks are available
+      scMediaRecorder.start(250);
+      scRecording = true;
+
+      const btn = document.getElementById('sc-voice-btn');
+      if (btn) { btn.style.background = 'var(--red)'; btn.textContent = '⏹'; }
+      const ind = document.getElementById('sc-rec-indicator');
+      if (ind) ind.style.display = 'block';
+
+    } catch(e) {
+      toast('Microphone access denied. Check browser permissions.', 'error');
+    }
+  } else {
+    // Stop recording
+    if (scMediaRecorder && scMediaRecorder.state !== 'inactive') {
+      scMediaRecorder.stop(); // triggers onstop above
+    }
+    scRecording = false;
+    const btn = document.getElementById('sc-voice-btn');
+    if (btn) { btn.style.background = '#f8f6f0'; btn.textContent = '🎤'; }
+    const ind = document.getElementById('sc-rec-indicator');
+    if (ind) ind.style.display = 'none';
+  }
+}
+
+function playVoiceMsg(src) {
+  try {
+    const audio = new Audio(src);
+    audio.play().catch(e => toast('Cannot play audio: ' + e.message, 'error'));
+  } catch(e) { toast('Audio error', 'error'); }
+}
+
+function closeSellerChat() {
+  // Stop polling
+  if (scPollInterval) { clearInterval(scPollInterval); scPollInterval = null; }
+  document.getElementById('seller-chat-overlay').style.display = 'none';
+  scBuyerId = null; scMessages = []; scLastMsgTime = null;
+  // Refresh notifications to clear read messages
+  loadNotifications();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  REAL-TIME SYNC — Poll for new orders every 20 seconds
+// ══════════════════════════════════════════════════════════════
+let sellerSyncInterval = null;
+let lastOrderCount = 0;
+
+function startSellerSync() {
+  if (sellerSyncInterval) clearInterval(sellerSyncInterval);
+  sellerSyncInterval = setInterval(async () => {
+    if (!currentSeller) return;
+    try {
+      const orders = await GET('ptn_orders',
+        `seller_id=eq.${currentSeller.id}&status=eq.pending&select=id`);
+      const count = Array.isArray(orders) ? orders.length : 0;
+      if (count > lastOrderCount) {
+        toast('🛒 New order received!', 'success');
+        await loadOrders();
+        updateOrderBadge();
+      }
+      lastOrderCount = count;
+      // Also refresh notifications
+      await loadNotifications();
+    } catch(e) {}
+  }, 20000);
+}
+
+function stopSellerSync() {
+  if (sellerSyncInterval) { clearInterval(sellerSyncInterval); sellerSyncInterval = null; }
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//  MONETBIL MOMO PAYMENT — SELLER
+// ══════════════════════════════════════════════════════════════
+let momoContext = null;
+let momoOperator = 'mtn';
+
+function openSubscriptionPayment() {
+  // Get subscription amount from current seller data
+  const amount = currentSeller?.badge_tier === 'premium' ? 15000
+    : currentSeller?.badge_tier === 'gold' ? 8000 : 3000;
+  openMomoModal({
+    type: 'subscription',
+    title: '💳 Pay Subscription',
+    subtitle: 'Renew your PARTENAIRE ' + (currentSeller?.badge_tier||'') + ' subscription for 30 days',
+    amount,
+    ref: 'SUB-' + currentSeller.id + '-' + Date.now().toString().slice(-6),
+    onSuccess: async () => {
+      // Reload seller data to reflect renewed subscription
+      const sellers = await GET('ptn_users', `phone=eq.${currentSeller.phone}&role=eq.seller&select=*`);
+      if (sellers && sellers[0]) {
+        currentSeller = sellers[0];
+        renderProfileHero();
+      }
+      toast('✅ Subscription renewed for 30 days!', 'success');
+    }
+  });
+}
+
+function openMomoModal(context) {
+  momoContext = context;
+  document.getElementById('momo-title').textContent  = context.title || 'Pay with Mobile Money';
+  document.getElementById('momo-amount').textContent = (context.amount||0).toLocaleString() + ' FCFA';
+  document.getElementById('momo-sub').textContent    = context.subtitle || '';
+  document.getElementById('momo-phone').value        = currentSeller?.phone || '';
+  document.getElementById('momo-status').className   = 'momo-status';
+  document.getElementById('momo-status').textContent = '';
+  document.getElementById('momo-pay-btn').disabled   = false;
+  document.getElementById('momo-modal').classList.add('open');
+}
+
+function closeMomoModal() {
+  document.getElementById('momo-modal').classList.remove('open');
+}
+
+function selectOperator(op) {
+  momoOperator = op;
+  document.getElementById('op-mtn').classList.toggle('selected', op==='mtn');
+  document.getElementById('op-orange').classList.toggle('selected', op==='orange');
+  const btn = document.getElementById('momo-pay-btn');
+  btn.className = 'momo-pay-btn ' + op;
+  btn.textContent = op==='mtn' ? '📱 Pay with MTN MoMo →' : '🟠 Pay with Orange Money →';
+}
+
+async function confirmMomoPayment() {
+  const phone = document.getElementById('momo-phone').value.trim().replace(/\s/g,'');
+  if (phone.length < 8) { toast('Enter your phone number', 'error'); return; }
+
+  const btn    = document.getElementById('momo-pay-btn');
+  const status = document.getElementById('momo-status');
+  btn.disabled       = true;
+  btn.textContent    = '⏳ Processing...';
+  status.className   = 'momo-status processing';
+  status.textContent = '⏳ Sending payment request to your phone...';
+
+  try {
+    // Try server first, fall back to local sandbox
+    let usingSandbox = false;
+    try {
+      const res = await fetch('/monetbil/pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: momoContext.amount, phone,
+          paymentRef: momoContext.ref,
+          type: momoContext.type, sandbox: true
+        })
+      });
+      const data = await res.json();
+      if (data.payment_url) {
+        window.open(data.payment_url, '_blank');
+        status.className   = 'momo-status processing';
+        status.textContent = '📱 Complete payment on the Monetbil page that opened';
+        btn.textContent    = '⏳ Waiting...';
+        return;
+      }
+      usingSandbox = true;
+    } catch(fetchErr) {
+      usingSandbox = true; // Server not running — use local simulation
+    }
+
+    if (usingSandbox) {
+      status.textContent = '🧪 SANDBOX: Simulating payment... (3 seconds)';
+      setTimeout(async () => {
+        status.className   = 'momo-status success';
+        status.textContent = '✅ Payment confirmed!';
+        btn.textContent    = '✓ Paid!';
+        if (momoContext.onSuccess) await momoContext.onSuccess();
+        setTimeout(() => closeMomoModal(), 1500);
+      }, 3000);
+    }
+  } catch(e) {
+    status.className   = 'momo-status failed';
+    status.textContent = '❌ ' + e.message;
+    btn.disabled    = false;
+    btn.textContent = 'Try Again';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PROMO BLAST (Premium & Gold sellers)
+// ══════════════════════════════════════════════════════════════
+function openPromoBlast() {
+  const t = document.getElementById('promo-title');
+  const m = document.getElementById('promo-message');
+  if (t) t.value = '';
+  if (m) m.value = '';
+  openModal('modal-promo-blast');
+}
+
+async function sendPromoBlast() {
+  const type    = document.getElementById('promo-type').value;
+  const title   = document.getElementById('promo-title').value.trim();
+  const message = document.getElementById('promo-message').value.trim();
+  const target  = document.getElementById('promo-target').value;
+  if (!title || !message) { toast('Title and message required', 'error'); return; }
+  try {
+    await POST('ptn_broadcasts', {
+      sender_id:   currentSeller.id,
+      sender_role: 'seller',
+      sender_name: currentSeller.company || currentSeller.name,
+      type, title, message, target,
+      target_city: target==='city' ? currentSeller.city : null,
+      active: true,
+      expires_at: new Date(Date.now() + 6*3600000).toISOString()
+    });
+    closeModal('modal-promo-blast');
+    toast('📢 Promo blast sent to buyers!', 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  BROADCAST RECEIVER
+// ══════════════════════════════════════════════════════════════
+let shownBroadcasts = new Set();
+let broadcastInterval = null;
+
+async function checkBroadcasts(userRole, userCity) {
+  try {
+    const now = new Date().toISOString();
+    const bcs = await GET('ptn_broadcasts',
+      `active=eq.true&expires_at=gt.${encodeURIComponent(now)}&order=created_at.desc&select=*`);
+    if (!bcs || !bcs.length) return;
+    for (const bc of bcs) {
+      if (shownBroadcasts.has(bc.id)) continue;
+      const matches = bc.target==='all' || bc.target===userRole
+        || (bc.target==='city' && bc.target_city===userCity);
+      if (!matches) continue;
+      shownBroadcasts.add(bc.id);
+      showBroadcastPopup(bc);
+      break;
+    }
+  } catch(e) {}
+}
+
+function showBroadcastPopup(bc) {
+  const popup = document.getElementById('broadcast-popup');
+  if (!popup) return;
+  popup.className = bc.type || 'info';
+  const icon = bc.type==='security'?'🔒 ':bc.type==='new_stock'?'📦 ':'📣 ';
+  document.getElementById('bc-popup-title').textContent   = icon + bc.title;
+  document.getElementById('bc-popup-message').textContent = bc.message;
+  document.getElementById('bc-popup-from').textContent    = bc.sender_role==='admin'
+    ? 'From: PARTENAIRE Admin' : 'Promo from a seller';
+  popup.style.display = 'block';
+  setTimeout(closeBroadcastPopup, 10000); // Minimum 10 seconds for all
+}
+
+function closeBroadcastPopup() {
+  const p = document.getElementById('broadcast-popup');
+  if (p) p.style.display = 'none';
+}
+
+function signOut() {
+  currentSeller = null; allProducts = []; allOrders = []; allNotifs = [];
+  [0,1,2,3].forEach(i => { const el=document.getElementById('otp'+i); if(el) el.value=''; });
+  document.getElementById('phone-input').value = '';
+  showScreen('screen-phone');
+  toast('Signed out successfully','');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  UTILITIES
+// ══════════════════════════════════════════════════════════════
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if(e.target===m) m.classList.remove('open'); });
+});
+
+function showAuthError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg; el.style.display = 'block';
+  setTimeout(() => el.style.display='none', 4000);
+}
+
+let toastTimer;
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.className = 'show '+type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className='', 3500);
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+}
+
+// Init on page load
+document.addEventListener('DOMContentLoaded', () => renderBadgeSelector());
+
+// Keyboard nav for OTP
+document.addEventListener('keydown', e => {
+  if (e.key==='Enter') {
+    if (document.getElementById('screen-phone').classList.contains('active')) sendOTP();
+    else if (document.getElementById('screen-otp').classList.contains('active')) verifyOTP();
+  }
+});
+</script>
+
+<!-- ══ SELLER CHAT OVERLAY ════════════════════════════════════ -->
+<div id="seller-chat-overlay" style="display:none;position:fixed;inset:0;background:#F0EDE8;z-index:300;display:none;flex-direction:column">
+  <div style="background:var(--navy);padding:14px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0">
+    <button onclick="closeSellerChat()" style="background:rgba(255,255,255,0.12);border:none;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">← Back</button>
+    <div style="flex:1">
+      <div style="color:#fff;font-size:15px;font-weight:700" id="sc-buyer-name">Buyer</div>
+      <div style="color:rgba(255,255,255,0.5);font-size:11px" id="sc-buyer-phone"></div>
+    </div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.4)">💬 Live Chat</div>
+  </div>
+  <!-- Messages -->
+  <div id="sc-messages" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;background:#f0ede8"></div>
+  <!-- Recording indicator -->
+  <div id="sc-rec-indicator" style="display:none;text-align:center;font-size:13px;color:var(--red);font-weight:600;padding:6px;background:#fff">🔴 Recording... tap mic to stop</div>
+  <!-- Input row -->
+  <div style="padding:12px 16px;background:#fff;border-top:1px solid var(--lgrey);display:flex;gap:8px;align-items:flex-end;flex-shrink:0">
+    <button onclick="document.getElementById('sc-img-input').click()" style="width:42px;height:42px;border-radius:10px;background:#f8f6f0;border:1px solid var(--lgrey);cursor:pointer;font-size:18px;flex-shrink:0">📷</button>
+    <input type="file" id="sc-img-input" accept="image/*" style="display:none" onchange="scSendImage(this)">
+    <textarea id="sc-input" placeholder="Reply to buyer... / Répondre à l'acheteur..." style="flex:1;padding:10px 14px;border:1.5px solid var(--lgrey);border-radius:12px;font-size:14px;color:#1A2B4A;background:#fff;outline:none;resize:none;min-height:44px;max-height:120px;font-family:inherit"
+      oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();scSendMsg();}"></textarea>
+    <button id="sc-voice-btn" onclick="scToggleVoice()" style="width:42px;height:42px;border-radius:10px;background:#f8f6f0;border:1px solid var(--lgrey);cursor:pointer;font-size:20px;flex-shrink:0">🎤</button>
+    <button onclick="scSendMsg()" style="width:42px;height:42px;border-radius:10px;background:var(--navy);border:none;color:#fff;cursor:pointer;font-size:18px;flex-shrink:0">➤</button>
+  </div>
+</div>
+
+
+<!-- ══ BROADCAST POPUP ════════════════════════════════════════ -->
+<div id="broadcast-popup">
+  <button class="bc-close" onclick="closeBroadcastPopup()">✕</button>
+  <div style="font-size:13px;font-weight:800;margin-bottom:4px" id="bc-popup-title"></div>
+  <div style="font-size:13px;line-height:1.5;opacity:0.95" id="bc-popup-message"></div>
+  <div style="font-size:10px;opacity:0.6;margin-top:6px" id="bc-popup-from"></div>
+</div>
+
+
+<!-- ══ PROMO BLAST MODAL ════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-promo-blast">
+  <div class="modal" style="max-width:440px">
+    <button class="modal-close" onclick="closeModal('modal-promo-blast')">✕</button>
+    <div class="modal-title">📢 Promo Blast</div>
+    <div class="modal-sub">Send a message to buyers — shows as a popup notification</div>
+    <div style="background:var(--amberl);border:1px solid #F0C050;border-radius:10px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--amber)">
+      ⭐ Premium &amp; Gold sellers only · Limited to 3 blasts per day
+    </div>
+    <div class="form-group">
+      <label class="form-label">Message Type</label>
+      <select class="form-input" id="promo-type">
+        <option value="new_stock">📦 New Stock Arrived</option>
+        <option value="announcement">🎉 Special Offer / Promo</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Title</label>
+      <input class="form-input" id="promo-title" placeholder="e.g. New tires arrived! / Nouveaux pneus arrivés!">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Message</label>
+      <textarea class="form-input" id="promo-message" rows="3" 
+        placeholder="e.g. Fresh stock of Michelin 185/65 R15 — 35,000 FCFA. Call or order now!"
+        style="resize:none;font-family:inherit"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Send To</label>
+      <select class="form-input" id="promo-target">
+        <option value="buyers">All Buyers on PARTENAIRE</option>
+        <option value="city">Buyers in my city only</option>
+      </select>
+    </div>
+    <button class="btn btn-gold" style="width:100%;justify-content:center;padding:13px" onclick="sendPromoBlast()">
+      🚀 Send Promo Blast
+    </button>
+  </div>
+</div>
+
+<!-- ══ MOMO PAYMENT MODAL ════════════════════════════════════ -->
+<div class="momo-overlay" id="momo-modal">
+  <div class="momo-box">
+    <button onclick="closeMomoModal()" style="position:absolute;top:16px;right:16px;background:#f0ede8;border:none;width:32px;height:32px;border-radius:16px;cursor:pointer;font-size:16px;font-weight:700;color:var(--grey)">✕</button>
+    <div class="momo-icon">📱</div>
+    <div class="momo-title" id="momo-title">Pay Subscription</div>
+    <div class="sandbox-badge">🧪 SANDBOX MODE — Test payment</div>
+    <div class="momo-amount" id="momo-amount">0 FCFA</div>
+    <div class="momo-sub" id="momo-sub">Renew your PARTENAIRE subscription</div>
+    <div class="momo-phone-row">
+      <div class="momo-cc">🇨🇲 +237</div>
+      <input class="momo-phone-input" id="momo-phone" type="tel" maxlength="9" placeholder="699 000 000">
+    </div>
+    <div class="momo-operator">
+      <button class="op-btn mtn selected" id="op-mtn" onclick="selectOperator('mtn')">📱 MTN MoMo</button>
+      <button class="op-btn orange" id="op-orange" onclick="selectOperator('orange')">🟠 Orange Money</button>
+    </div>
+    <button class="momo-pay-btn mtn" id="momo-pay-btn" onclick="confirmMomoPayment()">📱 Pay with MTN MoMo →</button>
+    <div class="momo-status" id="momo-status"></div>
+    <div style="font-size:11px;color:var(--grey);margin-top:12px">🔒 Secured by Monetbil · Your PIN stays on your phone</div>
+  </div>
+</div>
+
+
+<!-- ══ ADJUST ORDER MODAL ══════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-adjust-order">
+  <div class="modal" style="max-width:560px">
+    <button class="modal-close" onclick="closeModal('modal-adjust-order')">✕</button>
+    <div class="modal-title">✏️ Adjust Order</div>
+    <div class="modal-sub">Edit quantities and prices — buyer will review your counter-offer</div>
+
+    <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="flex:1">
+        <div style="font-size:11px;color:var(--grey);font-weight:700;text-transform:uppercase">Order Ref</div>
+        <div style="font-size:14px;font-weight:700;font-family:monospace" id="adjust-order-ref">—</div>
+      </div>
+      <div style="flex:1">
+        <div style="font-size:11px;color:var(--grey);font-weight:700;text-transform:uppercase">Buyer</div>
+        <div style="font-size:14px;font-weight:700" id="adjust-buyer-name">—</div>
+      </div>
+      <div style="flex:1">
+        <div style="font-size:11px;color:var(--grey);font-weight:700;text-transform:uppercase">Original Total</div>
+        <div style="font-size:14px;font-weight:700;color:var(--grey)" id="adjust-original-total">—</div>
+      </div>
+    </div>
+
+    <div style="overflow-x:auto;margin-bottom:16px">
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="background:#f8f7f4">
+            <th style="padding:10px 6px;text-align:left;font-size:12px;color:var(--grey);font-weight:700">PRODUCT</th>
+            <th style="padding:10px 6px;text-align:left;font-size:12px;color:var(--grey);font-weight:700">QTY</th>
+            <th style="padding:10px 6px;text-align:left;font-size:12px;color:var(--grey);font-weight:700">UNIT PRICE (FCFA)</th>
+            <th style="padding:10px 6px;text-align:left;font-size:12px;color:var(--grey);font-weight:700">SUBTOTAL</th>
+          </tr>
+        </thead>
+        <tbody id="adjust-rows"></tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-top:2px solid var(--navy);margin-bottom:16px">
+      <div style="font-size:15px;font-weight:700">New Total</div>
+      <div style="font-size:20px;font-weight:900;color:var(--gold)" id="adjust-new-total">0 FCFA</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Note to Buyer (optional)</label>
+      <textarea class="form-input" id="adjust-note" rows="2"
+        placeholder="e.g. Price adjusted for bulk order / Prix ajusté pour commande groupée..."
+        style="resize:none;font-family:inherit"></textarea>
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <button class="btn" style="flex:1" onclick="closeModal('modal-adjust-order')">Cancel</button>
+      <button class="btn btn-gold" style="flex:2;justify-content:center;padding:13px;font-size:14px"
+        onclick="sendCounterOffer()">
+        📤 Send Counter-Offer to Buyer
+      </button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
