@@ -1579,6 +1579,84 @@ function playBuyerAudio(idx,btn){const src=buyerAudioStore[idx];if(!src)return;t
 
 document.getElementById('p-avatar').addEventListener('mouseenter',function(){this.querySelector('.p-overlay').style.opacity='1';});
 document.getElementById('p-avatar').addEventListener('mouseleave',function(){this.querySelector('.p-overlay').style.opacity='0';});
+
+// ══════════════════════════════════════════════════════════════
+//  DISPUTE SYSTEM
+// ══════════════════════════════════════════════════════════════
+let activeDisputeOrder = null;
+
+function openDisputeModal(orderId, orderRef, sellerId, amount) {
+  activeDisputeOrder = { orderId, orderRef, sellerId, amount };
+  document.getElementById('dispute-order-ref').textContent = orderRef;
+  document.getElementById('dispute-amount').textContent = (amount||0).toLocaleString() + ' FCFA';
+  document.getElementById('dispute-reason').value = '';
+  document.getElementById('dispute-desc').value = '';
+  const errEl = document.getElementById('dispute-error');
+  if (errEl) errEl.style.display = 'none';
+  document.getElementById('dispute-modal').classList.add('open');
+}
+
+function closeDisputeModal() {
+  document.getElementById('dispute-modal').classList.remove('open');
+  activeDisputeOrder = null;
+}
+
+async function submitDispute() {
+  if (!activeDisputeOrder) return;
+  const reason = document.getElementById('dispute-reason').value;
+  const desc = document.getElementById('dispute-desc').value.trim();
+  const errEl = document.getElementById('dispute-error');
+
+  if (!reason) {
+    errEl.textContent = 'Please select a reason.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!desc || desc.length < 10) {
+    errEl.textContent = 'Please describe the issue (at least 10 characters).';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const btn = document.getElementById('dispute-submit-btn');
+  btn.textContent = 'Submitting...';
+  btn.disabled = true;
+  errEl.style.display = 'none';
+
+  try {
+    const claim = reason + ': ' + desc;
+    await POST('ptn_disputes', {
+      order_id:    activeDisputeOrder.orderId,
+      order_ref:   activeDisputeOrder.orderRef,
+      buyer_id:    currentBuyer.id,
+      seller_id:   activeDisputeOrder.sellerId,
+      buyer_claim: claim,
+      amount:      activeDisputeOrder.amount,
+      status:      'open',
+      created_at:  new Date().toISOString()
+    });
+    try {
+      await POST('ptn_notifications', {
+        type:      'dispute',
+        title_en:  '⚠️ New Dispute: ' + activeDisputeOrder.orderRef,
+        title_fr:  '⚠️ Nouveau litige: ' + activeDisputeOrder.orderRef,
+        body_en:   'Buyer raised a dispute — ' + reason,
+        body_fr:   'L'acheteur a soumis un litige — ' + reason,
+        read:      false
+      });
+    } catch(e) {}
+    closeDisputeModal();
+    closeOrderDetail();
+    toast('⚠️ Dispute submitted. Admin will review within 24h.', 'success');
+  } catch(e) {
+    errEl.textContent = 'Error: ' + e.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.textContent = '⚠️ Submit Dispute';
+    btn.disabled = false;
+  }
+}
+
 </script>
 
 <!-- ══ BROADCAST POPUP ════════════════════════════════════════ -->
