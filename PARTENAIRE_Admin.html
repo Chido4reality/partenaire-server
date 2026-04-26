@@ -249,6 +249,7 @@ window.addEventListener('DOMContentLoaded', function() {
   <div class="sb-footer">
     <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-bottom:8px;text-align:center">Douala, Cameroun · 2026</div>
     <button class="sb-logout" style="margin-bottom:8px" onclick="openChangePIN()">🔑 Change My PIN</button>
+<button class="sb-logout" onclick="location.reload()" style="background:rgba(201,168,76,0.15);color:#C9A84C;margin-bottom:8px;border:1px solid rgba(201,168,76,0.3)">🔄 Refresh Data</button>
     <button class="sb-logout" onclick="logout()">← Sign Out</button>
   </div>
 </div>
@@ -357,7 +358,13 @@ window.addEventListener('DOMContentLoaded', function() {
 
   <!-- DISPUTES -->
   <div class="page" id="page-disputes">
-    <div class="page-title">Disputes & Escrow</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div class="page-title" style="margin-bottom:0">Disputes & Escrow</div>
+      <button onclick="refreshDisputes()" id="refresh-disputes-btn"
+        style="background:#1A2B4A;color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+        🔄 Refresh
+      </button>
+    </div>
     <div class="page-sub">Resolve conflicts and manage escrow payments</div>
     <div id="disputes-container"><div class="loading"><div class="spinner"></div><br>Loading disputes...</div></div>
   </div>
@@ -948,7 +955,12 @@ async function loadDisputes() {
       const users = await xhr('GET', apiUrl('ptn_users', 'id=in.(' + ids.join(',') + ')&select=id,name,company'));
       if (Array.isArray(users)) users.forEach(u => userMap[u.id] = u);
     }
-    allDisputes = disputes.map(d => ({...d, buyer_name: userMap[d.buyer_id]?.name, seller_name: userMap[d.seller_id]?.company}));
+    allDisputes = disputes.map(d => ({...d,
+      buyer_name:  userMap[d.buyer_id]?.name,
+      buyer_phone: userMap[d.buyer_id]?.phone,
+      seller_name: userMap[d.seller_id]?.company,
+      seller_phone: userMap[d.seller_id]?.phone
+    }));
     renderDisputes();
   } catch(e) { console.error('loadDisputes:', e); }
 }
@@ -1220,6 +1232,14 @@ function renderDisputes() {
             <div>
               <div style="font-weight:700;color:var(--navy)">${d.order_ref}</div>
               <div style="font-size:13px;color:var(--grey);margin-top:3px">🛒 ${d.buyer_name} ↔ 🏪 ${d.seller_name}</div>
+              <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+                ${d.buyer_phone ? `<a href="https://wa.me/237${d.buyer_phone}?text=Hello%20${encodeURIComponent(d.buyer_name||'Buyer')}%2C%20regarding%20your%20dispute%20on%20order%20${d.order_ref}%3A%20" target="_blank"
+                  style="display:inline-flex;align-items:center;gap:4px;background:#25D366;color:#fff;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none">
+                  💬 WhatsApp Buyer</a>` : ''}
+                ${d.seller_phone ? `<a href="https://wa.me/237${d.seller_phone}?text=Hello%20${encodeURIComponent(d.seller_name||'Seller')}%2C%20regarding%20dispute%20on%20order%20${d.order_ref}%3A%20" target="_blank"
+                  style="display:inline-flex;align-items:center;gap:4px;background:#1A2B4A;color:#fff;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none">
+                  💬 WhatsApp Seller</a>` : ''}
+              </div>
             </div>
             <div style="text-align:right">
               <div style="font-weight:800;color:var(--navy)">${fmtMoney(d.amount)} FCFA</div>
@@ -2063,6 +2083,23 @@ function closeSellerDetail() {
 
 document.getElementById('login-pass')?.addEventListener('keydown', e => { if(e.key==='Enter') handleLogin(); });
 document.getElementById('login-email')?.addEventListener('keydown', e => { if(e.key==='Enter') handleLogin(); });
+
+// ── Refresh Disputes ─────────────────────────────────────────
+async function refreshDisputes() {
+  const btn = document.getElementById('refresh-disputes-btn');
+  if (btn) { btn.textContent = '⏳ Loading...'; btn.disabled = true; }
+  try {
+    await loadDisputes();
+    const openD = allDisputes.filter(d => d.status === 'open').length;
+    const db2 = document.getElementById('dispute-badge');
+    if (db2) { db2.textContent = openD; db2.style.display = openD > 0 ? 'inline-block' : 'none'; }
+    const finD = document.getElementById('fin-disputes');
+    if (finD) finD.textContent = openD;
+  } catch(e) { console.error('Refresh error:', e); }
+  finally {
+    if (btn) { btn.textContent = '🔄 Refresh'; btn.disabled = false; }
+  }
+}
 </script>
 
 <!-- ══ SELLER DETAIL OVERLAY ════════════════════════════════════ -->
@@ -2078,4 +2115,10 @@ document.getElementById('login-email')?.addEventListener('keydown', e => { if(e.
 </div>
 
 </body>
-</html>
+</html> 
+ 
+ 
+ 
+ 
+<!-- Refresh button v2 --> 
+ 
