@@ -855,28 +855,9 @@ function logout() { location.reload(); }
 // ══════════════════════════════════════════════════════════════
 //  DATA LOADING
 // ══════════════════════════════════════════════════════════════
-let disputeRefreshInterval = null;
-
 async function loadAll() {
   await Promise.all([loadUsers(), loadOrders(), loadAdmins(), loadDisputes(), loadSubscriptions(), loadBroadcasts()]);
   loadDashboard();
-  // Auto-refresh disputes every 30 seconds
-  if (disputeRefreshInterval) clearInterval(disputeRefreshInterval);
-  disputeRefreshInterval = setInterval(async function() {
-    try {
-      // loadDisputes() already calls renderDisputes() internally
-      await loadDisputes();
-      // Update dispute badge after render
-      const openD = allDisputes.filter(d => d.status === 'open').length;
-      const db2 = document.getElementById('dispute-badge');
-      if (db2) {
-        db2.textContent = openD;
-        db2.style.display = openD > 0 ? 'inline-block' : 'none';
-      }
-      const finD = document.getElementById('fin-disputes');
-      if (finD) finD.textContent = openD;
-    } catch(e) { console.error('Auto-refresh error:', e); }
-  }, 15000); // every 15 seconds
 }
 
 async function loadUsers() {
@@ -2097,6 +2078,4 @@ document.getElementById('login-email')?.addEventListener('keydown', e => { if(e.
 </div>
 
 </body>
-</html> 
- 
- 
+</html>
