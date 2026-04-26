@@ -866,6 +866,7 @@ async function loadAll() {
     try {
       await loadDisputes();
       await loadOrders();
+      renderDisputes();
       // Update dispute badge
       const openD = allDisputes.filter(d => d.status === 'open').length;
       const db2 = document.getElementById('dispute-badge');
@@ -2099,3 +2100,4 @@ document.getElementById('login-email')?.addEventListener('keydown', e => { if(e.
 
 </body>
 </html> 
+ 
