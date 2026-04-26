@@ -1276,6 +1276,26 @@ async function resolveDispute(id, resolution) {
   renderDisputes();
   const msgs = { resolved_refund:'↩ Buyer refunded', resolved_release:'→ Released to seller', resolved_partial:'⚖ Partial refund issued' };
   toast('✓ ' + (msgs[resolution]||'Resolved'), 'success');
+  // Notify buyer about dispute resolution
+  try {
+    const dispute = allDisputes.find(d => d.id === id);
+    if (dispute && dispute.buyer_id && !isDemoMode) {
+      const resMsg = {
+        resolved_refund:  'Your dispute has been resolved — a refund has been approved.',
+        resolved_release: 'Your dispute has been reviewed — payment released to seller.',
+        resolved_partial: 'Your dispute has been resolved — a partial refund has been approved.'
+      };
+      await restPost('ptn_notifications', {
+        user_id:  dispute.buyer_id,
+        type:     'dispute',
+        title_en: 'Dispute Resolved: ' + dispute.order_ref,
+        title_fr: 'Litige resolu: ' + dispute.order_ref,
+        body_en:  resMsg[resolution] || 'Your dispute has been resolved.',
+        body_fr:  resMsg[resolution] || 'Votre litige a ete resolu.',
+        read:     false
+      });
+    }
+  } catch(e) { console.error('Notify buyer error:', e); }
 }
 
 // ══════════════════════════════════════════════════════════════
