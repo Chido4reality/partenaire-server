@@ -952,7 +952,7 @@ async function loadDisputes() {
     const ids = [...new Set([...disputes.map(d=>d.buyer_id), ...disputes.map(d=>d.seller_id)].filter(Boolean))];
     let userMap = {};
     if (ids.length) {
-      const users = await xhr('GET', apiUrl('ptn_users', 'id=in.(' + ids.join(',') + ')&select=id,name,company'));
+      const users = await xhr('GET', apiUrl('ptn_users', 'id=in.(' + ids.join(',') + ')&select=id,name,company,phone'));
       if (Array.isArray(users)) users.forEach(u => userMap[u.id] = u);
     }
     allDisputes = disputes.map(d => ({...d,
