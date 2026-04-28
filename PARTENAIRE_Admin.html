@@ -1056,7 +1056,7 @@ function filterVerify() {
       </div></td>
       <td><span class="badge ${badgeClass(s.badge_tier)}">${badgeLabel(s.badge_tier)}</span></td>
       <td>${s.city||'—'}</td>
-      <td><span style="font-size:12px;color:var(--grey)">3 docs</span></td>
+      <td><button class="btn btn-sm" onclick="viewSellerDocs('${s.id}')" style="font-size:11px;padding:4px 10px">📄 View Docs</button></td>
       <td style="font-size:12px;color:var(--grey)">${fmtDate(s.created_at)}</td>
       <td><span class="badge ${statusClass(s.badge_status)}">${statusLabel(s.badge_status)}</span></td>
       <td>
@@ -2134,6 +2134,43 @@ async function reloadData() {
     if (btn) { btn.textContent = '🔄 Refresh Data'; btn.disabled = false; }
   }
 }
+
+// -- View Seller Documents
+async function viewSellerDocs(sellerId) {
+  openModal('modal-docs');
+  var content = document.getElementById('docs-viewer-content');
+  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  try {
+    var docs = await xhr('GET', apiUrl('ptn_verification_docs',
+      'seller_id=eq.' + sellerId + '&order=submitted_at.desc&limit=5'));
+    if (!docs || !docs.length) {
+      content.innerHTML = '<div class="empty"><div class="empty-icon">📄</div><div class="empty-text">No documents submitted yet</div></div>';
+      return;
+    }
+    var html2 = '';
+    for (var i = 0; i < docs.length; i++) {
+      var d = docs[i];
+      var imgs = [];
+      if (d.id_document)  imgs.push({ label: 'ID / Passport', src: d.id_document });
+      if (d.business_doc) imgs.push({ label: 'Business Registration', src: d.business_doc });
+      if (d.shop_photo)   imgs.push({ label: 'Shop Photo', src: d.shop_photo });
+      if (d.file_url)     imgs.push({ label: 'Document', src: d.file_url });
+      if (!imgs.length) {
+        html2 += '<p style="color:var(--grey);text-align:center">No document images found</p>';
+        continue;
+      }
+      for (var j = 0; j < imgs.length; j++) {
+        html2 += '<div style="margin-bottom:20px">';
+        html2 += '<div style="font-size:12px;font-weight:700;color:var(--grey);margin-bottom:8px;text-transform:uppercase">' + imgs[j].label + '</div>';
+        html2 += '<img src="' + imgs[j].src + '" style="width:100%;border-radius:12px;border:1px solid var(--lgrey);cursor:pointer" onclick="window.open(this.src)" title="Click to open full size"/>';
+        html2 += '</div>';
+      }
+    }
+    content.innerHTML = html2;
+  } catch(e) {
+    content.innerHTML = '<div class="alert">Error loading documents: ' + e.message + '</div>';
+  }
+}
 </script>
 
 <!-- ══ SELLER DETAIL OVERLAY ════════════════════════════════════ -->
@@ -2148,6 +2185,20 @@ async function reloadData() {
   </div>
 </div>
 
+
+<!-- ══ DOCS VIEWER MODAL ══════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-docs" onclick="if(event.target===this)closeModal('modal-docs')">
+  <div class="modal-box" style="max-width:600px">
+    <div class="modal-header">
+      <div class="modal-title">View Documents</div>
+      <button class="modal-close" onclick="closeModal('modal-docs')">X</button>
+    </div>
+    <div id="docs-viewer-content" style="padding:20px">
+      <div class="loading"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+<!-- ════════════════════════════════════════════════════════════ -->
 </body>
 </html> 
  
