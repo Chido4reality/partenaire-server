@@ -1055,6 +1055,8 @@ function renderOrders() {
   el.innerHTML = allOrders.map(o => `
     <div class="order-card" onclick="${o.counter_status==='pending' ? `openCounterOffer('${o.id}')` : `openOrderDetail('${o.id}')`}">
       ${o.counter_status==='pending' ? `<div style="background:var(--amberl);color:var(--amber);font-size:11px;font-weight:800;padding:4px 10px;border-radius:8px;margin-bottom:8px;display:inline-block">✏️ SELLER ADJUSTED — TAP TO REVIEW</div>` : ''}
+      ${o.counter_status==='accepted' ? `<div style="background:var(--greenl);color:var(--green);font-size:11px;font-weight:800;padding:4px 10px;border-radius:8px;margin-bottom:8px;display:inline-block">✅ YOU ACCEPTED — AWAITING CONFIRMATION</div>` : ''}
+      ${o.counter_status==='rejected' ? `<div style="background:#FEECEC;color:var(--red);font-size:11px;font-weight:800;padding:4px 10px;border-radius:8px;margin-bottom:8px;display:inline-block">❌ YOU REJECTED THIS COUNTER-OFFER</div>` : ''}
       ${o.payment_requested && o.status==='confirmed' && o.counter_status!=='pending' ? `<div style="background:var(--greenl);color:var(--green);font-size:11px;font-weight:800;padding:4px 10px;border-radius:8px;margin-bottom:8px;display:inline-block">💳 PAYMENT REQUESTED — TAP TO PAY</div>` : ''}
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="order-ref">${o.order_ref}</div>
@@ -1765,6 +1767,7 @@ async function submitDispute() {
 
 </body>
 </html> 
+ 
  
  
  
