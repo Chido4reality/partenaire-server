@@ -1203,9 +1203,9 @@ function startSync() {
         if (latest.id !== lastNotifId) {
           lastNotifId = latest.id;
           toast('🔔 ' + (latest.title_en||'New notification'), 'success');
-          await loadOrders();
-        }
+          }
       }
+      await loadOrders();
     } catch(e) {}
   }, 30000); // every 30 seconds
 }
@@ -1776,4 +1776,5 @@ async function submitDispute() {
  
  
 
+ 
  
