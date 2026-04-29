@@ -2304,6 +2304,8 @@ function startSellerSync() {
         updateOrderBadge();
       }
       lastOrderCount = count;
+      // Also refresh orders silently to catch status changes
+      await loadOrders();
       // Also refresh notifications
       await loadNotifications();
     } catch(e) {}
@@ -2704,4 +2706,5 @@ document.addEventListener('keydown', e => {
 
 </body>
 </html> 
+ 
  
