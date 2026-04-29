@@ -1220,6 +1220,7 @@ function renderOrders() {
         <div class="order-ref">${o.order_ref}</div>
         <span class="status s-${o.status}">${o.status}</span>
       </div>
+      ${o.payment_status==='paid' ? '<div style="background:#E8F5E9;color:#2E7D32;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:6px;display:inline-block">💳 PAYMENT RECEIVED — IN ESCROW</div>' : ''}
       ${o.counter_status==='pending' ? '<div style="background:#FEF9EC;color:#92600A;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:6px;display:inline-block">✏️ COUNTER-OFFER SENT — AWAITING BUYER</div>' : ''}
       ${o.counter_status==='accepted' ? '<div style="background:#E8F5E9;color:#2E7D32;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:6px;display:inline-block">✅ BUYER ACCEPTED COUNTER-OFFER</div>' : ''}
       ${o.counter_status==='rejected' ? '<div style="background:#FEECEC;color:#E84040;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:6px;display:inline-block">❌ BUYER REJECTED — CANCELLED</div>' : ''}
@@ -2703,3 +2704,4 @@ document.addEventListener('keydown', e => {
 
 </body>
 </html> 
+ 

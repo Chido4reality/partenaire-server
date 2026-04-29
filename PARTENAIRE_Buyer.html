@@ -1057,7 +1057,8 @@ function renderOrders() {
       ${o.counter_status==='pending' ? `<div style="background:var(--amberl);color:var(--amber);font-size:11px;font-weight:800;padding:4px 10px;border-radius:8px;margin-bottom:8px;display:inline-block">✏️ SELLER ADJUSTED — TAP TO REVIEW</div>` : ''}
       ${o.counter_status==='accepted' ? `<div style="background:var(--greenl);color:var(--green);font-size:11px;font-weight:800;padding:4px 10px;border-radius:8px;margin-bottom:8px;display:inline-block">✅ YOU ACCEPTED — AWAITING CONFIRMATION</div>` : ''}
       ${o.counter_status==='rejected' ? `<div style="background:#FEECEC;color:var(--red);font-size:11px;font-weight:800;padding:4px 10px;border-radius:8px;margin-bottom:8px;display:inline-block">❌ YOU REJECTED THIS COUNTER-OFFER</div>` : ''}
-      ${o.payment_requested && o.status==='confirmed' && o.counter_status!=='pending' ? `<div style="background:var(--greenl);color:var(--green);font-size:11px;font-weight:800;padding:4px 10px;border-radius:8px;margin-bottom:8px;display:inline-block">💳 PAYMENT REQUESTED — TAP TO PAY</div>` : ''}
+      ${o.payment_status==='paid' ? `<div style="background:#E8F5E9;color:#2E7D32;font-size:11px;font-weight:800;padding:4px 10px;border-radius:8px;margin-bottom:8px;display:inline-block">💳 PAID — IN ESCROW</div>` : ''}
+      ${o.payment_requested && o.status==='confirmed' && o.counter_status!=='pending' && o.payment_status!=='paid' ? `<div style="background:var(--greenl);color:var(--green);font-size:11px;font-weight:800;padding:4px 10px;border-radius:8px;margin-bottom:8px;display:inline-block">💳 PAYMENT REQUESTED — TAP TO PAY</div>` : ''}
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="order-ref">${o.order_ref}</div>
         <span class="status s-${o.status}">${o.status}</span>
@@ -1354,7 +1355,7 @@ async function acceptCounterOffer() {
     await PATCH('ptn_orders','id',activeCounterOrderId,{items:finalItems,total:finalTotal,counter_status:'accepted',updated_at:new Date().toISOString()});
     document.getElementById('counter-modal').classList.remove('open');
     openMomoModal({ type:'order', title:'💳 Pay for Your Order', subtitle:'Order confirmed — payment held in escrow', amount:finalTotal, ref:o.order_ref,
-      onSuccess: async () => { await PATCH('ptn_orders','id',activeCounterOrderId,{escrow_held:finalTotal,payment_requested:false,updated_at:new Date().toISOString()}); await loadOrders(); toast('✅ Payment confirmed!', 'success'); }
+      onSuccess: async () => { await PATCH('ptn_orders','id',activeCounterOrderId,{escrow_held:finalTotal,payment_requested:false,payment_status:'paid',updated_at:new Date().toISOString()}); await loadOrders(); toast('✅ Payment confirmed!', 'success'); }
     });
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
@@ -1396,7 +1397,7 @@ async function checkPaymentRequests() {
         toast('💳 Payment requested for order ' + o.order_ref, '');
         openMomoModal({ type:'order', title:'💳 Pay for Order '+o.order_ref, subtitle:'Your order is confirmed — please pay to proceed',
           amount:o.total||0, ref:o.order_ref,
-          onSuccess: async () => { await PATCH('ptn_orders','id',o.id,{escrow_held:o.total||0,payment_requested:false,updated_at:new Date().toISOString()}); await loadOrders(); }
+          onSuccess: async () => { await PATCH('ptn_orders','id',o.id,{escrow_held:o.total||0,payment_requested:false,payment_status:'paid',updated_at:new Date().toISOString()}); await loadOrders(); toast('✅ Payment confirmed!', 'success'); }
         });
         try { await PATCH('ptn_notifications','id',n.id,{read:true}); } catch(e) {}
         break;
@@ -1767,6 +1768,7 @@ async function submitDispute() {
 
 </body>
 </html> 
+ 
  
  
  
