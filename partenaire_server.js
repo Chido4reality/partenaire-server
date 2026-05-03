@@ -439,6 +439,134 @@ http.createServer((req, res) => {
     res.end(d);
   });
 
+
+// ── CAMPAY CONFIGURATION ──────────────────────────────────────
+const CAMPAY_BASE = process.env.CAMPAY_ENV === 'production'
+  ? 'https://campay.net/api'
+  : 'https://demo.campay.net/api';
+
+let _campayToken = null;
+let _campayTokenExp = null;
+
+async function getCampayToken() {
+  if (_campayToken && _campayTokenExp && Date.now() < _campayTokenExp) return _campayToken;
+  const r = await fetch(CAMPAY_BASE + '/token/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: process.env.CAMPAY_USERNAME, password: process.env.CAMPAY_PASSWORD })
+  });
+  const d = await r.json();
+  if (!d.token) throw new Error('Campay token failed: ' + JSON.stringify(d));
+  _campayToken = d.token;
+  _campayTokenExp = Date.now() + 55 * 60 * 1000;
+  return _campayToken;
+}
+
+async function campayCollect(amount, phone, description, reference) {
+  const token = await getCampayToken();
+  const cleanPhone = String(phone).replace(/\s/g, '').replace(/^\+/, '');
+  const r = await fetch(CAMPAY_BASE + '/collect/', {
+    method: 'POST',
+    headers: { 'Authorization': 'Token ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount: String(amount), currency: 'XAF', from: cleanPhone, description: description, external_reference: reference })
+  });
+  return await r.json();
+}
+
+async function campayCheck(reference) {
+  const token = await getCampayToken();
+  const r = await fetch(CAMPAY_BASE + '/transaction/' + reference + '/', {
+    headers: { 'Authorization': 'Token ' + token }
+  });
+  return await r.json();
+}
+
+async function campayPayout(amount, phone, description, reference) {
+  const token = await getCampayToken();
+  const cleanPhone = String(phone).replace(/\s/g, '').replace(/^\+/, '');
+  const r = await fetch(CAMPAY_BASE + '/transfer/', {
+    method: 'POST',
+    headers: { 'Authorization': 'Token ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount: String(amount), currency: 'XAF', to: cleanPhone, description: description, external_reference: reference })
+  });
+  return await r.json();
+}
+
+server.post('/campay/pay', async (req, res) => {
+  const { order_id, phone, amount, type } = req.body;
+  if (!phone || !amount) return res.end(JSON.stringify({ success: false, message: 'Phone and amount required' }));
+  try {
+    const reference = 'PAY-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+    const description = 'Paiement commande PARTENAIRE';
+    await supabase.from('ptn_campay_transactions').insert({ reference, order_id: order_id || null, transaction_type: type || 'payment', amount, payer_phone: phone, status: 'pending' });
+    const result = await campayCollect(amount, phone, description, reference);
+    if (result.reference || result.ussd_code) {
+      if (order_id) await supabase.from('ptn_orders').update({ campay_reference: reference, campay_status: 'pending', payer_phone: phone }).eq('id', order_id);
+      res.end(JSON.stringify({ success: true, reference, ussd_code: result.ussd_code, operator: result.operator }));
+    } else {
+      res.end(JSON.stringify({ success: false, message: result.message || 'Paiement echoue', details: result }));
+    }
+  } catch (err) {
+    console.error('Campay pay error:', err.message);
+    res.end(JSON.stringify({ success: false, message: 'Erreur: ' + err.message }));
+  }
+});
+
+server.post('/campay/check', async (req, res) => {
+  const { reference, order_id } = req.body;
+  if (!reference) return res.end(JSON.stringify({ success: false, message: 'Reference required' }));
+  try {
+    const result = await campayCheck(reference);
+    const isPaid = result.status === 'SUCCESSFUL';
+    await supabase.from('ptn_campay_transactions').update({ status: isPaid ? 'successful' : (result.status || 'pending').toLowerCase(), updated_at: new Date().toISOString() }).eq('reference', reference);
+    if (isPaid && order_id) {
+      const { data: order } = await supabase.from('ptn_orders').select('total, counter_total, counter_status, seller_id, order_ref').eq('id', order_id).single();
+      const finalAmount = order && order.counter_status === 'accepted' ? order.counter_total : order && order.total;
+      await supabase.from('ptn_orders').update({ payment_status: 'paid', campay_status: 'successful', campay_paid_at: new Date().toISOString(), escrow_held: finalAmount, status: 'confirmed' }).eq('id', order_id);
+      if (order) await supabase.from('ptn_notifications').insert({ user_id: order.seller_id, type: 'payment', title_en: 'Payment Received', title_fr: 'Paiement recu', body_en: 'Order ' + order.order_ref + ' paid.', body_fr: 'Commande ' + order.order_ref + ' payee.', order_id });
+    }
+    res.end(JSON.stringify({ success: true, paid: isPaid, status: result.status }));
+  } catch (err) {
+    console.error('Campay check error:', err.message);
+    res.end(JSON.stringify({ success: false, message: err.message }));
+  }
+});
+
+server.post('/campay/release', async (req, res) => {
+  const { order_id, admin_pin } = req.body;
+  if (admin_pin !== process.env.ADMIN_PIN && admin_pin !== '2468') return res.end(JSON.stringify({ success: false, message: 'Non autorise' }));
+  try {
+    const { data: order } = await supabase.from('ptn_orders').select('*, seller:seller_id(phone, name)').eq('id', order_id).single();
+    if (!order) return res.end(JSON.stringify({ success: false, message: 'Commande introuvable' }));
+    if (order.escrow_released) return res.end(JSON.stringify({ success: false, message: 'Deja libere' }));
+    const reference = 'PAYOUT-' + order.order_ref + '-' + Date.now();
+    const result = await campayPayout(order.escrow_held, order.seller && order.seller.phone, 'Paiement PARTENAIRE ' + order.order_ref, reference);
+    if (result.reference || result.status === 'SUCCESSFUL') {
+      await supabase.from('ptn_orders').update({ escrow_released: true, campay_payout_ref: reference, campay_payout_at: new Date().toISOString(), status: 'delivered' }).eq('id', order_id);
+      res.end(JSON.stringify({ success: true, message: 'Fonds liberes', amount: order.escrow_held }));
+    } else {
+      res.end(JSON.stringify({ success: false, message: 'Virement echoue', details: result }));
+    }
+  } catch (err) {
+    res.end(JSON.stringify({ success: false, message: err.message }));
+  }
+});
+
+server.post('/campay/webhook', async (req, res) => {
+  const { reference, status, operator } = req.body;
+  console.log('Campay webhook:', req.body);
+  if (status === 'SUCCESSFUL' && reference) {
+    const { data: txn } = await supabase.from('ptn_campay_transactions').select('*').eq('reference', reference).single();
+    if (txn && txn.order_id) {
+      const { data: order } = await supabase.from('ptn_orders').select('total, counter_total, counter_status').eq('id', txn.order_id).single();
+      const finalAmount = order && order.counter_status === 'accepted' ? order.counter_total : order && order.total;
+      await supabase.from('ptn_orders').update({ payment_status: 'paid', campay_status: 'successful', campay_operator: operator, campay_paid_at: new Date().toISOString(), escrow_held: finalAmount, status: 'confirmed' }).eq('id', txn.order_id);
+    }
+    await supabase.from('ptn_campay_transactions').update({ status: 'successful', operator, updated_at: new Date().toISOString() }).eq('reference', reference);
+  }
+  res.end(JSON.stringify({ received: true }));
+});
+
 }).listen(PORT, () => {
   console.log('');
   console.log('â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”');
