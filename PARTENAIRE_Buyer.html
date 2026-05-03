@@ -1281,37 +1281,51 @@ function selectOperator(op) {
 
 async function confirmMomoPayment() {
   const phone = document.getElementById('momo-phone').value.trim().replace(/\s/g,'');
-  if (phone.length < 8) { toast('Enter your phone number', 'error'); return; }
+  if (phone.length < 8) { toast('Entrez votre numero Mobile Money', 'error'); return; }
   const btn = document.getElementById('momo-pay-btn');
   const status = document.getElementById('momo-status');
-  btn.disabled = true; btn.textContent = '⏳ Processing...';
+  btn.disabled = true;
+  btn.textContent = 'Traitement...';
   status.className = 'momo-status processing';
-  status.textContent = '⏳ Sending payment request to your phone...';
+  status.textContent = 'Demande envoyee a votre telephone...';
   try {
-    let usingSandbox = false;
-    try {
-      const res = await fetch('/campay/pay', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: momoContext.amount, phone, paymentRef: momoContext.ref, type: momoContext.type, sandbox: true })
-      });
-      const data = await res.json();
-      if (data.payment_url) { window.open(data.payment_url, '_blank'); status.textContent = '📱 Complete payment on the opened page'; btn.textContent = '⏳ Waiting...'; return; }
-      usingSandbox = true;
-    } catch(fetchErr) { usingSandbox = true; }
-    if (usingSandbox) {
-      status.textContent = '🧪 SANDBOX: Simulating payment... (3 seconds)';
-      setTimeout(async () => {
-        status.className = 'momo-status success';
-        status.textContent = '✅ Payment confirmed!';
-        btn.textContent = '✓ Paid!';
-        if (momoContext.onSuccess) await momoContext.onSuccess();
-        setTimeout(() => { closeMomoModal(); toast('✅ Payment confirmed!', 'success'); }, 1500);
-      }, 3000);
+    const fullPhone = '237' + phone;
+    const res = await fetch('/campay/pay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: momoContext.order_id || null, phone: fullPhone, amount: momoContext.amount, type: momoContext.type || 'order' })
+    });
+    const data = await res.json();
+    if (data.success) {
+      window._campayRef = data.reference;
+      status.textContent = 'Approuvez sur votre telephone.' + (data.ussd_code ? ' USSD: ' + data.ussd_code : '');
+      btn.textContent = 'En attente...';
+      let checks = 0;
+      const campTimer = setInterval(async () => {
+        checks++;
+        if (checks > 24) { clearInterval(campTimer); btn.disabled = false; btn.textContent = 'Reessayer'; status.textContent = 'Temps ecoule.'; return; }
+        try {
+          const cr = await fetch('/campay/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference: window._campayRef, order_id: momoContext.order_id || null }) });
+          const cd = await cr.json();
+          if (cd.paid) {
+            clearInterval(campTimer);
+            status.className = 'momo-status success';
+            status.textContent = 'Paiement confirme! Fonds en escrow.';
+            btn.textContent = 'Paye!';
+            if (momoContext.onSuccess) await momoContext.onSuccess();
+            setTimeout(function() { closeMomoModal(); toast('Paiement confirme!', 'success'); location.reload(); }, 2000);
+          }
+        } catch(e) {}
+      }, 5000);
+    } else {
+      status.className = 'momo-status failed';
+      status.textContent = data.message || 'Erreur paiement.';
+      btn.disabled = false; btn.textContent = 'Reessayer';
     }
   } catch(e) {
     status.className = 'momo-status failed';
-    status.textContent = '❌ ' + e.message;
-    btn.disabled = false; btn.textContent = 'Try Again';
+    status.textContent = 'Erreur reseau: ' + e.message;
+    btn.disabled = false; btn.textContent = 'Reessayer';
   }
 }
 
