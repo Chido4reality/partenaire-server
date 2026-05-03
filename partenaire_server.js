@@ -1,4 +1,56 @@
-require('dotenv').config();
+﻿require('dotenv').config();
+
+// â”€â”€â”€ CAMPAY CONFIGURATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const CAMPAY_BASE_URL = process.env.CAMPAY_ENV === 'production'
+  ? 'https://campay.net/api'
+  : 'https://demo.campay.net/api';
+
+let campayToken = null;
+let campayTokenExpiry = null;
+
+async function getCampayToken() {
+  if (campayToken && campayTokenExpiry && Date.now() < campayTokenExpiry) return campayToken;
+  const res = await fetch(`${CAMPAY_BASE_URL}/token/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: process.env.CAMPAY_USERNAME, password: process.env.CAMPAY_PASSWORD })
+  });
+  const data = await res.json();
+  if (!data.token) throw new Error('Campay token failed: ' + JSON.stringify(data));
+  campayToken = data.token;
+  campayTokenExpiry = Date.now() + (55 * 60 * 1000);
+  return campayToken;
+}
+
+async function campayCollect({ amount, phone, description, reference }) {
+  const token = await getCampayToken();
+  const cleanPhone = String(phone).replace(/\s/g,'').replace(/^\+/,'');
+  const res = await fetch(`${CAMPAY_BASE_URL}/collect/`, {
+    method: 'POST',
+    headers: { 'Authorization': `Token ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount: String(amount), currency: 'XAF', from: cleanPhone, description, external_reference: reference })
+  });
+  return await res.json();
+}
+
+async function campayCheckStatus(reference) {
+  const token = await getCampayToken();
+  const res = await fetch(`${CAMPAY_BASE_URL}/transaction/${reference}/`, {
+    headers: { 'Authorization': `Token ${token}` }
+  });
+  return await res.json();
+}
+
+async function campayPayout({ amount, phone, description, reference }) {
+  const token = await getCampayToken();
+  const cleanPhone = String(phone).replace(/\s/g,'').replace(/^\+/,'');
+  const res = await fetch(`${CAMPAY_BASE_URL}/transfer/`, {
+    method: 'POST',
+    headers: { 'Authorization': `Token ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount: String(amount), currency: 'XAF', to: cleanPhone, description, external_reference: reference })
+  });
+  return await res.json();
+}
 const http  = require('http');
 const fs    = require('fs');
 const path  = require('path');
@@ -13,7 +65,7 @@ const KEY  = process.env.SUPABASE_KEY;
 const PORT = 8080;
 const DIR=__dirname;
 
-// ── MONETBIL CONFIG ───────────────────────────────────────────
+// â”€â”€ MONETBIL CONFIG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Replace with real keys when going live
 const MONETBIL_SERVICE_KEY    = 'test_service_key_partenaire';
 const MONETBIL_SERVICE_SECRET = 'test_service_secret_partenaire';
@@ -28,12 +80,12 @@ const ROUTES = {
   '/buyer':  'PARTENAIRE_Buyer.html',
 };
 
-// ── BACKDOOR CONFIG (for testing) ────────────────────────────
+// â”€â”€ BACKDOOR CONFIG (for testing) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const BACKDOOR_PHONE = '675995524';
 const BACKDOOR_EMAIL = 'chido4reality@yahoo.com';
 const BACKDOOR_CODE  = '2468';
 
-// ── OTP STORE (in-memory) ────────────────────────────────────
+// â”€â”€ OTP STORE (in-memory) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const otpStore = {}; // { phone: { code, expiresAt } }
 
 function generateOTP() {
@@ -54,7 +106,7 @@ async function sendOTP(phone) {
 }
 
 function verifyOTP(phone, code, email) {
-  // ── BACKDOOR: always let the test account through ──
+  // â”€â”€ BACKDOOR: always let the test account through â”€â”€
   const cleanPhone = phone ? phone.replace(/^\+237/, '') : '';
   const isBackdoorPhone = cleanPhone === BACKDOOR_PHONE || phone === '+237' + BACKDOOR_PHONE;
   const isBackdoorEmail = email && email.toLowerCase() === BACKDOOR_EMAIL.toLowerCase();
@@ -63,7 +115,7 @@ function verifyOTP(phone, code, email) {
     return { ok: true, backdoor: true };
   }
 
-  // ── Normal OTP verification ──
+  // â”€â”€ Normal OTP verification â”€â”€
   const entry = otpStore[phone];
   if (!entry) return { ok: false, reason: 'No OTP requested for this number' };
   if (Date.now() > entry.expiresAt) {
@@ -75,7 +127,7 @@ function verifyOTP(phone, code, email) {
   return { ok: true };
 }
 
-// ── SUPABASE HELPER ───────────────────────────────────────────
+// â”€â”€ SUPABASE HELPER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function supaRequest(method, table, params, body) {
   return new Promise((resolve, reject) => {
     const supaPath = '/rest/v1/' + table + (params ? '?' + params : '');
@@ -104,7 +156,7 @@ function supaRequest(method, table, params, body) {
   });
 }
 
-// ── MONETBIL PAYMENT INITIATOR ────────────────────────────────
+// â”€â”€ MONETBIL PAYMENT INITIATOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function initiateMonetbilPayment(amount, phone, paymentRef, returnUrl) {
   return new Promise((resolve, reject) => {
     const params = new URLSearchParams({
@@ -143,7 +195,7 @@ function initiateMonetbilPayment(amount, phone, paymentRef, returnUrl) {
   });
 }
 
-// ── WEBHOOK HANDLER: Monetbil notifies us of payment result ──
+// â”€â”€ WEBHOOK HANDLER: Monetbil notifies us of payment result â”€â”€
 async function handleMonetbilNotify(body) {
   try {
     const params = new URLSearchParams(body);
@@ -153,7 +205,7 @@ async function handleMonetbilNotify(body) {
     const phone      = params.get('phone') || '';
     const operator   = params.get('operator') || '';
 
-    console.log(`[Monetbil] Payment ${paymentRef}: ${status} — ${amount} XAF from ${phone} via ${operator}`);
+    console.log(`[Monetbil] Payment ${paymentRef}: ${status} â€” ${amount} XAF from ${phone} via ${operator}`);
 
     if (status !== 'SUCCESS') {
       console.log('[Monetbil] Payment failed or pending:', status);
@@ -172,19 +224,19 @@ async function handleMonetbilNotify(body) {
         await supaRequest('POST', 'ptn_notifications', null, {
           user_id: order.seller_id,
           type: 'payment',
-          title_en: '💰 Payment Received!',
-          title_fr: '💰 Paiement reçu!',
+          title_en: 'ðŸ’° Payment Received!',
+          title_fr: 'ðŸ’° Paiement reÃ§u!',
           body_en: `Payment of ${amount.toLocaleString()} XAF confirmed for order ${paymentRef} via ${operator}`,
-          body_fr: `Paiement de ${amount.toLocaleString()} XAF confirmé pour la commande ${paymentRef} via ${operator}`,
+          body_fr: `Paiement de ${amount.toLocaleString()} XAF confirmÃ© pour la commande ${paymentRef} via ${operator}`,
           read: false
         });
         await supaRequest('POST', 'ptn_notifications', null, {
           user_id: order.buyer_id,
           type: 'payment',
-          title_en: '✅ Payment Confirmed',
-          title_fr: '✅ Paiement confirmé',
+          title_en: 'âœ… Payment Confirmed',
+          title_fr: 'âœ… Paiement confirmÃ©',
           body_en: `Your payment of ${amount.toLocaleString()} XAF for order ${paymentRef} was received.`,
-          body_fr: `Votre paiement de ${amount.toLocaleString()} XAF pour la commande ${paymentRef} a été reçu.`,
+          body_fr: `Votre paiement de ${amount.toLocaleString()} XAF pour la commande ${paymentRef} a Ã©tÃ© reÃ§u.`,
           read: false
         });
         console.log('[Monetbil] Order', paymentRef, 'confirmed');
@@ -217,10 +269,10 @@ async function handleMonetbilNotify(body) {
         await supaRequest('POST', 'ptn_notifications', null, {
           user_id: sellerId,
           type: 'payment',
-          title_en: '✅ Subscription Renewed!',
-          title_fr: '✅ Abonnement renouvelé!',
+          title_en: 'âœ… Subscription Renewed!',
+          title_fr: 'âœ… Abonnement renouvelÃ©!',
           body_en: `Payment of ${amount.toLocaleString()} XAF confirmed. Your shop is active until ${nextDue.toDateString()}.`,
-          body_fr: `Paiement de ${amount.toLocaleString()} XAF confirmé. Votre boutique est active jusqu'au ${nextDue.toLocaleDateString('fr-FR')}.`,
+          body_fr: `Paiement de ${amount.toLocaleString()} XAF confirmÃ©. Votre boutique est active jusqu'au ${nextDue.toLocaleDateString('fr-FR')}.`,
           read: false
         });
         console.log('[Monetbil] Subscription renewed for seller', sellerId);
@@ -231,7 +283,7 @@ async function handleMonetbilNotify(body) {
   }
 }
 
-// ── SIMULATE PAYMENT SUCCESS (sandbox/demo mode) ──────────────
+// â”€â”€ SIMULATE PAYMENT SUCCESS (sandbox/demo mode) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function simulatePaymentSuccess(paymentRef, amount, phone) {
   console.log('[SANDBOX] Simulating payment success for', paymentRef);
   const fakeBody = new URLSearchParams({
@@ -244,14 +296,14 @@ async function simulatePaymentSuccess(paymentRef, amount, phone) {
   await handleMonetbilNotify(fakeBody);
 }
 
-// ── HTTP SERVER ───────────────────────────────────────────────
+// â”€â”€ HTTP SERVER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,apikey,Prefer,Accept');
   if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
 
-  // ── SEND OTP ────────────────────────────────────────────────
+  // â”€â”€ SEND OTP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (req.url === '/otp/send' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);
@@ -277,7 +329,7 @@ http.createServer((req, res) => {
     return;
   }
 
-  // ── VERIFY OTP ──────────────────────────────────────────────
+  // â”€â”€ VERIFY OTP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (req.url === '/otp/verify' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);
@@ -295,7 +347,7 @@ http.createServer((req, res) => {
     return;
   }
 
-  // ── MONETBIL WEBHOOK ────────────────────────────────────────
+  // â”€â”€ MONETBIL WEBHOOK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (req.url === '/monetbil/notify' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);
@@ -307,7 +359,7 @@ http.createServer((req, res) => {
     return;
   }
 
-  // ── INITIATE PAYMENT ────────────────────────────────────────
+  // â”€â”€ INITIATE PAYMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (req.url === '/monetbil/pay' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);
@@ -336,7 +388,7 @@ http.createServer((req, res) => {
     return;
   }
 
-  // ── PAYMENT SUCCESS PAGE ────────────────────────────────────
+  // â”€â”€ PAYMENT SUCCESS PAGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (req.url.startsWith('/payment-success')) {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(`<!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -345,14 +397,14 @@ http.createServer((req, res) => {
       .icon{font-size:64px;margin-bottom:16px}h1{font-size:24px;margin-bottom:8px}
       p{opacity:0.7;margin-bottom:24px}a{background:#C9A84C;color:#1A2B4A;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:700}</style>
     </head><body><div class="box">
-      <div class="icon">✅</div><h1>Payment Successful!</h1>
+      <div class="icon">âœ…</div><h1>Payment Successful!</h1>
       <p>Your payment has been confirmed. You can close this window.</p>
       <a href="http://localhost:8080/buyer">Back to PARTENAIRE</a>
     </div></body></html>`);
     return;
   }
 
-  // ── SUPABASE API PROXY ──────────────────────────────────────
+  // â”€â”€ SUPABASE API PROXY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (req.url.startsWith('/api/')) {
     const supaPath = '/rest/v1/' + req.url.slice(5);
     let body = '';
@@ -377,7 +429,7 @@ http.createServer((req, res) => {
     return;
   }
 
-  // ── SERVE LOCAL FILES ───────────────────────────────────────
+  // â”€â”€ SERVE LOCAL FILES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let url = req.url.split('?')[0];
   if (ROUTES[url]) url = '/' + ROUTES[url];
   const f = path.join(DIR, url.slice(1));
@@ -389,16 +441,16 @@ http.createServer((req, res) => {
 
 }).listen(PORT, () => {
   console.log('');
-  console.log('┌──────────────────────────────────────────────┐');
-  console.log('│   PARTENAIRE ✦ Server + OTP + Monetbil Ready │');
-  console.log('├──────────────────────────────────────────────┤');
-  console.log('│  Admin:   http://localhost:8080/admin         │');
-  console.log('│  Seller:  http://localhost:8080/seller        │');
-  console.log('│  Buyer:   http://localhost:8080/buyer         │');
-  console.log('├──────────────────────────────────────────────┤');
-  console.log('│  OTP send:    POST /otp/send                  │');
-  console.log('│  OTP verify:  POST /otp/verify                │');
-  console.log('│  Backdoor:    675995524 / code 2468           │');
-  console.log('└──────────────────────────────────────────────┘');
+  console.log('â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”');
+  console.log('â”‚   PARTENAIRE âœ¦ Server + OTP + Monetbil Ready â”‚');
+  console.log('â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤');
+  console.log('â”‚  Admin:   http://localhost:8080/admin         â”‚');
+  console.log('â”‚  Seller:  http://localhost:8080/seller        â”‚');
+  console.log('â”‚  Buyer:   http://localhost:8080/buyer         â”‚');
+  console.log('â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤');
+  console.log('â”‚  OTP send:    POST /otp/send                  â”‚');
+  console.log('â”‚  OTP verify:  POST /otp/verify                â”‚');
+  console.log('â”‚  Backdoor:    675995524 / code 2468           â”‚');
+  console.log('â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜');
   console.log('');
 });
