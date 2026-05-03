@@ -1290,7 +1290,7 @@ async function confirmMomoPayment() {
   try {
     let usingSandbox = false;
     try {
-      const res = await fetch('/monetbil/pay', {
+      const res = await fetch('/campay/pay', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount: momoContext.amount, phone, paymentRef: momoContext.ref, type: momoContext.type, sandbox: true })
       });
@@ -1689,7 +1689,7 @@ async function submitDispute() {
     </div>
     <button class="momo-pay-btn mtn" id="momo-pay-btn" onclick="confirmMomoPayment()">Pay Now →</button>
     <div class="momo-status" id="momo-status"></div>
-    <div style="font-size:11px;color:var(--grey);margin-top:12px">🔒 Secured by Monetbil · Your PIN stays on your phone</div>
+    <div style="font-size:11px;color:var(--grey);margin-top:12px">🔒 Securise par Campay · Your PIN stays on your phone</div>
   </div>
 </div>
 
