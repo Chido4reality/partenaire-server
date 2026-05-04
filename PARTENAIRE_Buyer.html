@@ -340,6 +340,8 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
         <option>Douala</option><option>Yaoundé</option><option>Bafoussam</option>
         <option>Garoua</option><option>Maroua</option><option>Bertoua</option>
       </select>
+      <label class="auth-label">Choose a PIN (4 digits)</label>
+      <input class="auth-input" id="reg-pin" type="password" placeholder="Choose a 4-digit PIN" maxlength="4" inputmode="numeric">
       <div class="auth-error" id="reg-error"></div>
       <button class="auth-btn gold" onclick="registerBuyer()">Create Account →</button>
       <div class="auth-link">Already have an account? <span onclick="showScreen('screen-phone')">Sign in →</span></div>
@@ -653,26 +655,30 @@ function showScreen(id) {
 }
 function goRegister() { showScreen('screen-register'); }
 
-async function sendOTP() {
+async function sendOTP() { loginWithPIN(); }
+
+async function loginWithPIN() {
   const phone = document.getElementById('phone-input').value.trim().replace(/\s/g,'');
-  if (phone.length < 8) { authErr('phone-error','Enter a valid phone number'); return; }
+  const pin   = document.getElementById('pin-input') ? document.getElementById('pin-input').value.trim() : '';
+  if (phone.length < 8) { authErr('phone-error', 'Entrez votre numero de telephone'); return; }
+  if (!pin || pin.length < 4) { authErr('phone-error', 'Entrez votre code PIN a 4 chiffres'); return; }
   loginPhone = phone;
   try {
-    const buyers = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&select=id,name`);
+    const buyers = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&pin=eq.${pin}&select=*`);
     if (!buyers || !buyers.length) {
-      authErr('phone-error','No buyer account found. Please register first.');
+      // Check if phone exists but wrong PIN
+      const phoneCheck = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&select=id`);
+      if (phoneCheck && phoneCheck.length) {
+        authErr('phone-error', 'Code PIN incorrect. Reessayez.');
+      } else {
+        authErr('phone-error', 'Aucun compte trouve. Creez un compte.');
+      }
       return;
     }
-    // Use server OTP endpoint (handles backdoor 2468 + Africa's Talking SMS)
-    const res = await fetch('/otp/send', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: '+237' + phone })
-    });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error || 'Failed to send OTP');
-    document.getElementById('otp-sub').textContent = `Code sent to +237 ${phone}`;
-    showScreen('screen-otp');
-    setTimeout(() => document.getElementById('o0').focus(), 300);
+    currentBuyer = buyers[0];
+    const sellers = await GET('ptn_users', `phone=eq.${phone}&role=eq.seller&select=id`);
+    currentBuyer._hasSeller = sellers && sellers.length > 0;
+    enterApp();
   } catch(e) { authErr('phone-error', e.message); }
 }
 
@@ -721,7 +727,9 @@ async function registerBuyer() {
   try {
     const existing = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&select=id`);
     if (existing && existing.length) { authErr('reg-error','This phone is already registered. Sign in instead.'); return; }
-    const buyer = await POST('ptn_users', { phone, name, company, city, role:'buyer', status:'active' });
+    const pin = document.getElementById('reg-pin') ? document.getElementById('reg-pin').value.trim() : '0000';
+    if (!pin || pin.length < 4) { authErr('reg-error','Choisissez un PIN a 4 chiffres'); return; }
+    const buyer = await POST('ptn_users', { phone, name, company, city, role:'buyer', status:'active', pin });
     currentBuyer = buyer;
     currentBuyer._hasSeller = false;
     toast('✓ Account created! Welcome to PARTENAIRE', 'success');

