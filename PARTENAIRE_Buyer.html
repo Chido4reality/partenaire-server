@@ -1097,6 +1097,20 @@ function openOrderDetail(id) {
         style="width:100%;padding:12px;margin-top:8px;color:var(--red);border-color:var(--red);font-weight:700;border-radius:10px;background:#fff;border-width:1.5px;border-style:solid;cursor:pointer">
         ⚠️ Raise a Dispute
       </button>` : ''}
+    ${(o.status === 'confirmed' || o.status === 'shipped') && o.payment_status === 'paid' && !o.dispute_raised ? `
+    <div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:16px;border:1px solid var(--lgrey)">
+      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">Un probleme avec cette commande?</div>
+      <div style="font-size:12px;color:var(--grey);margin-bottom:12px">Signalez un probleme — le vendeur sera notifie</div>
+      <button onclick="openRaiseDispute('${o.id}','${o.order_ref}')"
+        style="padding:10px 20px;background:transparent;border:1.5px solid var(--red);color:var(--red);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">
+        ⚠️ Signaler un probleme
+      </button>
+    </div>` : ''}
+    ${o.dispute_raised ? `
+    <div class="alert alert-warn">
+      ⚠️ <strong>Litige ouvert</strong> — ${o.dispute_reason || 'En attente de resolution'}
+      ${o.seller_dispute_reply ? '<br><br><strong>Reponse du vendeur:</strong> ' + o.seller_dispute_reply : ''}
+    </div>` : ''}
     <div style="height:40px"></div>`;
   document.getElementById('order-detail').style.display = 'block';
 }
@@ -1418,6 +1432,50 @@ async function checkPaymentRequests() {
       }
     }
   } catch(e) {}
+}
+
+
+// ── HANDLE ORDER CARD CLICK ───────────────────────────────────
+
+// ── PAY FOR ORDER — opens Campay modal ───────────────────────
+function payForOrder(orderId, amount, orderRef) {
+  openMomoModal({
+    type: 'order',
+    title: 'Payer commande ' + orderRef,
+    subtitle: 'Paiement securise · Fonds en escrow jusqu a livraison',
+    amount: amount,
+    order_id: orderId,
+    ref: orderRef,
+    onSuccess: async () => {
+      await loadOrders();
+      toast('Paiement confirme! Le vendeur va preparer votre commande.', 'success');
+    }
+  });
+}
+
+function handleOrderCardClick(orderId, counterStatus, paymentRequested, status) {
+  if (counterStatus === 'pending') {
+    openCounterOffer(orderId);
+  } else if (paymentRequested && status === 'confirmed') {
+    // Open payment modal directly
+    const o = allOrders.find(x => x.id === orderId);
+    if (!o) return;
+    const amount = o.counter_status === 'accepted' ? (o.counter_total || o.total) : (o.total || 0);
+    openMomoModal({
+      type: 'order',
+      title: 'Payer la commande ' + o.order_ref,
+      subtitle: 'Paiement securise · Fonds en escrow jusqu a la livraison',
+      amount: amount,
+      order_id: orderId,
+      ref: o.order_ref,
+      onSuccess: async () => {
+        await loadOrders();
+        toast('Paiement confirme! Commande en cours.', 'success');
+      }
+    });
+  } else {
+    openOrderDetail(orderId);
+  }
 }
 
 function signOut() {

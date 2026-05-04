@@ -1224,6 +1224,9 @@ function renderOrders() {
       ${o.counter_status==='pending' ? '<div style="background:#FEF9EC;color:#92600A;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:6px;display:inline-block">✏️ COUNTER-OFFER SENT — AWAITING BUYER</div>' : ''}
       ${o.counter_status==='accepted' ? '<div style="background:#E8F5E9;color:#2E7D32;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:6px;display:inline-block">✅ BUYER ACCEPTED COUNTER-OFFER</div>' : ''}
       ${o.counter_status==='rejected' ? '<div style="background:#FEECEC;color:#E84040;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:6px;display:inline-block">❌ BUYER REJECTED — CANCELLED</div>' : ''}
+      ${o.dispute_raised && !o.seller_dispute_reply ? '<div style="background:#FEECEC;color:#E84040;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:6px;display:inline-block">⚠️ DISPUTE RAISED — TAP TO REPLY</div>' : ''}
+      ${o.dispute_raised && o.seller_dispute_reply ? '<div style="background:var(--amberl);color:var(--amber);font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:6px;display:inline-block">⚠️ DISPUTE — REPLY SENT</div>' : ''}
+      ${o.payment_status==='paid' ? '<div style="background:var(--greenl);color:var(--green);font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:6px;display:inline-block">💳 PAID — ESCROW HELD</div>' : ''}
       <div class="order-buyer">👤 ${o.buyer?.name||'Buyer'} · ${o.buyer?.phone||''}</div>
       <div class="order-items">${Array.isArray(o.items)?o.items.map(i=>`${i.name} × ${i.qty}`).join(', '):'—'}</div>
       <div class="order-footer">
@@ -1364,6 +1367,29 @@ function openOrderDetail(id) {
       <div class="tracker" style="margin-top:12px">${tracker}</div>
     </div>
     <div class="card">${actionBtns}</div>
+    ${o.dispute_raised ? `
+    <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;border:2px solid var(--red)">
+      <div style="font-size:15px;font-weight:800;color:var(--red);margin-bottom:8px">⚠️ Dispute Raised by Buyer</div>
+      <div style="background:#FEECEC;border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;color:var(--navy)">
+        <strong>Reason:</strong> ${o.dispute_reason || 'No reason given'}
+      </div>
+      ${o.seller_dispute_reply ? `
+      <div style="background:var(--greenl);border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;color:var(--green)">
+        <strong>Your Reply:</strong> ${o.seller_dispute_reply}
+      </div>` : `
+      <div style="margin-bottom:10px">
+        <label style="font-size:12px;font-weight:700;color:var(--grey);display:block;margin-bottom:6px;text-transform:uppercase">Your Response to Buyer</label>
+        <textarea id="dispute-reply-text" style="width:100%;padding:12px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:13px;resize:none;min-height:80px;font-family:inherit;outline:none" 
+          placeholder="Explain your side — buyer and admin will see this..."></textarea>
+      </div>
+      <button onclick="submitDisputeReply('${o.id}','${o.buyer_id}','${o.order_ref}')" 
+        style="width:100%;padding:12px;background:var(--navy);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">
+        📤 Send Reply to Buyer
+      </button>`}
+      <div style="font-size:12px;color:var(--grey);margin-top:10px;text-align:center">
+        Admin has been notified and will mediate if needed
+      </div>
+    </div>` : ''}
     <div style="height:40px"></div>`;
 
   document.getElementById('order-detail-screen').style.display = 'block';
@@ -2407,15 +2433,39 @@ async function confirmMomoPayment() {
       usingSandbox = true; // Server not running — use local simulation
     }
 
-    if (usingSandbox) {
-      status.textContent = '🧪 SANDBOX: Simulating payment... (3 seconds)';
-      setTimeout(async () => {
-        status.className   = 'momo-status success';
-        status.textContent = '✅ Payment confirmed!';
-        btn.textContent    = '✓ Paid!';
-        if (momoContext.onSuccess) await momoContext.onSuccess();
-        setTimeout(() => closeMomoModal(), 1500);
-      }, 3000);
+    // Use Campay for real payment
+    const fullPhone = '237' + phone;
+    const pr = await fetch('/campay/pay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: fullPhone, amount: momoContext.amount, type: momoContext.type || 'subscription' })
+    });
+    const pd = await pr.json();
+    if (pd.success) {
+      window._sellerCampayRef = pd.reference;
+      status.textContent = 'Approuvez sur votre telephone.' + (pd.ussd_code ? ' USSD: ' + pd.ussd_code : '');
+      btn.textContent = 'En attente...';
+      let checks = 0;
+      window.sellerCampayTimer = setInterval(async () => {
+        checks++;
+        if (checks > 24) { clearInterval(window.sellerCampayTimer); btn.disabled=false; btn.textContent='Reessayer'; return; }
+        try {
+          const cr = await fetch('/campay/check', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({reference:window._sellerCampayRef}) });
+          const cd = await cr.json();
+          if (cd.paid) {
+            clearInterval(window.sellerCampayTimer);
+            status.className = 'momo-status success';
+            status.textContent = 'Paiement confirme!';
+            btn.textContent = 'Paye!';
+            if (momoContext.onSuccess) await momoContext.onSuccess();
+            setTimeout(() => closeMomoModal(), 2000);
+          }
+        } catch(e) {}
+      }, 5000);
+    } else {
+      status.className = 'momo-status failed';
+      status.textContent = pd.message || 'Erreur paiement';
+      btn.disabled = false; btn.textContent = 'Reessayer';
     }
   } catch(e) {
     status.className   = 'momo-status failed';
@@ -2628,7 +2678,7 @@ document.addEventListener('keydown', e => {
     <button onclick="closeMomoModal()" style="position:absolute;top:16px;right:16px;background:#f0ede8;border:none;width:32px;height:32px;border-radius:16px;cursor:pointer;font-size:16px;font-weight:700;color:var(--grey)">✕</button>
     <div class="momo-icon">📱</div>
     <div class="momo-title" id="momo-title">Pay Subscription</div>
-    <div class="sandbox-badge">🧪 SANDBOX MODE — Test payment</div>
+    <div class="sandbox-badge">🧪 SANDBOX — Campay Demo</div>
     <div class="momo-amount" id="momo-amount">0 FCFA</div>
     <div class="momo-sub" id="momo-sub">Renew your PARTENAIRE subscription</div>
     <div class="momo-phone-row">
@@ -2641,7 +2691,7 @@ document.addEventListener('keydown', e => {
     </div>
     <button class="momo-pay-btn mtn" id="momo-pay-btn" onclick="confirmMomoPayment()">📱 Pay with MTN MoMo →</button>
     <div class="momo-status" id="momo-status"></div>
-    <div style="font-size:11px;color:var(--grey);margin-top:12px">🔒 Secured by Monetbil · Your PIN stays on your phone</div>
+    <div style="font-size:11px;color:var(--grey);margin-top:12px">🔒 Securise par Campay · Your PIN stays on your phone</div>
   </div>
 </div>
 
