@@ -1340,6 +1340,7 @@ function openMomoPayment(total, operator) {
 
 function openMomoModal(context) {
   momoContext = context;
+  console.log('openMomoModal called with:', JSON.stringify(context));
   document.getElementById('momo-title').textContent = context.title || 'Pay with Mobile Money';
   document.getElementById('momo-amount').textContent = (context.amount||0).toLocaleString() + ' FCFA';
   document.getElementById('momo-sub').textContent = context.subtitle || '';
@@ -1370,10 +1371,12 @@ async function confirmMomoPayment() {
   status.textContent = 'Demande envoyee a votre telephone...';
   try {
     const fullPhone = '237' + phone;
+    const _orderId = momoContext.order_id || momoContext.orderId || null;
+    console.log('Campay pay - order_id:', _orderId, 'context:', JSON.stringify(momoContext));
     const res = await fetch('/campay/pay', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: momoContext.order_id || null, phone: fullPhone, amount: momoContext.amount, type: momoContext.type || 'order' })
+      body: JSON.stringify({ order_id: _orderId, phone: fullPhone, amount: momoContext.amount, type: momoContext.type || 'order' })
     });
     const data = await res.json();
     if (data.success) {
