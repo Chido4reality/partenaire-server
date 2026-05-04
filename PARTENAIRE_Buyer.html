@@ -1537,10 +1537,18 @@ function payForOrder(orderId, amount, orderRef) {
   });
 }
 
-function handleOrderCardClick(orderId, counterStatus, paymentRequested, status) {
+function handleOrderCardClick(orderId, counterStatus, paymentRequested, status, paymentStatus) {
   if (counterStatus === 'pending') {
     openCounterOffer(orderId);
-  } else if (paymentRequested && status === 'confirmed') {
+  } else if (paymentRequested && status === 'confirmed' && paymentStatus !== 'paid') {
+    var o = allOrders.find(function(x) { return x.id === orderId; });
+    if (!o) return;
+    var amount = o.counter_status === 'accepted' ? (o.counter_total || o.total) : (o.total || 0);
+    payForOrder(orderId, amount, o.order_ref);
+  } else {
+    openOrderDetail(orderId);
+  }
+} else if (paymentRequested && status === 'confirmed') {
     // Open payment modal directly
     const o = allOrders.find(x => x.id === orderId);
     if (!o) return;
