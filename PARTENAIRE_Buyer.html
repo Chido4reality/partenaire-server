@@ -288,11 +288,14 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
         <div class="cc">🇨🇲 +237</div>
         <input class="auth-input" id="phone-input" type="tel" placeholder="699 000 000" maxlength="9" style="margin-bottom:0;flex:1">
       </div>
-      <div style="height:12px"></div>
-      <button class="auth-btn gold" onclick="sendOTP()">Envoyer le code / Send Code →</button>
+      <div style="height:8px"></div>
+      <label class="auth-label">Code PIN (4 chiffres)</label>
+      <input class="auth-input" id="pin-input" type="password" placeholder="••••" maxlength="4" inputmode="numeric"
+        onkeydown="if(event.key==='Enter') loginWithPIN()" style="letter-spacing:8px;font-size:20px;text-align:center">
+      <button class="auth-btn gold" onclick="loginWithPIN()">Se connecter →</button>
       <div class="auth-error" id="phone-error"></div>
       <div class="auth-hint">
-        Enter your registered phone number to receive a verification code.
+        Entrez votre numero et votre PIN a 4 chiffres.
       </div>
       <div class="auth-link">Nouveau? / New buyer? <span onclick="goRegister()">Créer un compte →</span></div>
       <div class="auth-link" style="margin-top:4px">Vendeur? / Seller? <span onclick="window.location='/seller'">Portail vendeur →</span></div>
