@@ -1451,7 +1451,7 @@ async function acceptCounterOffer() {
     const finalItems = Array.isArray(o.counter_items) && o.counter_items.length ? o.counter_items : o.items;
     await PATCH('ptn_orders','id',activeCounterOrderId,{items:finalItems,total:finalTotal,counter_status:'accepted',updated_at:new Date().toISOString()});
     document.getElementById('counter-modal').classList.remove('open');
-    openMomoModal({ type:'order', title:'💳 Pay for Your Order', subtitle:'Order confirmed — payment held in escrow', amount:finalTotal, ref:o.order_ref,
+    openMomoModal({ type:'order', title:'💳 Pay for Your Order', subtitle:'Order confirmed — payment held in escrow', amount:finalTotal, order_id:activeCounterOrderId, ref:o.order_ref,
       onSuccess: async () => { await PATCH('ptn_orders','id',activeCounterOrderId,{escrow_held:finalTotal,payment_requested:false,payment_status:'paid',updated_at:new Date().toISOString()}); await loadOrders(); toast('✅ Payment confirmed!', 'success'); }
     });
   } catch(e) { toast('Error: ' + e.message, 'error'); }
@@ -1493,7 +1493,7 @@ async function checkPaymentRequests() {
       } else if (o.payment_requested && o.status === 'confirmed') {
         toast('💳 Payment requested for order ' + o.order_ref, '');
         openMomoModal({ type:'order', title:'💳 Pay for Order '+o.order_ref, subtitle:'Your order is confirmed — please pay to proceed',
-          amount:o.total||0, ref:o.order_ref,
+          amount:o.total||0, order_id:o.id, ref:o.order_ref,
           onSuccess: async () => { await PATCH('ptn_orders','id',o.id,{escrow_held:o.total||0,payment_requested:false,payment_status:'paid',updated_at:new Date().toISOString()}); await loadOrders(); toast('✅ Payment confirmed!', 'success'); }
         });
         try { await PATCH('ptn_notifications','id',n.id,{read:true}); } catch(e) {}
