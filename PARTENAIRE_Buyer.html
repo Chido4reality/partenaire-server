@@ -1568,24 +1568,7 @@ function handleOrderCardClick(orderId, counterStatus, paymentRequested, status, 
   } else {
     openOrderDetail(orderId);
   }
-} else if (paymentRequested && status === 'confirmed') {
-    // Open payment modal directly
-    const o = allOrders.find(x => x.id === orderId);
-    if (!o) return;
-    const amount = o.counter_status === 'accepted' ? (o.counter_total || o.total) : (o.total || 0);
-    openMomoModal({
-      type: 'order',
-      title: 'Payer la commande ' + o.order_ref,
-      subtitle: 'Paiement securise · Fonds en escrow jusqu a la livraison',
-      amount: amount,
-      order_id: orderId,
-      ref: o.order_ref,
-      onSuccess: async () => {
-        await loadOrders();
-        toast('Paiement confirme! Commande en cours.', 'success');
-      }
-    });
-  } else {
+ else {
     openOrderDetail(orderId);
   }
 }
