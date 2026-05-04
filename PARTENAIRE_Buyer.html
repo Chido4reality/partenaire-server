@@ -1148,6 +1148,15 @@ function openOrderDetail(id) {
       ⚠️ <strong>Litige ouvert:</strong> ${o.dispute_reason || ''}
       ${o.seller_dispute_reply ? '<br><br><strong>Reponse du vendeur:</strong> ' + o.seller_dispute_reply : '<br><small>En attente de la reponse du vendeur...</small>'}
     </div>` : ''}
+    ${(o.payment_requested && o.status==='confirmed' && o.payment_status !== 'paid') ? `
+    <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;border:2px solid #185FA5">
+      <div style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:4px">💳 Paiement requis</div>
+      <div style="font-size:22px;font-weight:900;color:var(--gold);margin-bottom:16px">${(o.counter_status==='accepted'?o.counter_total:o.total||0).toLocaleString()} FCFA</div>
+      <button onclick="closeOrderDetail();payForOrder('${o.id}',${o.counter_status==='accepted'?o.counter_total:o.total||0},'${o.order_ref}')"
+        style="width:100%;padding:14px;background:linear-gradient(135deg,#FFC107,#FF8F00);color:#1A2B4A;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer">
+        📱 Payer maintenant (MTN MoMo / Orange Money)
+      </button>
+    </div>` : ''}
     <div style="height:40px"></div>`;
   document.getElementById('order-detail').style.display = 'block';
 }
