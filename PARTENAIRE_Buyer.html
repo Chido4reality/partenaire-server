@@ -1068,6 +1068,15 @@ function renderOrders() {
         <div class="order-amount">${(o.total||0).toLocaleString()} FCFA</div>
         <div style="font-size:12px;color:var(--grey)">${o.mode==='pickup'?'🏪 Pickup':'🚚 Delivery'} · ${fmtDate(o.created_at)}</div>
       </div>
+      ${(o.payment_requested && o.status==='confirmed' && o.payment_status !== 'paid') ? `
+      <button onclick="event.stopPropagation();payForOrder('${o.id}',${o.counter_status==='accepted'?o.counter_total:o.total||0},'${o.order_ref}')"
+        style="width:100%;margin-top:10px;padding:11px;background:linear-gradient(135deg,#FFC107,#FF8F00);color:#1A2B4A;border:none;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer">
+        💳 Payer ${(o.counter_status==='accepted'?o.counter_total:o.total||0).toLocaleString()} FCFA
+      </button>` : ''}
+      ${(o.payment_status==='paid' || o.campay_status==='successful') ? `
+      <div style="margin-top:8px;padding:8px 12px;background:var(--greenl);border-radius:8px;font-size:12px;font-weight:700;color:var(--green);text-align:center">
+        ✅ PAYE — Fonds en escrow
+      </div>` : ''}
     </div>`).join('');
 }
 
@@ -1110,6 +1119,34 @@ function openOrderDetail(id) {
     <div class="alert alert-warn">
       ⚠️ <strong>Litige ouvert</strong> — ${o.dispute_reason || 'En attente de resolution'}
       ${o.seller_dispute_reply ? '<br><br><strong>Reponse du vendeur:</strong> ' + o.seller_dispute_reply : ''}
+    </div>` : ''}
+    ${(o.status === 'confirmed' || o.status === 'shipped') && o.payment_status === 'paid' && !o.dispute_raised ? `
+    <div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:16px;border:1px solid var(--lgrey)">
+      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">Un probleme avec cette commande?</div>
+      <div style="font-size:12px;color:var(--grey);margin-bottom:12px">Signalez un probleme — le vendeur sera notifie</div>
+      <button onclick="openRaiseDispute('${o.id}','${o.order_ref}')"
+        style="padding:10px 20px;background:transparent;border:1.5px solid var(--red);color:var(--red);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">
+        ⚠️ Signaler un probleme
+      </button>
+    </div>` : ''}
+    ${o.dispute_raised ? `
+    <div class="alert alert-warn">
+      ⚠️ <strong>Litige ouvert</strong> — ${o.dispute_reason || 'En attente de resolution'}
+      ${o.seller_dispute_reply ? '<br><br><strong>Reponse du vendeur:</strong> ' + o.seller_dispute_reply : ''}
+    </div>` : ''}
+    ${(o.payment_status === 'paid' || o.campay_status === 'successful') && !o.dispute_raised ? `
+    <div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:16px;border:1px solid var(--lgrey)">
+      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">Un probleme avec cette commande?</div>
+      <div style="font-size:12px;color:var(--grey);margin-bottom:12px">Signalez un probleme — le vendeur sera notifie</div>
+      <button onclick="openRaiseDispute('${o.id}','${o.order_ref}')"
+        style="padding:10px 20px;background:transparent;border:1.5px solid var(--red);color:var(--red);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">
+        ⚠️ Signaler un probleme
+      </button>
+    </div>` : ''}
+    ${o.dispute_raised ? `
+    <div class="alert alert-warn">
+      ⚠️ <strong>Litige ouvert:</strong> ${o.dispute_reason || ''}
+      ${o.seller_dispute_reply ? '<br><br><strong>Reponse du vendeur:</strong> ' + o.seller_dispute_reply : '<br><small>En attente de la reponse du vendeur...</small>'}
     </div>` : ''}
     <div style="height:40px"></div>`;
   document.getElementById('order-detail').style.display = 'block';
@@ -1438,6 +1475,44 @@ async function checkPaymentRequests() {
 // ── HANDLE ORDER CARD CLICK ───────────────────────────────────
 
 // ── PAY FOR ORDER — opens Campay modal ───────────────────────
+
+// ── RAISE DISPUTE ─────────────────────────────────────────────
+function openRaiseDispute(orderId, orderRef) {
+  const reason = prompt('Decrivez le probleme avec la commande ' + orderRef + ':');
+  if (!reason || !reason.trim()) return;
+  raiseDispute(orderId, reason.trim());
+}
+
+async function raiseDispute(orderId, reason) {
+  try {
+    const o = allOrders.find(x => x.id === orderId);
+    if (!o) return;
+    await PATCH('ptn_orders', 'id', orderId, {
+      dispute_raised: true,
+      dispute_raised_at: new Date().toISOString(),
+      dispute_reason: reason,
+      dispute_by: currentBuyer.id,
+      dispute_status: 'open',
+      updated_at: new Date().toISOString()
+    });
+    await POST('ptn_notifications', {
+      user_id: o.seller_id,
+      type: 'dispute',
+      order_id: orderId,
+      title_en: 'Dispute on Order ' + o.order_ref,
+      title_fr: 'Litige - Commande ' + o.order_ref,
+      body_en: 'Buyer raised a dispute: ' + reason,
+      body_fr: 'Litige ouvert: ' + reason,
+      read: false
+    });
+    await loadOrders();
+    closeOrderDetail();
+    toast('Litige signale. Le vendeur a ete notifie.', 'success');
+  } catch(e) {
+    toast('Erreur: ' + e.message, 'error');
+  }
+}
+
 function payForOrder(orderId, amount, orderRef) {
   openMomoModal({
     type: 'order',
