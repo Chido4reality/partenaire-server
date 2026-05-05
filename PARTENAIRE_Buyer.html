@@ -791,7 +791,20 @@ async function loadShops() {
     const products = await GET('ptn_products', 'published=eq.true&select=seller_id');
     const pCount = {};
     if (products && products.length) products.forEach(p => pCount[p.seller_id] = (pCount[p.seller_id]||0)+1);
-    allShops = (sellers||[]).map(s => ({...s, productCount: pCount[s.id]||0}));
+    // Load ratings
+    const ratingMap = {};
+    try {
+      const reviews = await GET('ptn_reviews', 'select=seller_id,rating');
+      (reviews||[]).forEach(r => {
+        if (!ratingMap[r.seller_id]) ratingMap[r.seller_id] = [];
+        ratingMap[r.seller_id].push(r.rating);
+      });
+    } catch(e) {}
+    allShops = (sellers||[]).map(s => {
+      const ratings = ratingMap[s.id] || [];
+      const avgRating = ratings.length ? (ratings.reduce((a,b)=>a+b,0)/ratings.length).toFixed(1) : null;
+      return {...s, productCount: pCount[s.id]||0, avgRating: avgRating ? parseFloat(avgRating) : null, reviewCount: ratings.length};
+    });
     const tierOrder = { premium:3, gold:2, silver:1 };
     allShops.sort((a,b) => {
       if (a.featured && !b.featured) return -1;
@@ -876,6 +889,30 @@ async function openShop(id) {
     </div>`;
   document.getElementById('sd-products').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   document.getElementById('shop-detail').style.display = 'block';
+  // Load reviews for this shop
+  try {
+    const shopId = arguments[0] || currentShopId;
+    const reviews = await GET('ptn_reviews', 'seller_id=eq.' + currentShopId + '&order=created_at.desc&select=*');
+    if (reviews && reviews.length) {
+      const avg = (reviews.reduce((s,r) => s+r.rating, 0) / reviews.length).toFixed(1);
+      const reviewsDiv = document.createElement('div');
+      reviewsDiv.style.cssText = 'background:#fff;border-radius:14px;padding:20px;margin:0 16px 16px';
+      reviewsDiv.innerHTML = `<div style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:12px">⭐ Avis clients</div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #f0ede8">
+          <div style="font-size:32px;font-weight:900;color:var(--navy)">${avg}</div>
+          <div><div style="font-size:16px;color:var(--gold)">${'⭐'.repeat(Math.round(parseFloat(avg)))}</div>
+          <div style="font-size:12px;color:var(--grey)">${reviews.length} avis</div></div>
+        </div>
+        ${reviews.slice(0,5).map(r => `<div style="padding:10px 0;border-bottom:1px solid #f8f6f0">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <div style="color:var(--gold);font-size:13px">${'⭐'.repeat(r.rating)}</div>
+            <div style="font-size:11px;color:var(--grey)">${new Date(r.created_at).toLocaleDateString('fr-FR')}</div>
+          </div>
+          ${r.comment ? `<div style="font-size:13px;color:var(--navy)">${r.comment}</div>` : ''}
+        </div>`).join('')}`;
+      document.getElementById('shop-detail').appendChild(reviewsDiv);
+    }
+  } catch(e) { console.log('Reviews load error:', e.message); }
   try {
     const products = await GET('ptn_products', `seller_id=eq.${id}&published=eq.true&select=*`);
     renderShopProducts(products||[], shop);
