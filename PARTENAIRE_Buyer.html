@@ -1698,6 +1698,38 @@ async function submitReview(orderId, sellerId) {
   } catch(e) { toast('Erreur: ' + e.message, 'error'); }
 }
 
+
+// ── DEEP LINK HANDLER (QR Code scan) ─────────────────────────
+async function handleDeepLink() {
+  const params = new URLSearchParams(window.location.search);
+  const shopId = params.get('shop');
+  if (!shopId) return;
+
+  // Wait for user to be logged in
+  const checkLogin = setInterval(async () => {
+    if (!currentBuyer) return;
+    clearInterval(checkLogin);
+    // Remove param from URL without reload
+    window.history.replaceState({}, '', window.location.pathname);
+    // Find and open the shop
+    try {
+      const sellers = await GET('ptn_users', 'id=eq.' + shopId + '&role=eq.seller&select=*');
+      if (sellers && sellers[0]) {
+        toast('🏪 Ouverture de ' + (sellers[0].company || sellers[0].name) + '...', 'success');
+        setTimeout(() => openShop(shopId), 500);
+      }
+    } catch(e) {
+      console.log('Deep link error:', e.message);
+    }
+  }, 500);
+
+  // Timeout after 30 seconds
+  setTimeout(() => clearInterval(checkLogin), 30000);
+}
+
+// Call on page load
+window.addEventListener('DOMContentLoaded', handleDeepLink);
+
 function signOut() {
   if (syncInterval) clearInterval(syncInterval);
   if (broadcastInterval) clearInterval(broadcastInterval);

@@ -259,6 +259,7 @@ window.addEventListener('DOMContentLoaded', function() {
   }
 });
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -531,6 +532,27 @@ window.addEventListener('DOMContentLoaded', function() {
       <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:12px">📷 Click your photo to update it</div>
     </div>
     <div id="badge-card-profile"></div>
+    <!-- QR CODE CARD -->
+    <div class="card" id="qr-code-card">
+      <div class="card-title">📱 QR Code de votre boutique</div>
+      <div class="card-sub">Partagez ce QR code — les acheteurs scannent pour visiter votre boutique</div>
+      <div style="display:flex;flex-direction:column;align-items:center;padding:16px 0">
+        <div id="qr-code-display" style="background:#fff;padding:16px;border-radius:12px;border:1px solid var(--lgrey);display:inline-block;margin-bottom:16px"></div>
+        <div style="font-size:12px;color:var(--grey);margin-bottom:16px;text-align:center" id="qr-shop-url"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+          <button class="btn btn-gold" onclick="downloadQR()" style="gap:6px">
+            ⬇️ Télécharger QR Code
+          </button>
+          <button class="btn btn-primary" onclick="printQR()">
+            🖨️ Imprimer
+          </button>
+          <button class="btn" onclick="copyShopLink()">
+            🔗 Copier le lien
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-title">Edit Shop Info</div>
       <div class="card-sub">This information is visible to buyers</div>
@@ -981,6 +1003,8 @@ function enterApp() {
   }
   renderProfileHero();
   loadAll();
+  // Generate QR code after short delay (allows DOM to settle)
+  setTimeout(() => generateQRCode(currentSeller.id, currentSeller.company || currentSeller.name), 500);
   startSellerSync();
   checkBroadcasts("sellers", currentSeller.city);
   broadcastInterval = setInterval(() => checkBroadcasts("sellers", currentSeller.city), 60000);
@@ -1905,7 +1929,14 @@ async function submitVerification() {
 //  NAVIGATION
 // ══════════════════════════════════════════════════════════════
 function switchTab(tabId) {
-  if (tabId === 'tab-profile') loadReviews();
+  if (tabId === 'tab-profile') {
+    loadReviews();
+    setTimeout(() => {
+      if (currentSeller && !document.getElementById('qr-code-display')?.querySelector('canvas, img')) {
+        generateQRCode(currentSeller.id, currentSeller.company || currentSeller.name);
+      }
+    }, 200);
+  }
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
   document.getElementById(tabId).classList.add('active');
@@ -2674,6 +2705,112 @@ async function loadReviews() {
         ${r.comment ? `<div style="font-size:13px;color:var(--navy)">${r.comment}</div>` : ''}
       </div>`).join('')}`;
   } catch(e) { console.log('Reviews error:', e.message); }
+}
+
+
+// ── QR CODE GENERATION ─────────────────────────────────────────
+let _qrInstance = null;
+
+function generateQRCode(sellerId, shopName) {
+  const shopUrl = window.location.origin + '/buyer?shop=' + sellerId;
+  const el = document.getElementById('qr-code-display');
+  const urlEl = document.getElementById('qr-shop-url');
+  if (!el) return;
+
+  // Clear previous
+  el.innerHTML = '';
+  if (urlEl) urlEl.textContent = shopUrl;
+
+  try {
+    _qrInstance = new QRCode(el, {
+      text: shopUrl,
+      width: 180,
+      height: 180,
+      colorDark: '#1A2B4A',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.H
+    });
+  } catch(e) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;font-size:12px;color:var(--grey)">QR Code: ' + shopUrl + '</div>';
+  }
+
+  // Add shop name below QR
+  const nameEl = document.createElement('div');
+  nameEl.style.cssText = 'text-align:center;padding:8px 12px;background:#1A2B4A;color:#fff;border-radius:0 0 8px 8px;font-size:12px;font-weight:700;margin-top:-4px;letter-spacing:1px';
+  nameEl.textContent = shopName || 'PARTENAIRE ✦';
+  el.parentNode.insertBefore(nameEl, el.nextSibling);
+}
+
+function downloadQR() {
+  const el = document.getElementById('qr-code-display');
+  const img = el.querySelector('img') || el.querySelector('canvas');
+  if (!img) { toast('QR Code not ready', 'error'); return; }
+
+  const canvas = el.querySelector('canvas');
+  if (canvas) {
+    const link = document.createElement('a');
+    link.download = 'QR-' + (currentSeller.company || 'shop').replace(/\s+/g, '-') + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    toast('QR Code téléchargé!', 'success');
+  } else {
+    // Image fallback
+    const link = document.createElement('a');
+    link.download = 'QR-' + (currentSeller.company || 'shop').replace(/\s+/g, '-') + '.png';
+    link.href = img.src;
+    link.click();
+    toast('QR Code téléchargé!', 'success');
+  }
+}
+
+function printQR() {
+  const el = document.getElementById('qr-code-display');
+  const shopUrl = document.getElementById('qr-shop-url')?.textContent || '';
+  const shopName = currentSeller.company || 'Ma Boutique';
+  const city = currentSeller.city || '';
+
+  const printWindow = window.open('', '_blank');
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>QR Code - ${shopName}</title>
+      <style>
+        body { font-family: 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fff; }
+        .card { text-align: center; padding: 32px; border: 3px solid #1A2B4A; border-radius: 20px; max-width: 320px; }
+        .logo { font-size: 18px; font-weight: 900; letter-spacing: 3px; color: #1A2B4A; margin-bottom: 4px; }
+        .logo span { color: #C9A84C; }
+        .shop-name { font-size: 20px; font-weight: 800; color: #1A2B4A; margin: 12px 0 4px; }
+        .city { font-size: 13px; color: #8A8A8A; margin-bottom: 16px; }
+        .qr-wrap { background: #fff; padding: 12px; border: 1px solid #E8E8E8; border-radius: 12px; display: inline-block; margin-bottom: 16px; }
+        .url { font-size: 10px; color: #8A8A8A; word-break: break-all; }
+        .tagline { font-size: 11px; color: #C9A84C; font-weight: 700; margin-top: 12px; letter-spacing: 1px; }
+        img { width: 180px; height: 180px; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div class="logo">PARTENAIRE <span>✦</span></div>
+        <div class="shop-name">${shopName}</div>
+        <div class="city">📍 ${city}</div>
+        <div class="qr-wrap">${el.innerHTML}</div>
+        <div class="url">${shopUrl}</div>
+        <div class="tagline">SCANNEZ POUR VISITER MA BOUTIQUE</div>
+      </div>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+  setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+}
+
+function copyShopLink() {
+  const shopUrl = window.location.origin + '/buyer?shop=' + currentSeller.id;
+  navigator.clipboard.writeText(shopUrl).then(() => {
+    toast('Lien copié!', 'success');
+  }).catch(() => {
+    prompt('Copiez ce lien:', shopUrl);
+  });
 }
 
 function signOut() {
