@@ -664,6 +664,38 @@ http.createServer((req, res) => {
     return;
   }
 
+
+  // ── CAMPAY DIRECT PAYOUT (admin only) ────────────────────────
+  if (req.url === '/campay/payout' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const { phone, amount, description, admin_pin } = JSON.parse(body);
+        if (admin_pin !== (process.env.ADMIN_PIN || '2468')) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          return res.end(JSON.stringify({ success: false, message: 'Non autorise' }));
+        }
+        const token = await getCampayToken();
+        const cleanPhone = String(phone).replace(/\s/g, '').replace(/^\+/, '');
+        const ref = 'PAYOUT-DIRECT-' + Date.now();
+        const r = await fetch(CAMPAY_BASE_URL + '/transfer/', {
+          method: 'POST',
+          headers: { 'Authorization': 'Token ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount: String(amount), currency: 'XAF', to: cleanPhone, description: description || 'PARTENAIRE payout', external_reference: ref })
+        });
+        const result = await r.json();
+        console.log('Direct payout result:', result);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: !!(result.reference || result.status === 'SUCCESSFUL'), result, reference: ref }));
+      } catch(e) {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: false, message: e.message }));
+      }
+    });
+    return;
+  }
+
   // SERVE LOCAL FILES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let url = req.url.split('?')[0];
   if (ROUTES[url]) url = '/' + ROUTES[url];
