@@ -1119,7 +1119,22 @@ function openOrderDetail(id) {
       <div style="display:flex;justify-content:space-between;padding:12px 0;font-weight:800;font-size:16px"><div>Total</div><div>${(o.total||0).toLocaleString()} FCFA</div></div>
     </div>
     <div class="card"><div class="card-title">📍 Order Progress</div><div class="tracker">${tracker}</div></div>
-    ${o.status==='delivered' ? '<div class="alert alert-success">✅ Order delivered. Payment released to seller.</div>' : ''}
+    ${o.status==='delivered' ? `
+    <div class="alert alert-success">✅ Commande livree. Paiement libere au vendeur.</div>
+    ${!o.buyer_reviewed ? `
+    <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;border:2px solid var(--gold)">
+      <div style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:6px">⭐ Evaluez cette commande</div>
+      <div style="font-size:13px;color:var(--grey);margin-bottom:16px">Votre avis aide les autres acheteurs</div>
+      <div id="star-rating-${o.id}" style="display:flex;gap:8px;margin-bottom:16px;font-size:28px">
+        ${[1,2,3,4,5].map(n => `<span onclick="setRating('${o.id}',${n})" style="cursor:pointer;opacity:0.3" id="star-${o.id}-${n}">⭐</span>`).join('')}
+      </div>
+      <textarea id="review-comment-${o.id}" placeholder="Votre commentaire (optionnel)..."
+        style="width:100%;padding:12px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:13px;resize:none;min-height:70px;outline:none;font-family:inherit;margin-bottom:12px"></textarea>
+      <button onclick="submitReview('${o.id}','${o.seller_id}')"
+        style="width:100%;padding:12px;background:var(--gold);color:var(--navy);border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer">
+        ⭐ Soumettre mon avis
+      </button>
+    </div>` : '<div class="alert alert-success">✅ Vous avez deja evalue cette commande.</div>'}` : ''}
     ${o.status==='rejected' ? '<div class="alert" style="background:#FEECEC;border:1px solid var(--red);color:var(--red)">✕ Order was rejected by seller.</div>' : ''}
     ${o.status === 'shipped' && o.payment_status === 'paid' ? `
     <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;border:2px solid var(--green)">
@@ -1604,6 +1619,39 @@ async function confirmDelivery(orderId) {
     await loadOrders();
     closeOrderDetail();
   } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+
+// ── BUYER REVIEWS ─────────────────────────────────────────────
+let _reviewRatings = {};
+
+function setRating(orderId, rating) {
+  _reviewRatings[orderId] = rating;
+  for (let i = 1; i <= 5; i++) {
+    const star = document.getElementById('star-' + orderId + '-' + i);
+    if (star) star.style.opacity = i <= rating ? '1' : '0.3';
+  }
+}
+
+async function submitReview(orderId, sellerId) {
+  const rating = _reviewRatings[orderId];
+  if (!rating) { toast('Selectionnez une note (1-5 etoiles)', 'error'); return; }
+  const comment = document.getElementById('review-comment-' + orderId);
+  const commentText = comment ? comment.value.trim() : '';
+  try {
+    await POST('ptn_reviews', {
+      order_id: orderId,
+      buyer_id: currentBuyer.id,
+      seller_id: sellerId,
+      rating,
+      comment: commentText || null
+    });
+    await PATCH('ptn_orders', 'id', orderId, { buyer_reviewed: true });
+    allOrders = allOrders.map(o => o.id === orderId ? {...o, buyer_reviewed: true} : o);
+    toast('⭐ Merci pour votre avis!', 'success');
+    closeOrderDetail();
+    await loadOrders();
+  } catch(e) { toast('Erreur: ' + e.message, 'error'); }
 }
 
 function signOut() {

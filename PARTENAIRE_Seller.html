@@ -555,6 +555,11 @@ window.addEventListener('DOMContentLoaded', function() {
       </div>
       <button class="btn btn-gold btn-block" onclick="saveProfile()">✓ Save Changes</button>
     </div>
+    <div class="card" id="reviews-card">
+      <div class="card-title">⭐ Avis clients</div>
+      <div class="card-sub">Ce que les acheteurs disent de votre boutique</div>
+      <div id="reviews-list"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
     <div class="card">
       <div class="card-title">🛒 Also Buy on PARTENAIRE?</div>
       <div class="card-sub">Mid-wholesalers can use the same phone number as both a seller AND a buyer</div>
@@ -1861,6 +1866,7 @@ async function submitVerification() {
 //  NAVIGATION
 // ══════════════════════════════════════════════════════════════
 function switchTab(tabId) {
+  if (tabId === 'tab-profile') loadReviews();
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
   document.getElementById(tabId).classList.add('active');
@@ -2344,26 +2350,50 @@ function closeSellerChat() {
 let sellerSyncInterval = null;
 let lastOrderCount = 0;
 
+let sellerRealtimeChannel = null;
+
 function startSellerSync() {
   if (sellerSyncInterval) clearInterval(sellerSyncInterval);
+  // Polling fallback every 30s
   sellerSyncInterval = setInterval(async () => {
     if (!currentSeller) return;
-    try {
-      const orders = await GET('ptn_orders',
-        `seller_id=eq.${currentSeller.id}&status=eq.pending&select=id`);
-      const count = Array.isArray(orders) ? orders.length : 0;
-      if (count > lastOrderCount) {
-        toast('🛒 New order received!', 'success');
-        await loadOrders();
-        updateOrderBadge();
-      }
-      lastOrderCount = count;
-      // Also refresh orders silently to catch status changes
-      await loadOrders();
-      // Also refresh notifications
-      await loadNotifications();
-    } catch(e) {}
-  }, 20000);
+    try { await loadOrders(); await loadNotifications(); } catch(e) {}
+  }, 30000);
+  // Start realtime
+  startSellerRealtime();
+}
+
+function startSellerRealtime() {
+  if (sellerRealtimeChannel) return;
+  try {
+    const wsUrl = 'wss://ftxttdagpioieyzaijdc.supabase.co/realtime/v1/websocket?apikey=' + SUPABASE_KEY + '&vsn=1.0.0';
+    const ws = new WebSocket(wsUrl);
+    sellerRealtimeChannel = ws;
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ topic: 'realtime:public:ptn_orders', event: 'phx_join', payload: { config: { broadcast: { self: true }, presence: { key: '' }, postgres_changes: [{ event: '*', schema: 'public', table: 'ptn_orders', filter: 'seller_id=eq.' + currentSeller.id }] } }, ref: '1' }));
+      console.log('Seller realtime connected');
+    };
+    ws.onmessage = async (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.event === 'postgres_changes' || (msg.payload && msg.payload.data)) {
+          const prevCount = allOrders.filter(o => o.status === 'pending').length;
+          await loadOrders();
+          const newCount = allOrders.filter(o => o.status === 'pending').length;
+          if (newCount > prevCount) toast('🛒 Nouvelle commande recue!', 'success');
+          updateOrderBadge();
+          await loadNotifications();
+        }
+      } catch(err) {}
+    };
+    ws.onclose = () => {
+      sellerRealtimeChannel = null;
+      setTimeout(() => { if (currentSeller) startSellerRealtime(); }, 5000);
+    };
+    ws.onerror = () => { sellerRealtimeChannel = null; };
+  } catch(e) {
+    console.log('Seller realtime not available, using polling');
+  }
 }
 
 function stopSellerSync() {
@@ -2575,6 +2605,36 @@ function showBroadcastPopup(bc) {
 function closeBroadcastPopup() {
   const p = document.getElementById('broadcast-popup');
   if (p) p.style.display = 'none';
+}
+
+
+// ── SELLER REVIEWS ─────────────────────────────────────────────
+async function loadReviews() {
+  try {
+    const reviews = await GET('ptn_reviews', 
+      `seller_id=eq.${currentSeller.id}&order=created_at.desc&select=*`);
+    const el = document.getElementById('reviews-list');
+    if (!el) return;
+    if (!reviews || !reviews.length) {
+      el.innerHTML = '<div class="empty"><div class="empty-icon">⭐</div><div>Aucun avis pour le moment</div></div>';
+      return;
+    }
+    const avg = (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1);
+    el.innerHTML = `
+      <div style="text-align:center;padding:12px 0;margin-bottom:16px;border-bottom:1px solid var(--lgrey)">
+        <div style="font-size:32px;font-weight:900;color:var(--navy)">${avg}</div>
+        <div style="font-size:18px;color:var(--gold)">${'⭐'.repeat(Math.round(avg))}</div>
+        <div style="font-size:12px;color:var(--grey);margin-top:4px">${reviews.length} avis</div>
+      </div>
+      ${reviews.map(r => `
+      <div style="padding:12px 0;border-bottom:1px solid #f0ede8">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <div style="color:var(--gold);font-size:14px">${'⭐'.repeat(r.rating)}</div>
+          <div style="font-size:11px;color:var(--grey)">${fmtDate(r.created_at)}</div>
+        </div>
+        ${r.comment ? `<div style="font-size:13px;color:var(--navy)">${r.comment}</div>` : ''}
+      </div>`).join('')}`;
+  } catch(e) { console.log('Reviews error:', e.message); }
 }
 
 function signOut() {
