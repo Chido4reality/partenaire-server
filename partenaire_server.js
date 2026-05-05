@@ -696,6 +696,69 @@ http.createServer((req, res) => {
     return;
   }
 
+
+  // ── CAMPAY SIMULATE (sandbox testing only) ───────────────────
+  if (req.url === '/campay/simulate' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const { reference, order_id } = JSON.parse(body);
+        if (!reference) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          return res.end(JSON.stringify({ success: false, message: 'Reference required' }));
+        }
+
+        // Mark transaction as successful
+        await supaRequest('PATCH', 'ptn_campay_transactions', 
+          'reference=eq.' + reference,
+          { status: 'successful', updated_at: new Date().toISOString() });
+
+        // Update order if order_id provided
+        if (order_id) {
+          const orders = await supaRequest('GET', 'ptn_orders',
+            'id=eq.' + order_id + '&select=total,counter_total,counter_status,seller_id,order_ref');
+          const order = orders && orders[0];
+          const amt = order && order.counter_status === 'accepted' 
+            ? order.counter_total : order && order.total;
+
+          await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, {
+            payment_status: 'paid',
+            campay_status: 'successful',
+            campay_reference: reference,
+            campay_paid_at: new Date().toISOString(),
+            escrow_held: amt,
+            status: 'confirmed',
+            updated_at: new Date().toISOString()
+          });
+
+          // Notify seller
+          if (order) {
+            await supaRequest('POST', 'ptn_notifications', null, {
+              user_id: order.seller_id,
+              type: 'payment',
+              order_id: order_id,
+              title_en: 'Payment Received!',
+              title_fr: 'Paiement recu!',
+              body_en: 'Order ' + order.order_ref + ' paid. Funds in escrow.',
+              body_fr: 'Commande ' + order.order_ref + ' payee. Fonds en escrow.',
+              read: false
+            });
+          }
+        }
+
+        console.log('[SANDBOX] Simulated payment success for', reference, 'order:', order_id);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: true, message: 'Payment simulated successfully' }));
+      } catch(e) {
+        console.error('Simulate error:', e.message);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: false, message: e.message }));
+      }
+    });
+    return;
+  }
+
   // SERVE LOCAL FILES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let url = req.url.split('?')[0];
   if (ROUTES[url]) url = '/' + ROUTES[url];

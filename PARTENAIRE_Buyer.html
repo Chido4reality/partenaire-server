@@ -1906,6 +1906,13 @@ async function submitDispute() {
     </div>
     <button class="momo-pay-btn mtn" id="momo-pay-btn" onclick="confirmMomoPayment()">Pay Now →</button>
     <div class="momo-status" id="momo-status"></div>
+    <div id="sandbox-sim-btn" style="display:none;margin-top:12px">
+      <div style="font-size:11px;color:var(--grey);text-align:center;margin-bottom:8px">🧪 Sandbox Mode — No real phone needed</div>
+      <button onclick="simulateCampaySuccess()" 
+        style="width:100%;padding:11px;background:#1A2B4A;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">
+        ⚡ Simulate Successful Payment
+      </button>
+    </div>
     <div style="font-size:11px;color:var(--grey);margin-top:12px">🔒 Securise par Campay · Your PIN stays on your phone</div>
   </div>
 </div>
