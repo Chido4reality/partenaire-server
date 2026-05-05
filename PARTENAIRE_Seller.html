@@ -582,17 +582,29 @@ window.addEventListener('DOMContentLoaded', function() {
           ✅ <strong>Application submitted!</strong> Admin will review your documents within 48 hours. You will be notified once approved.
         </div>
         <div id="docs-list" style="display:flex;flex-direction:column;gap:10px">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f8f6f0;border-radius:10px" id="doc-row-id_photo">
-            <span style="font-size:13px">📷 Photo of your ID or passport</span>
-            <button class="btn btn-sm btn-gold" onclick="attachDoc('id_photo',this)">Attach</button>
+          <div style="padding:12px;background:#f8f6f0;border-radius:10px" id="doc-row-id_photo">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <span style="font-size:13px">📷 Photo of your ID or passport</span>
+              <span id="doc-status-id_photo" style="font-size:11px;color:var(--grey)">Not attached</span>
+            </div>
+            <input type="file" accept="image/*,.pdf" onchange="attachDoc('id_photo',this)"
+              style="width:100%;font-size:12px;padding:6px;border:1.5px dashed var(--lgrey);border-radius:8px;cursor:pointer;background:#fff">
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f8f6f0;border-radius:10px" id="doc-row-business_reg">
-            <span style="font-size:13px">📄 Business registration document</span>
-            <button class="btn btn-sm btn-gold" onclick="attachDoc('business_reg',this)">Attach</button>
+          <div style="padding:12px;background:#f8f6f0;border-radius:10px" id="doc-row-business_reg">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <span style="font-size:13px">📄 Business registration document</span>
+              <span id="doc-status-business_reg" style="font-size:11px;color:var(--grey)">Not attached</span>
+            </div>
+            <input type="file" accept="image/*,.pdf" onchange="attachDoc('business_reg',this)"
+              style="width:100%;font-size:12px;padding:6px;border:1.5px dashed var(--lgrey);border-radius:8px;cursor:pointer;background:#fff">
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f8f6f0;border-radius:10px" id="doc-row-shop_photo">
-            <span style="font-size:13px">🏪 Photo of your physical shop</span>
-            <button class="btn btn-sm btn-gold" onclick="attachDoc('shop_photo',this)">Attach</button>
+          <div style="padding:12px;background:#f8f6f0;border-radius:10px" id="doc-row-shop_photo">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <span style="font-size:13px">🏪 Photo of your physical shop</span>
+              <span id="doc-status-shop_photo" style="font-size:11px;color:var(--grey)">Not attached</span>
+            </div>
+            <input type="file" accept="image/*" onchange="attachDoc('shop_photo',this)"
+              style="width:100%;font-size:12px;padding:6px;border:1.5px dashed var(--lgrey);border-radius:8px;cursor:pointer;background:#fff">
           </div>
         </div>
         <button class="btn btn-primary btn-block" id="submit-verify-btn" style="margin-top:16px" onclick="submitVerification()">📤 Submit for Verification</button>
@@ -1827,11 +1839,29 @@ async function saveProfile() {
 // ══════════════════════════════════════════════════════════════
 let attachedDocs = {};
 
-function attachDoc(type, btn) {
-  attachedDocs[type] = true;
-  btn.textContent = '✓ Attached';
-  btn.className = 'btn btn-sm btn-green';
-  toast('Document attached (demo mode)', 'success');
+function attachDoc(type, input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    toast('File too large. Max 5MB.', 'error');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    attachedDocs[type] = { dataUrl: e.target.result, name: file.name, size: file.size };
+    const statusEl = document.getElementById('doc-status-' + type);
+    if (statusEl) {
+      statusEl.textContent = '✓ ' + file.name;
+      statusEl.style.color = 'var(--green)';
+      statusEl.style.fontWeight = '700';
+    }
+    // Change border to green
+    const row = document.getElementById('doc-row-' + type);
+    if (row) row.style.background = 'var(--greenl)';
+    toast('✓ ' + file.name + ' attached', 'success');
+  };
+  reader.readAsDataURL(file);
 }
 
 async function submitVerification() {
@@ -1839,15 +1869,24 @@ async function submitVerification() {
     toast('Please attach at least one document', 'error'); return;
   }
   const btn = document.getElementById('submit-verify-btn');
-  btn.textContent = 'Submitting...'; btn.disabled = true;
+  btn.textContent = 'Uploading...'; btn.disabled = true;
   try {
-    for (const [type] of Object.entries(attachedDocs)) {
+    for (const [type, doc] of Object.entries(attachedDocs)) {
       await POST('ptn_verification_docs', {
-        seller_id: currentSeller.id, doc_type: type,
-        file_url: 'demo://' + type, reviewed: false, approved: false
+        seller_id: currentSeller.id,
+        doc_type: type,
+        file_url: doc.name || type,
+        file_data: doc.dataUrl || null,
+        reviewed: false,
+        approved: false
       });
     }
-  } catch(e) { /* demo mode — continue anyway */ }
+  } catch(e) {
+    toast('Upload failed: ' + e.message, 'error');
+    btn.textContent = '📤 Submit for Verification';
+    btn.disabled = false;
+    return;
+  }
 
   // Show submitted state
   document.getElementById('verify-info-msg').style.display = 'none';
