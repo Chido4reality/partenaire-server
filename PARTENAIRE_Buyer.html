@@ -1126,7 +1126,7 @@ function openOrderDetail(id) {
         style="width:100%;padding:12px;margin-top:8px;color:var(--red);border-color:var(--red);font-weight:700;border-radius:10px;background:#fff;border-width:1.5px;border-style:solid;cursor:pointer">
         ⚠️ Raise a Dispute
       </button>` : ''}
-    ${o.status === 'shipped' && o.payment_status === 'paid' ? \`
+    ${o.status === 'shipped' && o.payment_status === 'paid' ? `
     <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;border:2px solid var(--green)">
       <div style="font-size:15px;font-weight:800;color:var(--green);margin-bottom:6px">📦 Commande livree?</div>
       <div style="font-size:13px;color:var(--grey);margin-bottom:16px">Confirmez la reception pour liberer le paiement au vendeur.</div>
@@ -1134,7 +1134,7 @@ function openOrderDetail(id) {
         style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer">
         ✅ Confirmer la reception
       </button>
-    </div>\` : ''}
+    </div>` : ''}
     \${(o.status === 'confirmed' || o.status === 'shipped') && o.payment_status === 'paid' && !o.dispute_raised ? \`
     <div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:16px;border:1px solid var(--lgrey)">
       <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">Un probleme avec cette commande?</div>
@@ -1149,7 +1149,7 @@ function openOrderDetail(id) {
       ⚠️ <strong>Litige ouvert</strong> — ${o.dispute_reason || 'En attente de resolution'}
       ${o.seller_dispute_reply ? '<br><br><strong>Reponse du vendeur:</strong> ' + o.seller_dispute_reply : ''}
     </div>` : ''}
-    ${o.status === 'shipped' && o.payment_status === 'paid' ? \`
+    ${o.status === 'shipped' && o.payment_status === 'paid' ? `
     <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;border:2px solid var(--green)">
       <div style="font-size:15px;font-weight:800;color:var(--green);margin-bottom:6px">📦 Commande livree?</div>
       <div style="font-size:13px;color:var(--grey);margin-bottom:16px">Confirmez la reception pour liberer le paiement au vendeur.</div>
@@ -1157,7 +1157,7 @@ function openOrderDetail(id) {
         style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer">
         ✅ Confirmer la reception
       </button>
-    </div>\` : ''}
+    </div>` : ''}
     \${(o.status === 'confirmed' || o.status === 'shipped') && o.payment_status === 'paid' && !o.dispute_raised ? \`
     <div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:16px;border:1px solid var(--lgrey)">
       <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">Un probleme avec cette commande?</div>
