@@ -2712,54 +2712,74 @@ async function loadReviews() {
 let _qrInstance = null;
 
 function generateQRCode(sellerId, shopName) {
-  const shopUrl = window.location.origin + '/buyer?shop=' + sellerId;
+  const shopUrl = 'https://partenaire-server.onrender.com/buyer?shop=' + sellerId;
   const el = document.getElementById('qr-code-display');
   const urlEl = document.getElementById('qr-shop-url');
   if (!el) return;
 
-  // Clear previous
+  // Clear previous content and name label
   el.innerHTML = '';
+  const oldLabel = el.parentNode.querySelector('.qr-name-label');
+  if (oldLabel) oldLabel.remove();
   if (urlEl) urlEl.textContent = shopUrl;
 
-  try {
-    _qrInstance = new QRCode(el, {
-      text: shopUrl,
-      width: 180,
-      height: 180,
-      colorDark: '#1A2B4A',
-      colorLight: '#ffffff',
-      correctLevel: QRCode.CorrectLevel.H
-    });
-  } catch(e) {
-    el.innerHTML = '<div style="padding:20px;text-align:center;font-size:12px;color:var(--grey)">QR Code: ' + shopUrl + '</div>';
+  // Try QRCode library
+  if (typeof QRCode !== 'undefined') {
+    try {
+      new QRCode(el, {
+        text: shopUrl,
+        width: 180,
+        height: 180,
+        colorDark: '#1A2B4A',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.H
+      });
+      // Add shop name label ONCE below
+      setTimeout(() => {
+        const nameEl = document.createElement('div');
+        nameEl.className = 'qr-name-label';
+        nameEl.style.cssText = 'text-align:center;padding:6px 12px;background:#1A2B4A;color:#C9A84C;border-radius:0 0 8px 8px;font-size:11px;font-weight:800;letter-spacing:1.5px;margin-top:0';
+        nameEl.textContent = (shopName || 'PARTENAIRE').toUpperCase();
+        el.after(nameEl);
+      }, 100);
+      return;
+    } catch(e) {
+      console.log('QRCode render error:', e);
+    }
   }
 
-  // Add shop name below QR
+  // Fallback: use Google Charts QR API
+  const img = document.createElement('img');
+  img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(shopUrl) + '&color=1A2B4A';
+  img.style.cssText = 'width:180px;height:180px;border-radius:8px';
+  img.alt = 'QR Code';
+  el.appendChild(img);
+
   const nameEl = document.createElement('div');
-  nameEl.style.cssText = 'text-align:center;padding:8px 12px;background:#1A2B4A;color:#fff;border-radius:0 0 8px 8px;font-size:12px;font-weight:700;margin-top:-4px;letter-spacing:1px';
-  nameEl.textContent = shopName || 'PARTENAIRE ✦';
-  el.parentNode.insertBefore(nameEl, el.nextSibling);
+  nameEl.className = 'qr-name-label';
+  nameEl.style.cssText = 'text-align:center;padding:6px 12px;background:#1A2B4A;color:#C9A84C;border-radius:0 0 8px 8px;font-size:11px;font-weight:800;letter-spacing:1.5px';
+  nameEl.textContent = (shopName || 'PARTENAIRE').toUpperCase();
+  el.after(nameEl);
 }
 
 function downloadQR() {
   const el = document.getElementById('qr-code-display');
-  const img = el.querySelector('img') || el.querySelector('canvas');
-  if (!img) { toast('QR Code not ready', 'error'); return; }
-
   const canvas = el.querySelector('canvas');
+  const img = el.querySelector('img');
+  const filename = 'QR-' + (currentSeller.company || 'shop').replace(/\s+/g, '-') + '.png';
+
   if (canvas) {
     const link = document.createElement('a');
-    link.download = 'QR-' + (currentSeller.company || 'shop').replace(/\s+/g, '-') + '.png';
+    link.download = filename;
     link.href = canvas.toDataURL('image/png');
     link.click();
     toast('QR Code téléchargé!', 'success');
+  } else if (img) {
+    // For cross-origin images, open in new tab
+    window.open(img.src, '_blank');
+    toast('QR Code ouvert — faites clic droit pour enregistrer', 'success');
   } else {
-    // Image fallback
-    const link = document.createElement('a');
-    link.download = 'QR-' + (currentSeller.company || 'shop').replace(/\s+/g, '-') + '.png';
-    link.href = img.src;
-    link.click();
-    toast('QR Code téléchargé!', 'success');
+    toast('QR Code pas encore prêt', 'error');
   }
 }
 
