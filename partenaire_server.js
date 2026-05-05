@@ -565,6 +565,105 @@ http.createServer((req, res) => {
     return;
   }
 
+
+  // ── CAMPAY AUTO-RELEASE (triggered by buyer confirming delivery) ──
+  if (req.url === '/campay/auto-release' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const { order_id } = JSON.parse(body);
+        if (!order_id) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          return res.end(JSON.stringify({ success: false, message: 'order_id required' }));
+        }
+
+        // Get order details
+        const orders = await supaRequest('GET', 'ptn_orders',
+          'id=eq.' + order_id + '&select=*');
+        const order = orders && orders[0];
+
+        if (!order) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          return res.end(JSON.stringify({ success: false, message: 'Order not found' }));
+        }
+
+        if (order.escrow_released) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          return res.end(JSON.stringify({ success: false, message: 'Already released' }));
+        }
+
+        if (!order.escrow_held || order.payment_status !== 'paid') {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          return res.end(JSON.stringify({ success: false, message: 'No escrow to release' }));
+        }
+
+        // Get seller phone
+        const sellers = await supaRequest('GET', 'ptn_users',
+          'id=eq.' + order.seller_id + '&select=phone,name');
+        const seller = sellers && sellers[0];
+
+        if (!seller || !seller.phone) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          return res.end(JSON.stringify({ success: false, message: 'Seller phone not found' }));
+        }
+
+        const ref = 'AUTOPAY-' + order.order_ref + '-' + Date.now();
+        const cleanPhone = String(seller.phone).replace(/\s/g, '').replace(/^\+/, '');
+
+        // Payout via Campay
+        const token = await getCampayToken();
+        const pr = await fetch(CAMPAY_BASE_URL + '/transfer/', {
+          method: 'POST',
+          headers: { 'Authorization': 'Token ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: String(order.escrow_held),
+            currency: 'XAF',
+            to: cleanPhone,
+            description: 'Paiement PARTENAIRE ' + order.order_ref,
+            external_reference: ref
+          })
+        });
+        const result = await pr.json();
+
+        if (result.reference || result.status === 'SUCCESSFUL') {
+          // Update order
+          await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, {
+            escrow_released: true,
+            campay_payout_ref: ref,
+            campay_payout_at: new Date().toISOString(),
+            status: 'delivered',
+            updated_at: new Date().toISOString()
+          });
+
+          // Notify seller
+          await supaRequest('POST', 'ptn_notifications', null, {
+            user_id: order.seller_id,
+            type: 'payment',
+            order_id: order_id,
+            title_en: 'Payment Received!',
+            title_fr: 'Paiement recu!',
+            body_en: order.escrow_held + ' FCFA sent to your account for order ' + order.order_ref,
+            body_fr: order.escrow_held + ' FCFA envoye sur votre compte pour ' + order.order_ref,
+            read: false
+          });
+
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ success: true, amount: order.escrow_held, reference: ref }));
+        } else {
+          console.error('Auto-release payout failed:', result);
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ success: false, message: 'Payout failed', details: result }));
+        }
+      } catch(e) {
+        console.error('Auto-release error:', e.message);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: false, message: e.message }));
+      }
+    });
+    return;
+  }
+
   // SERVE LOCAL FILES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let url = req.url.split('?')[0];
   if (ROUTES[url]) url = '/' + ROUTES[url];

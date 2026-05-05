@@ -1328,12 +1328,12 @@ function closeBroadcastPopup() { const p = document.getElementById('broadcast-po
 // ══════════════════════════════════════════════════════════════
 let momoContext = null, momoOperator = 'mtn';
 
-function openMomoPayment(total, operator) {
+function openMomoPayment(total, operator, orderId, orderRef) {
   selectOperator(operator || 'mtn');
   openMomoModal({
-    type: 'order', title: '💳 Pay for Order',
-    subtitle: 'Payment held in escrow until you confirm delivery',
-    amount: total, ref: 'ORD-' + Date.now().toString().slice(-6),
+    type: 'order', title: '💳 Pay for Order ' + (orderRef || ''),
+    subtitle: 'Paiement securise - Fonds en escrow jusqu a livraison',
+    amount: total, order_id: orderId || null, ref: orderRef || ('ORD-' + Date.now().toString().slice(-6)),
     onSuccess: async () => { await placeOrder(total, true); await loadOrders(); }
   });
 }
@@ -1572,6 +1572,55 @@ function handleOrderCardClick(orderId, counterStatus, paymentRequested, status, 
     openOrderDetail(orderId);
   }
 
+}
+
+
+// ── CONFIRM DELIVERY + AUTO RELEASE ESCROW ───────────────────
+async function confirmDelivery(orderId) {
+  if (!confirm('Confirmez-vous avoir recu la commande?')) return;
+  try {
+    const o = allOrders.find(x => x.id === orderId);
+    if (!o) return;
+
+    // Step 1: Update order status
+    await PATCH('ptn_orders', 'id', orderId, {
+      status: 'delivered',
+      delivery_confirmed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+
+    // Step 2: Auto-release escrow to seller
+    try {
+      const rel = await fetch('/campay/auto-release', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId })
+      });
+      const rd = await rel.json();
+      if (rd.success) {
+        toast('Livraison confirmee! Paiement libere au vendeur.', 'success');
+      } else {
+        toast('Livraison confirmee! Paiement sera libere sous peu.', 'success');
+      }
+    } catch(re) {
+      toast('Livraison confirmee!', 'success');
+    }
+
+    // Step 3: Notify seller
+    await POST('ptn_notifications', {
+      user_id: o.seller_id,
+      type: 'delivery',
+      order_id: orderId,
+      title_en: 'Delivery Confirmed - Payment Released!',
+      title_fr: 'Livraison confirmee - Paiement libere!',
+      body_en: 'Buyer confirmed delivery of order ' + o.order_ref + '. Payment sent to your account.',
+      body_fr: 'Livraison confirmee pour ' + o.order_ref + '. Paiement envoye sur votre compte.',
+      read: false
+    });
+
+    await loadOrders();
+    closeOrderDetail();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 function signOut() {
