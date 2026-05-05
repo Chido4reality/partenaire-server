@@ -1253,32 +1253,36 @@ function setLang(lang) {
 let syncInterval = null, lastNotifId = null, broadcastInterval = null;
 function startSync() {
   if (syncInterval) clearInterval(syncInterval);
-  let lastShopHash = '';
   syncInterval = setInterval(async () => {
     if (!currentBuyer) return;
-    try {
-      // ── Refresh shops silently (picks up featured/unfeatured changes) ──
-      const sellers = await GET('ptn_users','role=eq.seller&badge_status=eq.approved&status=eq.active&select=id,featured,featured_order,featured_label&order=featured_order.desc');
-      const newHash = JSON.stringify((sellers||[]).map(s=>s.id+':'+(s.featured||0)+':'+(s.featured_order||0)));
-      if (newHash !== lastShopHash && lastShopHash !== '') {
-        // Something changed — quietly reload shops
-        await loadShops();
-      }
-      lastShopHash = newHash;
-    } catch(e) {}
-    try {
-      // ── Check notifications ──
-      const newNotifs = await GET('ptn_notifications', `user_id=eq.${currentBuyer.id}&read=eq.false&select=id,title_en&order=created_at.desc&limit=5`);
-      if (newNotifs && newNotifs.length > 0) {
-        const latest = newNotifs[0];
-        if (latest.id !== lastNotifId) {
-          lastNotifId = latest.id;
-          toast('🔔 ' + (latest.title_en||'New notification'), 'success');
-          }
-      }
-      await loadOrders();
-    } catch(e) {}
-  }, 30000); // every 30 seconds
+    try { await loadOrders(); } catch(e) {}
+  }, 30000);
+  // Start Supabase Realtime for instant order updates
+  startBuyerRealtime();
+}
+
+let _buyerWs = null;
+function startBuyerRealtime() {
+  if (_buyerWs) return;
+  try {
+    const ws = new WebSocket('wss://ftxttdagpioieyzaijdc.supabase.co/realtime/v1/websocket?apikey=' + SUPABASE_KEY + '&vsn=1.0.0');
+    _buyerWs = ws;
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ topic: 'realtime:public:ptn_orders', event: 'phx_join', payload: { config: { postgres_changes: [{ event: '*', schema: 'public', table: 'ptn_orders', filter: 'buyer_id=eq.' + currentBuyer.id }] } }, ref: '1' }));
+      console.log('Buyer realtime connected');
+    };
+    ws.onmessage = async (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.payload && msg.payload.data) {
+          await loadOrders();
+          toast('🔄 Commande mise a jour!', '');
+        }
+      } catch(err) {}
+    };
+    ws.onclose = () => { _buyerWs = null; setTimeout(() => { if (currentBuyer) startBuyerRealtime(); }, 5000); };
+    ws.onerror = () => { _buyerWs = null; };
+  } catch(e) { console.log('Realtime not available'); }
 }
 
 // ══════════════════════════════════════════════════════════════
