@@ -1349,7 +1349,12 @@ function openMomoModal(context) {
   document.getElementById('momo-pay-btn').disabled = false;
   document.getElementById('momo-modal').classList.add('open');
 }
-function closeMomoModal() { document.getElementById('momo-modal').classList.remove('open'); }
+function closeMomoModal() {
+  if (window.campayCheckTimer) { clearInterval(window.campayCheckTimer); window.campayCheckTimer = null; }
+  const simBtn = document.getElementById('sandbox-sim-btn');
+  if (simBtn) simBtn.style.display = 'none';
+  document.getElementById('momo-modal').classList.remove('open');
+}
 
 function selectOperator(op) {
   momoOperator = op;
@@ -1383,6 +1388,8 @@ async function confirmMomoPayment() {
       window._campayRef = data.reference;
       status.textContent = 'Approuvez sur votre telephone.' + (data.ussd_code ? ' USSD: ' + data.ussd_code : '');
       btn.textContent = 'En attente...';
+      const _simBtn = document.getElementById('sandbox-sim-btn');
+      if (_simBtn) _simBtn.style.display = 'block';
       let checks = 0;
       const campTimer = setInterval(async () => {
         checks++;
