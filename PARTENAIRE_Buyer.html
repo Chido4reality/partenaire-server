@@ -1884,6 +1884,45 @@ async function submitDispute() {
   }
 }
 
+
+// ── SANDBOX: Simulate successful Campay payment ───────────────
+async function simulateCampaySuccess() {
+  if (!window._campayRef) {
+    toast('No active payment reference', 'error');
+    return;
+  }
+  const status = document.getElementById('momo-status');
+  const btn = document.getElementById('momo-pay-btn');
+  if (status) { status.className = 'momo-status processing'; status.textContent = 'Simulating payment...'; }
+  try {
+    const res = await fetch('/campay/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        reference: window._campayRef,
+        order_id: momoContext ? (momoContext.order_id || null) : null
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (window.campayCheckTimer) { clearInterval(window.campayCheckTimer); window.campayCheckTimer = null; }
+      if (window.campTimer) { clearInterval(window.campTimer); window.campTimer = null; }
+      if (status) { status.className = 'momo-status success'; status.textContent = '✅ Paiement confirme! (Sandbox)'; }
+      if (btn) { btn.textContent = 'Paye!'; btn.disabled = true; }
+      const simBtn = document.getElementById('sandbox-sim-btn');
+      if (simBtn) simBtn.style.display = 'none';
+      if (momoContext && momoContext.onSuccess) await momoContext.onSuccess();
+      setTimeout(() => {
+        document.getElementById('momo-modal').classList.remove('open');
+      }, 2000);
+    } else {
+      if (status) { status.className = 'momo-status failed'; status.textContent = 'Simulation failed: ' + data.message; }
+    }
+  } catch(e) {
+    toast('Simulation error: ' + e.message, 'error');
+  }
+}
+
 </script>
 
 <!-- ══ BROADCAST POPUP ════════════════════════════════════════ -->
