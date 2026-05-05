@@ -1121,11 +1121,6 @@ function openOrderDetail(id) {
     <div class="card"><div class="card-title">📍 Order Progress</div><div class="tracker">${tracker}</div></div>
     ${o.status==='delivered' ? '<div class="alert alert-success">✅ Order delivered. Payment released to seller.</div>' : ''}
     ${o.status==='rejected' ? '<div class="alert" style="background:#FEECEC;border:1px solid var(--red);color:var(--red)">✕ Order was rejected by seller.</div>' : ''}
-    ${['confirmed','shipped','delivered','pending'].includes(o.status) && o.status !== 'rejected' ?
-      `<button class="btn" onclick="openDisputeModal('${o.id}','${o.order_ref}','${o.seller_id}',${o.total||0})"
-        style="width:100%;padding:12px;margin-top:8px;color:var(--red);border-color:var(--red);font-weight:700;border-radius:10px;background:#fff;border-width:1.5px;border-style:solid;cursor:pointer">
-        ⚠️ Raise a Dispute
-      </button>` : ''}
     ${o.status === 'shipped' && o.payment_status === 'paid' ? `
     <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;border:2px solid var(--green)">
       <div style="font-size:15px;font-weight:800;color:var(--green);margin-bottom:6px">📦 Commande livree?</div>
@@ -1137,36 +1132,17 @@ function openOrderDetail(id) {
     </div>` : ''}
     ${o.dispute_raised ? `
     <div class="alert alert-warn">
-      ⚠️ <strong>Litige ouvert</strong> — ${o.dispute_reason || 'En attente de resolution'}
-      ${o.seller_dispute_reply ? '<br><br><strong>Reponse du vendeur:</strong> ' + o.seller_dispute_reply : ''}
-    </div>` : ''}
-    ${(o.status === 'confirmed' || o.status === 'shipped') && o.payment_status === 'paid' && !o.dispute_raised ? `
-    <div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:16px;border:1px solid var(--lgrey)">
-      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">Un probleme avec cette commande?</div>
-      <div style="font-size:12px;color:var(--grey);margin-bottom:12px">Signalez un probleme — le vendeur sera notifie</div>
-      <button onclick="openRaiseDispute('${o.id}','${o.order_ref}')"
-        style="padding:10px 20px;background:transparent;border:1.5px solid var(--red);color:var(--red);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">
-        ⚠️ Signaler un probleme
-      </button>
-    </div>` : ''}
-    ${o.dispute_raised ? `
-    <div class="alert alert-warn">
-      ⚠️ <strong>Litige ouvert</strong> — ${o.dispute_reason || 'En attente de resolution'}
-      ${o.seller_dispute_reply ? '<br><br><strong>Reponse du vendeur:</strong> ' + o.seller_dispute_reply : ''}
-    </div>` : ''}
-    ${(o.payment_status === 'paid' || o.campay_status === 'successful') && !o.dispute_raised ? `
-    <div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:16px;border:1px solid var(--lgrey)">
-      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">Un probleme avec cette commande?</div>
-      <div style="font-size:12px;color:var(--grey);margin-bottom:12px">Signalez un probleme — le vendeur sera notifie</div>
-      <button onclick="openRaiseDispute('${o.id}','${o.order_ref}')"
-        style="padding:10px 20px;background:transparent;border:1.5px solid var(--red);color:var(--red);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">
-        ⚠️ Signaler un probleme
-      </button>
-    </div>` : ''}
-    ${o.dispute_raised ? `
-    <div class="alert alert-warn">
       ⚠️ <strong>Litige ouvert:</strong> ${o.dispute_reason || ''}
       ${o.seller_dispute_reply ? '<br><br><strong>Reponse du vendeur:</strong> ' + o.seller_dispute_reply : '<br><small>En attente de la reponse du vendeur...</small>'}
+    </div>` : ''}
+    ${(o.payment_status === 'paid' || o.campay_status === 'successful') && !o.dispute_raised && o.status !== 'delivered' ? `
+    <div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:16px;border:1px solid var(--lgrey)">
+      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">Un probleme avec cette commande?</div>
+      <div style="font-size:12px;color:var(--grey);margin-bottom:12px">Signalez un probleme — le vendeur sera notifie</div>
+      <button onclick="openDisputeModal('${o.id}','${o.order_ref}','${o.seller_id}',${o.total||0})"
+        style="padding:10px 20px;background:transparent;border:1.5px solid var(--red);color:var(--red);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">
+        ⚠️ Signaler un probleme
+      </button>
     </div>` : ''}
     ${(o.payment_requested && o.status==='confirmed' && o.payment_status !== 'paid') ? `
     <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;border:2px solid #185FA5">
