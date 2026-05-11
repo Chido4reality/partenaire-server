@@ -9,6 +9,8 @@ let campayToken = null;
 let campayTokenExpiry = null;
 
 async function getCampayToken() {
+  // Use permanent access token if provided (preferred over username/password flow)
+  if (process.env.CAMPAY_TOKEN) return process.env.CAMPAY_TOKEN;
   if (campayToken && campayTokenExpiry && Date.now() < campayTokenExpiry) return campayToken;
   const res = await fetch(`${CAMPAY_BASE_URL}/token/`, {
     method: 'POST',
@@ -697,6 +699,34 @@ http.createServer((req, res) => {
   }
 
 
+  // ── MP ADMIN BRIDGE (proxy to Mon Partenaire API) ─────────────
+  if (req.url.startsWith('/mp-admin/')) {
+    const mpPath = req.url.replace('/mp-admin/', '/api/subscriptions/svc/');
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      const mpUrl = new URL(process.env.MP_API_URL || 'https://partenaire-account-api.onrender.com');
+      const options = {
+        hostname: mpUrl.hostname,
+        path: mpPath,
+        method: req.method,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-service-key': process.env.DOZIE_SERVICE_KEY || ''
+        }
+      };
+      if (body) options.headers['Content-Length'] = Buffer.byteLength(body);
+      const pr = https.request(options, r => {
+        res.writeHead(r.statusCode, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        r.pipe(res);
+      });
+      pr.on('error', e => { res.writeHead(502); res.end(JSON.stringify({ success: false, error: e.message })); });
+      if (body) pr.write(body);
+      pr.end();
+    });
+    return;
+  }
+
   // ── CAMPAY SIMULATE (sandbox testing only) ───────────────────
   if (req.url === '/campay/simulate' && req.method === 'POST') {
     let body = '';
@@ -768,29 +798,6 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'text/plain' });
     res.end(d);
   });
-
-
-
-
-// ── CAMPAY PAYMENT INTEGRATION ───────────────────────────────
-const CAMPAY_BASE = process.env.CAMPAY_ENV === 'production'
-  ? 'https://campay.net/api'
-  : 'https://demo.campay.net/api';
-
-let _cToken = null, _cExp = null;
-
-async function getCT() {
-  if (_cToken && _cExp && Date.now() < _cExp) return _cToken;
-  const r = await fetch(CAMPAY_BASE + '/token/', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: process.env.CAMPAY_USERNAME, password: process.env.CAMPAY_PASSWORD })
-  });
-  const d = await r.json();
-  if (!d.token) throw new Error('Campay auth failed');
-  _cToken = d.token; _cExp = Date.now() + 55 * 60 * 1000;
-  return _cToken;
-}
-
 
 }).listen(PORT, () => {
   console.log('');

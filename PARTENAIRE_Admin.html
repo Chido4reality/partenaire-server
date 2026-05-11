@@ -245,6 +245,7 @@ window.addEventListener('DOMContentLoaded', function() {
     <a onclick="showPage('subscriptions')" data-page="subscriptions">💳 <span data-t="subscriptions">Subscriptions</span> <span class="badge" id="sub-badge" style="display:none">0</span></a>
     <a onclick="showPage('admins')" data-page="admins" id="nav-admins">🔑 <span data-t="admins">Admin Team</span></a>
     <a onclick="showPage('broadcasts')" data-page="broadcasts">📢 <span>Broadcasts</span></a>
+    <a onclick="showPage('mp')" data-page="mp">🏢 <span>Mon Partenaire</span> <span class="badge" id="mp-badge" style="display:none">0</span></a>
   </nav>
   <div class="sb-footer">
     <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-bottom:8px;text-align:center">Douala, Cameroun · 2026</div>
@@ -501,6 +502,40 @@ window.addEventListener('DOMContentLoaded', function() {
       <table>
         <thead><tr><th>Seller</th><th>Type</th><th>Amount</th><th>Method</th><th>Reference</th><th>Date</th><th>Recorded By</th></tr></thead>
         <tbody id="payments-table"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══ MON PARTENAIRE PAGE ══ -->
+  <div class="page" id="page-mp">
+    <div class="page-title">🏢 Mon Partenaire</div>
+    <div class="page-sub">MP businesses using the POS — view plans & manage upgrade requests</div>
+
+    <!-- Pending payment requests -->
+    <div class="table-wrap" style="margin-bottom:20px">
+      <div class="table-head">
+        <div class="table-title">⏳ Pending Upgrade Requests</div>
+        <button class="btn" onclick="loadMPPayments()">↻ Refresh</button>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Business</th><th>MP-ID</th><th>Plan</th><th>Amount</th><th>Method</th><th>Months</th><th>Requested</th><th>Notes</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="mp-payments-table"><tr><td colspan="9" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- All MP businesses -->
+    <div class="table-wrap">
+      <div class="table-head">
+        <div class="table-title">All MP Businesses</div>
+        <input type="text" class="filter" id="mp-search" placeholder="Search name or MP-ID..." oninput="filterMPBusinesses()" style="width:200px">
+      </div>
+      <table>
+        <thead><tr>
+          <th>Business</th><th>MP-ID</th><th>Plan</th><th>Status</th><th>Trial Ends</th><th>Plan Expires</th><th>Joined</th>
+        </tr></thead>
+        <tbody id="mp-businesses-table"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -1459,6 +1494,7 @@ function showPage(page) {
   if (page === 'dashboard') loadDashboard();
   if (page === 'subscriptions') { loadSubscriptions(); setTimeout(checkAndAutoSuspend, 500); }
   if (page === 'broadcasts') { loadBroadcasts(); }
+  if (page === 'mp') { loadMPPayments(); loadMPBusinesses(); }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2173,6 +2209,133 @@ async function viewSellerDocs(sellerId) {
   } catch(e) {
     content.innerHTML = '<div class="alert">Error loading documents: ' + e.message + '</div>';
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MON PARTENAIRE — businesses & upgrade requests
+// ══════════════════════════════════════════════════════════════
+let mpBusinessesAll = [];
+
+const PLAN_BADGE = {
+  gold: '<span class="badge badge-gold">🥇 Gold</span>',
+  silver: '<span class="badge badge-silver">🥈 Silver</span>',
+  premium: '<span class="badge badge-premium">❖ Premium</span>'
+};
+function mpPlanBadge(plan_id) { return PLAN_BADGE[plan_id] || '<span class="badge badge-grey">Free</span>'; }
+
+function mpStatusBadge(status) {
+  if (status === 'active')   return '<span class="badge badge-green">Active</span>';
+  if (status === 'pending')  return '<span class="badge badge-amber">⏳ Pending</span>';
+  if (status === 'expired')  return '<span class="badge badge-red">Expired</span>';
+  if (status === 'trial')    return '<span class="badge badge-blue">Trial</span>';
+  return '<span class="badge badge-grey">' + (status || '—') + '</span>';
+}
+
+async function loadMPPayments() {
+  const tbody = document.getElementById('mp-payments-table');
+  tbody.innerHTML = '<tr><td colspan="9" class="loading">Loading...</td></tr>';
+  try {
+    const res = await fetch('/mp-admin/payments');
+    const json = await res.json();
+    const payments = (json.data || []).filter(p => p.status === 'pending');
+
+    const badge = document.getElementById('mp-badge');
+    if (payments.length > 0) { badge.style.display = ''; badge.textContent = payments.length; }
+    else badge.style.display = 'none';
+
+    if (!payments.length) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#aaa">No pending upgrade requests</td></tr>';
+      return;
+    }
+    tbody.innerHTML = payments.map(p => `
+      <tr>
+        <td><strong>${p.pa_organisations?.name || '—'}</strong></td>
+        <td><code style="font-size:11px">${p.pa_organisations?.user_id_number || '—'}</code></td>
+        <td>${mpPlanBadge(p.plan_id)}</td>
+        <td><strong>${(p.amount || 0).toLocaleString()} FCFA</strong></td>
+        <td>${p.payment_method || '—'}</td>
+        <td>${p.months || 1} month(s)</td>
+        <td style="font-size:11px">${fmtDate(p.requested_at || p.created_at)}</td>
+        <td style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis">${p.notes || '—'}</td>
+        <td>
+          <button class="btn btn-green" style="font-size:11px;padding:5px 10px;margin-right:4px" onclick="mpApprove('${p.id}')">✅ Approve</button>
+          <button class="btn btn-red" style="font-size:11px;padding:5px 10px" onclick="mpReject('${p.id}')">❌ Reject</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="9" style="color:red;padding:16px">Error: ' + e.message + '</td></tr>';
+  }
+}
+
+async function loadMPBusinesses() {
+  const tbody = document.getElementById('mp-businesses-table');
+  tbody.innerHTML = '<tr><td colspan="7" class="loading">Loading...</td></tr>';
+  try {
+    const res = await fetch('/mp-admin/businesses');
+    const json = await res.json();
+    mpBusinessesAll = json.data || [];
+    renderMPBusinesses(mpBusinessesAll);
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:red;padding:16px">Error: ' + e.message + '</td></tr>';
+  }
+}
+
+function renderMPBusinesses(list) {
+  const tbody = document.getElementById('mp-businesses-table');
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#aaa">No businesses found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(b => `
+    <tr>
+      <td><strong>${b.name || '—'}</strong></td>
+      <td><code style="font-size:11px">${b.user_id_number || '—'}</code></td>
+      <td>${mpPlanBadge(b.plan_id)}</td>
+      <td>${mpStatusBadge(b.subscription_status)}</td>
+      <td style="font-size:11px">${b.trial_ends_at ? fmtDate(b.trial_ends_at) : '—'}</td>
+      <td style="font-size:11px">${b.plan_expires_at ? fmtDate(b.plan_expires_at) : '—'}</td>
+      <td style="font-size:11px">${fmtDate(b.created_at)}</td>
+    </tr>
+  `).join('');
+}
+
+function filterMPBusinesses() {
+  const q = document.getElementById('mp-search').value.toLowerCase();
+  if (!q) { renderMPBusinesses(mpBusinessesAll); return; }
+  renderMPBusinesses(mpBusinessesAll.filter(b =>
+    (b.name || '').toLowerCase().includes(q) ||
+    (b.user_id_number || '').toLowerCase().includes(q)
+  ));
+}
+
+async function mpApprove(paymentId) {
+  if (!confirm('Approve this upgrade request?')) return;
+  try {
+    const res = await fetch('/mp-admin/payments/' + paymentId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'approve' })
+    });
+    const json = await res.json();
+    if (json.success) { toast('Upgrade approved ✅', 'success'); loadMPPayments(); loadMPBusinesses(); }
+    else toast('Error: ' + (json.message || 'Unknown'), 'error');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function mpReject(paymentId) {
+  const reason = prompt('Reason for rejection (optional):') ?? '';
+  if (reason === null) return;
+  try {
+    const res = await fetch('/mp-admin/payments/' + paymentId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reject', notes: reason })
+    });
+    const json = await res.json();
+    if (json.success) { toast('Request rejected', 'error'); loadMPPayments(); loadMPBusinesses(); }
+    else toast('Error: ' + (json.message || 'Unknown'), 'error');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 </script>
 
