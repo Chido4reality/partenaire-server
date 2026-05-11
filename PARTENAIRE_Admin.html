@@ -31,20 +31,20 @@
   .login-hint{background:#f8f6f0;border-radius:10px;padding:12px;font-size:12px;color:var(--grey);margin-top:16px;text-align:center}
 
   /* ── SIDEBAR ── */
-  #sidebar{width:var(--sidebar);background:var(--navy);min-height:100vh;position:fixed;left:0;top:0;bottom:0;display:flex;flex-direction:column;overflow-y:auto}
-  .sb-logo{padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,0.08)}
+  #sidebar{width:var(--sidebar);background:var(--navy);height:100vh;position:fixed;left:0;top:0;bottom:0;display:flex;flex-direction:column;overflow:hidden}
+  .sb-logo{padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0}
   .sb-logo-text{font-size:16px;font-weight:900;letter-spacing:2px;color:#fff}
   .sb-logo-text span{color:var(--gold)}
   .sb-logo-sub{font-size:10px;color:rgba(255,255,255,0.4);margin-top:3px;letter-spacing:1px;text-transform:uppercase}
-  .sb-user{padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08)}
+  .sb-user{padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0}
   .sb-user-name{font-size:13px;font-weight:600;color:#fff}
   .sb-user-role{font-size:11px;color:var(--gold);margin-top:2px}
-  nav{flex:1;padding:12px 0}
+  nav{flex:1;padding:12px 0;overflow-y:auto}
   nav a{display:flex;align-items:center;gap:10px;padding:11px 20px;color:rgba(255,255,255,0.6);text-decoration:none;font-size:13px;font-weight:500;transition:all 0.15s;cursor:pointer;border-left:3px solid transparent}
   nav a:hover{color:#fff;background:rgba(255,255,255,0.05)}
   nav a.active{color:#fff;background:rgba(201,168,76,0.15);border-left-color:var(--gold)}
   nav a .badge{background:var(--red);color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:10px;margin-left:auto}
-  .sb-footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,0.08)}
+  .sb-footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,0.08);flex-shrink:0}
   .sb-logout{width:100%;padding:10px;background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border:none;border-radius:8px;font-size:12px;cursor:pointer;transition:background 0.2s}
   .sb-logout:hover{background:rgba(255,255,255,0.15);color:#fff}
   .lang-toggle{display:flex;gap:4px;padding:12px 20px;border-bottom:1px solid rgba(255,255,255,0.08)}
