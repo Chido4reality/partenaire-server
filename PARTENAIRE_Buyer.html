@@ -1336,8 +1336,10 @@ async function checkBroadcasts(userRole, userCity) {
     if (!bcs || !bcs.length) return;
     for (const bc of bcs) {
       if (shownBroadcasts.has(bc.id)) continue;
-      const targets = bc.target==='all' || bc.target===userRole || (bc.target==='city' && bc.target_city===userCity);
-      if (!targets) continue;
+      const targetMatch = bc.target==='all' || bc.target===userRole || (bc.target==='city' && bc.target_city===userCity);
+      if (!targetMatch) continue;
+      // Category filter: only show to buyers whose category matches seller's category
+      if (bc.target_category && currentBuyer && currentBuyer.category && bc.target_category !== currentBuyer.category) continue;
       shownBroadcasts.add(bc.id);
       showBroadcastPopup(bc);
       break;
@@ -1353,8 +1355,17 @@ function showBroadcastPopup(bc) {
   document.getElementById('bc-popup-title').textContent = icon + bc.title;
   document.getElementById('bc-popup-message').textContent = bc.message;
   document.getElementById('bc-popup-from').textContent = bc.sender_role==='admin' ? 'From: PARTENAIRE Admin' : '🏪 ' + (bc.sender_name||'A seller');
+  const orderBtn = document.getElementById('bc-order-btn');
+  if (orderBtn) {
+    if (bc.sender_role === 'seller' && bc.sender_id) {
+      orderBtn.style.display = 'inline-block';
+      orderBtn.onclick = () => { closeBroadcastPopup(); switchTab('tab-shops'); openShop(bc.sender_id); };
+    } else {
+      orderBtn.style.display = 'none';
+    }
+  }
   popup.style.display = 'block';
-  setTimeout(closeBroadcastPopup, 10000);
+  setTimeout(closeBroadcastPopup, 15000);
 }
 function closeBroadcastPopup() { const p = document.getElementById('broadcast-popup'); if(p) p.style.display='none'; }
 
@@ -1426,14 +1437,14 @@ async function confirmMomoPayment() {
       const _simBtn = document.getElementById('sandbox-sim-btn');
       if (_simBtn) _simBtn.style.display = 'block';
       let checks = 0;
-      const campTimer = setInterval(async () => {
+      window.campayCheckTimer = setInterval(async () => {
         checks++;
-        if (checks > 24) { clearInterval(campTimer); btn.disabled = false; btn.textContent = 'Reessayer'; status.textContent = 'Temps ecoule.'; return; }
+        if (checks > 24) { clearInterval(window.campayCheckTimer); window.campayCheckTimer = null; btn.disabled = false; btn.textContent = 'Reessayer'; status.textContent = 'Temps ecoule.'; return; }
         try {
           const cr = await fetch('/campay/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference: window._campayRef, order_id: momoContext.order_id || null }) });
           const cd = await cr.json();
           if (cd.paid) {
-            clearInterval(campTimer);
+            clearInterval(window.campayCheckTimer); window.campayCheckTimer = null;
             status.className = 'momo-status success';
             status.textContent = 'Paiement confirme! Fonds en escrow.';
             btn.textContent = 'Paye!';
@@ -2031,6 +2042,7 @@ async function simulateCampaySuccess() {
   <div style="font-size:13px;font-weight:800;margin-bottom:4px" id="bc-popup-title"></div>
   <div style="font-size:13px;line-height:1.5;opacity:0.95" id="bc-popup-message"></div>
   <div style="font-size:10px;opacity:0.6;margin-top:6px" id="bc-popup-from"></div>
+  <button id="bc-order-btn" style="display:none;margin-top:10px;padding:7px 16px;background:#C9A84C;color:#1A2B4A;border:none;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;width:100%">🛒 Place Order</button>
 </div>
 
 <!-- ══ MOMO PAYMENT MODAL ════════════════════════════════════ -->

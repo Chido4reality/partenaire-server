@@ -1415,24 +1415,6 @@ function openOrderDetail(id) {
         Admin has been notified and will mediate if needed
       </div>
     </div>` : ''}
-    ${o.dispute_raised ? `
-    <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;border:2px solid var(--red)">
-      <div style="font-size:15px;font-weight:800;color:var(--red);margin-bottom:8px">⚠️ Dispute Raised by Buyer</div>
-      <div style="background:#FEECEC;border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px">
-        <strong>Reason:</strong> ${o.dispute_reason || 'No reason given'}
-      </div>
-      ${o.seller_dispute_reply ? `
-      <div style="background:var(--greenl);border-radius:10px;padding:12px;font-size:13px;color:var(--green)">
-        <strong>Your Reply Sent:</strong> ${o.seller_dispute_reply}
-      </div>` : `
-      <textarea id="dispute-reply-text" style="width:100%;padding:12px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:13px;resize:none;min-height:80px;outline:none;margin-bottom:10px;font-family:inherit"
-        placeholder="Explain your side — buyer and admin will see this..."></textarea>
-      <button onclick="submitDisputeReply('${o.id}','${o.buyer_id}','${o.order_ref}')"
-        style="width:100%;padding:12px;background:var(--navy);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">
-        📤 Send Reply to Buyer
-      </button>`}
-      <div style="font-size:12px;color:var(--grey);margin-top:10px;text-align:center">Admin has been notified</div>
-    </div>` : ''}
     <div style="height:40px"></div>`;
 
   document.getElementById('order-detail-screen').style.display = 'block';
@@ -2627,11 +2609,13 @@ async function sendPromoBlast() {
       sender_name: currentSeller.company || currentSeller.name,
       type, title, message, target,
       target_city: target==='city' ? currentSeller.city : null,
+      target_category: currentSeller.category || null,
       active: true,
       expires_at: new Date(Date.now() + 6*3600000).toISOString()
     });
     closeModal('modal-promo-blast');
-    toast('📢 Promo blast sent to buyers!', 'success');
+    const catNote = currentSeller.category ? ' (category-targeted)' : '';
+    toast('📢 Promo blast sent to matching buyers!' + catNote, 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
