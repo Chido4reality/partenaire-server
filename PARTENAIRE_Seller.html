@@ -1424,12 +1424,20 @@ async function submitDisputeReply(orderId, buyerId, orderRef) {
   const reply = document.getElementById('dispute-reply-text') && document.getElementById('dispute-reply-text').value.trim();
   if (!reply) { toast('Enter your reply first', 'error'); return; }
   try {
+    const replyAt = new Date().toISOString();
+    // Save to ptn_orders (for buyer display)
     await PATCH('ptn_orders', 'id', orderId, {
       seller_dispute_reply: reply,
-      seller_reply_at: new Date().toISOString(),
+      seller_reply_at: replyAt,
       dispute_status: 'seller_replied',
-      updated_at: new Date().toISOString()
+      updated_at: replyAt
     });
+    // Save to ptn_disputes.seller_reply (for admin display)
+    await PATCH('ptn_disputes', 'order_id', orderId, {
+      seller_reply: reply,
+      seller_reply_at: replyAt,
+      status: 'seller_replied'
+    }).catch(() => {}); // non-blocking if no dispute record exists
     await POST('ptn_notifications', {
       user_id: buyerId,
       type: 'dispute',
