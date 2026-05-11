@@ -393,12 +393,22 @@ window.addEventListener('DOMContentLoaded', function() {
         <div>
           <label class="auth-label">Category</label>
           <select class="auth-input" id="reg-category" style="margin-bottom:0">
-            <option value="1">🏍️ Moto Parts</option>
-            <option value="2">🚗 Auto Parts</option>
-            <option value="3">📱 Electronics</option>
-            <option value="4">🔧 Hardware</option>
-            <option value="5">🌾 Agriculture</option>
-            <option value="6">👗 Textile</option>
+            <option value="moto_parts">🏍️ Moto &amp; Vehicle Parts</option>
+            <option value="electronics">📱 Electronics &amp; Accessories</option>
+            <option value="general">🛒 General Trade</option>
+            <option value="food">🌾 Food &amp; Grocery</option>
+            <option value="hardware">🔧 Hardware &amp; Tools</option>
+            <option value="fashion">👗 Fashion &amp; Clothing</option>
+            <option value="hair_cosmetics">💄 Hair &amp; Cosmetics</option>
+            <option value="building">🧱 Building Materials</option>
+            <option value="pharmacy">💊 Pharmacy &amp; Health</option>
+            <option value="furniture">🛋️ Furniture &amp; Home</option>
+            <option value="agriculture">🌱 Agriculture &amp; Farming</option>
+            <option value="printing">🖨️ Printing &amp; Stationery</option>
+            <option value="telecom">📡 Telecom &amp; Phone Repair</option>
+            <option value="restaurant">🍽️ Restaurant &amp; Food Service</option>
+            <option value="transport">🚛 Transport &amp; Logistics</option>
+            <option value="other">📦 Other</option>
           </select>
         </div>
       </div>
@@ -712,12 +722,22 @@ window.addEventListener('DOMContentLoaded', function() {
       <div class="form-group">
         <label class="form-label">Category</label>
         <select class="form-select" id="p-category">
-          <option value="1">🏍️ Moto Parts</option>
-          <option value="2">🚗 Auto Parts</option>
-          <option value="3">📱 Electronics</option>
-          <option value="4">🔧 Hardware</option>
-          <option value="5">🌾 Agriculture</option>
-          <option value="6">👗 Textile</option>
+          <option value="moto_parts">🏍️ Moto &amp; Vehicle Parts</option>
+          <option value="electronics">📱 Electronics</option>
+          <option value="general">🛒 General Trade</option>
+          <option value="food">🌾 Food &amp; Grocery</option>
+          <option value="hardware">🔧 Hardware</option>
+          <option value="fashion">👗 Fashion</option>
+          <option value="hair_cosmetics">💄 Hair &amp; Cosmetics</option>
+          <option value="building">🧱 Building Materials</option>
+          <option value="pharmacy">💊 Pharmacy</option>
+          <option value="furniture">🛋️ Furniture</option>
+          <option value="agriculture">🌱 Agriculture</option>
+          <option value="printing">🖨️ Printing</option>
+          <option value="telecom">📡 Telecom</option>
+          <option value="restaurant">🍽️ Restaurant</option>
+          <option value="transport">🚛 Transport</option>
+          <option value="other">📦 Other</option>
         </select>
       </div>
       <div class="form-group">
@@ -785,8 +805,22 @@ function xhr(method, url, body) {
   });
 }
 
-const CATS = { '1':'🏍️ Moto Parts','2':'🚗 Auto Parts','3':'📱 Electronics','4':'🔧 Hardware','5':'🌾 Agriculture','6':'👗 Textile' };
-const EMOJIS = { '1':'⚙️','2':'🚗','3':'📱','4':'🔧','5':'🌾','6':'👗' };
+const CATS = {
+  'moto_parts':'🏍️ Moto Parts','electronics':'📱 Electronics','general':'🛒 General Trade',
+  'food':'🌾 Food & Grocery','hardware':'🔧 Hardware','fashion':'👗 Fashion',
+  'hair_cosmetics':'💄 Hair & Cosmetics','building':'🧱 Building Materials','pharmacy':'💊 Pharmacy',
+  'furniture':'🛋️ Furniture','agriculture':'🌱 Agriculture','printing':'🖨️ Printing',
+  'telecom':'📡 Telecom','restaurant':'🍽️ Restaurant','transport':'🚛 Transport','other':'📦 Other',
+  // legacy numeric keys for existing records
+  '1':'🏍️ Moto Parts','2':'🚗 Auto Parts','3':'📱 Electronics','4':'🔧 Hardware','5':'🌾 Agriculture','6':'👗 Textile'
+};
+const EMOJIS = {
+  'moto_parts':'⚙️','electronics':'📱','general':'🛒','food':'🌾','hardware':'🔧','fashion':'👗',
+  'hair_cosmetics':'💄','building':'🧱','pharmacy':'💊','furniture':'🛋️','agriculture':'🌱',
+  'printing':'🖨️','telecom':'📡','restaurant':'🍽️','transport':'🚛','other':'📦',
+  // legacy numeric keys
+  '1':'⚙️','2':'🚗','3':'📱','4':'🔧','5':'🌾','6':'👗'
+};
 
 // ══════════════════════════════════════════════════════════════
 //  STATE
@@ -1127,7 +1161,7 @@ function openAddProduct() {
   document.getElementById('p-name').value = '';
   document.getElementById('p-price').value = '';
   document.getElementById('p-stock').value = '';
-  document.getElementById('p-category').value = '1';
+  document.getElementById('p-category').value = 'moto_parts';
   document.getElementById('p-published').value = 'true';
   document.getElementById('camera-emoji').textContent = '📸';
   document.getElementById('camera-label').textContent = 'Tap to snap product photo';
