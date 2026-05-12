@@ -541,6 +541,12 @@ window.addEventListener('DOMContentLoaded', function() {
     <!-- ── Authenticated content ─────────────────────────────── -->
     <div id="mp-content" style="display:none">
 
+      <!-- Connected user info -->
+      <div id="mp-user-bar" style="background:#E8F5E9;border:1px solid #A5D6A7;border-radius:10px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:var(--green);display:flex;justify-content:space-between;align-items:center">
+        <span>✅ Connected as: <strong id="mp-logged-user">—</strong> &nbsp;·&nbsp; Org: <strong id="mp-logged-org">—</strong></span>
+        <button onclick="mpToken=null;mpInitPage()" style="background:transparent;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:var(--green)">Disconnect</button>
+      </div>
+
       <!-- Stats -->
       <div class="stats-grid" style="margin-bottom:20px">
         <div class="stat-card"><div class="stat-label">Total Businesses</div><div class="stat-value" id="mp-stat-total">—</div></div>
@@ -2289,13 +2295,15 @@ let mpCurrentPaymentId = null, mpCurrentOrgId = null;
 async function mpFetch(method, path, body) {
   const headers = { 'Content-Type': 'application/json' };
   if (mpToken) headers['Authorization'] = 'Bearer ' + mpToken;
+  console.log('[MP]', method, MP_API + path, body || '');
   const res = await fetch(MP_API + path, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.message || 'Request failed (' + res.status + ')');
+  console.log('[MP]', method, path, '→', res.status, data);
+  if (!res.ok) throw new Error(data.message || ('Request failed (' + res.status + ')'));
   return data;
 }
 
@@ -2323,9 +2331,12 @@ async function mpLogin() {
     if (!result.token) throw new Error('No token returned — check credentials');
     if (!result.success && !result.token) throw new Error(result.message || 'Login failed');
     mpToken = result.token;
-    // Save phone for display
+    console.log('[MP] Login success, user:', result.user, 'org:', result.org, 'token length:', result.token?.length);
+    // Show connected user in the bar
     const mpUserEl = document.getElementById('mp-logged-user');
     if (mpUserEl) mpUserEl.textContent = result.user?.full_name || phone;
+    const mpOrgEl = document.getElementById('mp-logged-org');
+    if (mpOrgEl) mpOrgEl.textContent = result.org?.user_id_number || result.org?.name || result.user?.org_id || '(fetching…)';
     document.getElementById('mp-auth-section').style.display = 'none';
     document.getElementById('mp-content').style.display = 'block';
     await mpLoadAll();
@@ -2350,22 +2361,23 @@ async function mpLoadAll() {
 
   try {
     await Promise.all([mpLoadOrgs(), mpLoadPayments(), mpLoadPlans()]);
+    console.log('[MP] Loaded:', mpOrgs.length, 'orgs,', mpPayments.length, 'payments,', mpPlans.length, 'plans');
     mpUpdateStats();
     mpSwitchTab('businesses'); // ensure first tab is active
     mpFilterBiz();
     mpRenderPending();
     mpRenderHistory();
-    // Update nav badge
-    const pending = mpPayments.filter(p => p.status === 'pending').length;
+    // Update nav badge — count both pending and processing
+    const pending = mpPayments.filter(p => p.status === 'pending' || p.status === 'processing').length;
     const badge = document.getElementById('mp-badge');
     if (badge) { badge.textContent = pending; badge.style.display = pending > 0 ? 'inline' : 'none'; }
     const pc = document.getElementById('mp-pending-count');
     if (pc) { pc.textContent = pending; pc.style.display = pending > 0 ? 'inline' : 'none'; }
   } catch(e) {
-    if (e.message.includes('403')) {
-      // Show specific 403 message inside the content area instead of reverting
+    console.error('[MP] Load error:', e);
+    if (e.message.includes('403') || e.message.toLowerCase().includes('denied') || e.message.toLowerCase().includes('forbidden')) {
       if (bizTbody) bizTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--red)">❌ Access denied — your account is not the MP-000001 admin account. Use your Mon Partenaire owner credentials.</td></tr>';
-    } else if (e.message.includes('401')) {
+    } else if (e.message.includes('401') || e.message.toLowerCase().includes('unauthorized') || e.message.toLowerCase().includes('not authenticated')) {
       mpToken = null; mpInitPage();
       toast('Session expired — please reconnect', 'error');
     } else {
@@ -2420,7 +2432,7 @@ function mpUpdateStats() {
   const total     = mpOrgs.length;
   const trial     = mpOrgs.filter(o => o.subscription_status === 'trial').length;
   const active    = mpOrgs.filter(o => o.subscription_status === 'active').length;
-  const pending   = mpPayments.filter(p => p.status === 'pending').length;
+  const pending   = mpPayments.filter(p => p.status === 'pending' || p.status === 'processing').length;
   const suspended = mpOrgs.filter(o => o.subscription_status === 'suspended').length;
   document.getElementById('mp-stat-total').textContent     = total;
   document.getElementById('mp-stat-trial').textContent     = trial;
@@ -2522,7 +2534,8 @@ function mpFilterBiz() {
 
 // ── Render: Pending payments ──────────────────────────────────
 function mpRenderPending() {
-  const data  = mpPayments.filter(p => p.status === 'pending');
+  // Include 'processing' (CamPay initiated) alongside 'pending' (manual/momo)
+  const data  = mpPayments.filter(p => p.status === 'pending' || p.status === 'processing');
   const tbody = document.getElementById('mp-pending-table');
   if (!tbody) return;
   if (!data.length) {
