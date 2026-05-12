@@ -321,19 +321,19 @@ window.addEventListener('DOMContentLoaded', function() {
         <div class="step-dot"></div>
         <div class="step-dot"></div>
       </div>
-      <label class="auth-label">Phone Number</label>
+      <label class="auth-label">Mon Partenaire Phone Number</label>
       <div class="phone-row">
         <div class="country-code">🇨🇲 +237</div>
         <input class="auth-input" id="phone-input" type="tel" placeholder="699 000 000" maxlength="9" style="margin-bottom:0;flex:1">
       </div>
       <div style="height:16px"></div>
-      <label class="auth-label">PIN Code (4 digits)</label>
+      <label class="auth-label">Dozie 4-digit PIN</label>
       <input class="auth-input" id="pin-input" type="password" placeholder="••••" maxlength="4" inputmode="numeric"
         onkeydown="if(event.key==='Enter') loginWithPIN()">
       <button class="auth-btn gold" id="btn-send-otp" onclick="loginWithPIN()">Se connecter / Sign In →</button>
       <div class="auth-error" id="phone-error"></div>
-      <div class="auth-hint">
-        Entrez votre numero et votre code PIN a 4 chiffres
+      <div class="auth-hint" style="background:#f8f6f0;border-radius:8px;padding:10px 12px;font-size:11px;line-height:1.5">
+        💡 Use your <strong>Mon Partenaire phone number</strong> and the <strong>4-digit Dozie PIN</strong> you set when activating Partenaire Dozie in Mon Partenaire Settings.
       </div>
       <div class="auth-link">Nouveau vendeur? / New seller? <span onclick="goToRegister()">Créer votre boutique →</span></div>
     </div>
@@ -914,24 +914,39 @@ async function loginWithPIN() {
   }
 
   try {
+    // Normalise to 9-digit local format — backend dozie-login strips +237
+    // anyway, but be defensive in case the user typed it.
+    const cleanPhone = phone.replace(/^\+237/, '').replace(/^237/, '').replace(/\s/g,'');
     const resp = await fetch(MP_API + '/auth/dozie-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, pin })
+      body: JSON.stringify({ phone: cleanPhone, pin })
     });
-    const result = await resp.json();
+    const result = await resp.json().catch(() => ({}));
     if (!resp.ok || !result.success) {
-      showAuthError('phone-error', result.message || 'Erreur de connexion');
+      const msg = (result.message || '').toLowerCase();
+      // Backend returns "No Dozie seller account found for this phone number"
+      // when the MP owner hasn't run the Partenaire Dozie activation flow yet.
+      // Surface a clearer call-to-action instead of the raw text.
+      if (resp.status === 401 && (msg.includes('no dozie') || msg.includes('not found'))) {
+        showAuthError('phone-error',
+          'No Dozie seller account for this phone. Activate "Partenaire Dozie" first from Mon Partenaire → Settings (mon-partenaire-app.vercel.app), then sign in here with the PIN you set.');
+      } else if (resp.status === 401) {
+        showAuthError('phone-error', 'Incorrect phone or PIN — please try again.');
+      } else if (resp.status === 403) {
+        showAuthError('phone-error', result.message || 'Your seller account is inactive — contact support.');
+      } else {
+        showAuthError('phone-error', result.message || ('Login failed (HTTP ' + resp.status + ')'));
+      }
       return;
     }
     currentSeller = result.data.seller;
-    // Enrich with mp_org info if available
     if (result.data.mp_org) currentSeller._mpOrg = result.data.mp_org;
-    const buyers = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&select=id`);
+    const buyers = await GET('ptn_users', `phone=eq.${cleanPhone}&role=eq.buyer&select=id`);
     currentSeller._hasBuyerAccount = buyers && buyers.length > 0;
     if (currentSeller.status === 'suspended') { showSuspendedScreen(); return; }
     enterApp();
-  } catch(e) { showAuthError('phone-error', e.message || 'Erreur réseau'); }
+  } catch(e) { showAuthError('phone-error', e.message || 'Network error — please try again'); }
 }
 
 async function verifyOTP() { loginWithPIN(); }
