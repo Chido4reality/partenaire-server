@@ -768,6 +768,7 @@ window.addEventListener('DOMContentLoaded', function() {
 // ══════════════════════════════════════════════════════════════
 const SUPABASE_URL = 'https://ftxttdagpioieyzaijdc.supabase.co'; // direct fallback
 const API_BASE = window.location.hostname === 'localhost' ? '' : SUPABASE_URL;
+const MP_API = 'https://partenaire-account-api.onrender.com/api';
 
 // Proxy helper — routes through local server when on localhost to avoid CORS
 function apiUrl(table, params='') {
@@ -904,22 +905,24 @@ async function loginWithPIN() {
   }
 
   try {
-    const sellers = await GET('ptn_users', `phone=eq.${phone}&role=eq.seller&pin=eq.${pin}&select=*`);
-    if (!sellers || !sellers.length) {
-      const phoneCheck = await GET('ptn_users', `phone=eq.${phone}&role=eq.seller&select=id`);
-      if (phoneCheck && phoneCheck.length) {
-        showAuthError('phone-error', 'Code PIN incorrect. Reessayez.');
-      } else {
-        showAuthError('phone-error', 'Aucun compte vendeur. Enregistrez-vous.');
-      }
+    const resp = await fetch(MP_API + '/auth/dozie-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, pin })
+    });
+    const result = await resp.json();
+    if (!resp.ok || !result.success) {
+      showAuthError('phone-error', result.message || 'Erreur de connexion');
       return;
     }
-    currentSeller = sellers[0];
+    currentSeller = result.data.seller;
+    // Enrich with mp_org info if available
+    if (result.data.mp_org) currentSeller._mpOrg = result.data.mp_org;
     const buyers = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&select=id`);
-    currentSeller._hasBuyerAccount = buyers.length > 0;
+    currentSeller._hasBuyerAccount = buyers && buyers.length > 0;
     if (currentSeller.status === 'suspended') { showSuspendedScreen(); return; }
     enterApp();
-  } catch(e) { showAuthError('phone-error', e.message); }
+  } catch(e) { showAuthError('phone-error', e.message || 'Erreur réseau'); }
 }
 
 async function verifyOTP() { loginWithPIN(); }
