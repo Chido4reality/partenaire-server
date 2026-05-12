@@ -513,7 +513,10 @@ window.addEventListener('DOMContentLoaded', function() {
         <div class="page-title">🏪 Mon Partenaire</div>
         <div class="page-sub">Businesses · Plans · Payment Approvals · Account Control</div>
       </div>
-      <button onclick="mpRefresh()" id="mp-refresh-btn" class="btn" style="background:var(--navy);color:#fff;border-color:var(--navy)">🔄 Refresh</button>
+      <div style="display:flex;gap:8px">
+        <button onclick="mpExportCSV()" class="btn" style="background:#2E7D32;color:#fff;border-color:#2E7D32">📥 Export CSV</button>
+        <button onclick="mpRefresh()" id="mp-refresh-btn" class="btn" style="background:var(--navy);color:#fff;border-color:var(--navy)">🔄 Refresh</button>
+      </div>
     </div>
 
     <!-- ── Auth gate ─────────────────────────────────────────── -->
@@ -2383,6 +2386,24 @@ async function mpLoadPayments() {
 async function mpLoadPlans() {
   const r = await mpFetch('GET', '/subscriptions/plans');
   mpPlans = r.data || [];
+}
+
+async function mpExportCSV() {
+  if (!mpToken) { toast('Not logged in to Mon Partenaire', 'error'); return; }
+  try {
+    const res = await fetch(MP_API + '/subscriptions/admin/export-csv', {
+      headers: { 'Authorization': 'Bearer ' + mpToken }
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Export failed'); }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mp-businesses-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('✅ CSV downloaded!', 'success');
+  } catch(e) { toast('Export error: ' + e.message, 'error'); }
 }
 
 async function mpRefresh() {
