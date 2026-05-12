@@ -2318,7 +2318,11 @@ async function mpLogin() {
   try {
     const result = await mpFetch('POST', '/auth/login', { phone, password });
     if (!result.token) throw new Error('No token returned — check credentials');
+    if (!result.success && !result.token) throw new Error(result.message || 'Login failed');
     mpToken = result.token;
+    // Save phone for display
+    const mpUserEl = document.getElementById('mp-logged-user');
+    if (mpUserEl) mpUserEl.textContent = result.user?.full_name || phone;
     document.getElementById('mp-auth-section').style.display = 'none';
     document.getElementById('mp-content').style.display = 'block';
     await mpLoadAll();
@@ -2337,24 +2341,32 @@ function mpAuthErr(msg) {
 
 // ── Load all data ─────────────────────────────────────────────
 async function mpLoadAll() {
+  // Show loading placeholder in businesses table
+  const bizTbody = document.getElementById('mp-biz-table');
+  if (bizTbody) bizTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--grey)">⏳ Loading…</td></tr>';
+
   try {
     await Promise.all([mpLoadOrgs(), mpLoadPayments(), mpLoadPlans()]);
     mpUpdateStats();
+    mpSwitchTab('businesses'); // ensure first tab is active
     mpFilterBiz();
     mpRenderPending();
     mpRenderHistory();
     // Update nav badge
     const pending = mpPayments.filter(p => p.status === 'pending').length;
     const badge = document.getElementById('mp-badge');
-    badge.textContent = pending;
-    badge.style.display = pending > 0 ? 'inline' : 'none';
+    if (badge) { badge.textContent = pending; badge.style.display = pending > 0 ? 'inline' : 'none'; }
     const pc = document.getElementById('mp-pending-count');
-    pc.textContent = pending; pc.style.display = pending > 0 ? 'inline' : 'none';
+    if (pc) { pc.textContent = pending; pc.style.display = pending > 0 ? 'inline' : 'none'; }
   } catch(e) {
-    if (e.message.includes('403') || e.message.includes('401')) {
+    if (e.message.includes('403')) {
+      // Show specific 403 message inside the content area instead of reverting
+      if (bizTbody) bizTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--red)">❌ Access denied — your account is not the MP-000001 admin account. Use your Mon Partenaire owner credentials.</td></tr>';
+    } else if (e.message.includes('401')) {
       mpToken = null; mpInitPage();
       toast('Session expired — please reconnect', 'error');
     } else {
+      if (bizTbody) bizTbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--red)">⚠️ Load error: ${e.message} — <a href="#" onclick="mpRefresh()">Retry</a></td></tr>`;
       toast('MP load error: ' + e.message, 'error');
     }
   }
