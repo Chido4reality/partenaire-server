@@ -1,0 +1,19 @@
+{
+  "name": "Partenaire Dozie",
+  "short_name": "Dozie",
+  "description": "Marché B2B & gros — Acheteurs et vendeurs",
+  "theme_color": "#1A2B4A",
+  "background_color": "#1A2B4A",
+  "display": "standalone",
+  "orientation": "portrait",
+  "start_url": "/PARTENAIRE_Seller.html",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
