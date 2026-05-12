@@ -100,10 +100,14 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .badge-status.approved{background:var(--greenl);color:var(--green)}
 .badge-status.rejected{background:#FEECEC;color:var(--red)}
 
-/* ── PRODUCTS ── */
-.products-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:20px}
-.product-card{background:#fff;border-radius:14px;padding:16px;position:relative;transition:box-shadow .2s}
-.product-card:hover{box-shadow:0 4px 20px rgba(0,0,0,0.08)}
+/* ── PRODUCTS ──
+   Responsive grid: auto-fills as many 180px+ columns as fit. Yields 1 col
+   on very narrow phones (<360px), 2 cols on standard phones, 3-4 cols on
+   tablets, 5-6 cols on desktop. Previously used minmax(220px) which was
+   too wide and collapsed to a single column on most phones. */
+.products-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;padding:16px 0;margin-bottom:20px}
+.product-card{background:#fff;border-radius:12px;overflow:hidden;padding:16px;position:relative;box-shadow:0 2px 8px rgba(0,0,0,0.08);transition:box-shadow .2s,transform .15s}
+.product-card:hover{box-shadow:0 6px 20px rgba(0,0,0,0.12);transform:translateY(-1px)}
 .product-photo{width:100%;height:120px;background:#f8f6f0;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:48px;margin-bottom:12px}
 .product-name{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px}
 .product-price{font-size:14px;font-weight:800;color:var(--gold)}
