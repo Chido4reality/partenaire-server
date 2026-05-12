@@ -2295,7 +2295,7 @@ let mpCurrentPaymentId = null, mpCurrentOrgId = null;
 async function mpFetch(method, path, body) {
   const headers = { 'Content-Type': 'application/json' };
   if (mpToken) headers['Authorization'] = 'Bearer ' + mpToken;
-  console.log('[MP]', method, MP_API + path, body || '');
+  console.log('[MP]', method, MP_API + path, '| auth:', mpToken ? 'Bearer ' + mpToken.substring(0, 20) + '…' : 'NONE', body || '');
   const res = await fetch(MP_API + path, {
     method,
     headers,
@@ -2331,7 +2331,8 @@ async function mpLogin() {
     if (!result.token) throw new Error('No token returned — check credentials');
     if (!result.success && !result.token) throw new Error(result.message || 'Login failed');
     mpToken = result.token;
-    console.log('[MP] Login success, user:', result.user, 'org:', result.org, 'token length:', result.token?.length);
+    console.log('[MP] Login success — token:', mpToken);
+    console.log('[MP] User:', result.user, '| Org:', result.org);
     // Show connected user in the bar
     const mpUserEl = document.getElementById('mp-logged-user');
     if (mpUserEl) mpUserEl.textContent = result.user?.full_name || phone;
