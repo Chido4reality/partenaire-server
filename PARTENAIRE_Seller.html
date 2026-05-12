@@ -106,7 +106,11 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
    tablets, 6+ cols on desktop. The Products tab opts out of the 1000px
    tab-page width cap (see #page-products override below) so the grid can
    fill the full window on desktop. */
-.products-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;padding:16px 0;margin-bottom:20px}
+/* !important markers below are belt-and-suspenders — they defeat any
+   inline width/flex declaration that previously squeezed the grid into
+   a single column on desktop. Don't strip them without checking the
+   single-column regression first. */
+.products-grid{display:grid !important;grid-template-columns:repeat(auto-fill,minmax(200px,1fr)) !important;gap:16px !important;padding:16px !important;max-width:1400px;margin:0 auto 20px}
 /* Let the products tab expand to the full window width on desktop —
    the default .tab-page max-width:1000px starves the grid above ~5 cols. */
 #page-products{max-width:1600px}
@@ -225,7 +229,9 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 
 @media(max-width:600px){
   .stat-row{grid-template-columns:repeat(3,1fr)}
-  .products-grid{grid-template-columns:1fr 1fr}
+  /* matches the !important on the desktop rule — otherwise the 2-col mobile
+     override is defeated by the auto-fill rule above. */
+  .products-grid{grid-template-columns:1fr 1fr !important}
   .tab-page{padding:16px}
   .detail-body{padding:0 16px}
 }
