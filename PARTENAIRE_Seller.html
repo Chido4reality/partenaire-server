@@ -1519,6 +1519,38 @@ async function pollDozieSubPayment(paymentId, root) {
   }, 5000);
 }
 
+// FU.5 — pause/reopen entire Dozie shop. action=true → pause; action=false → reopen.
+// Pause is blocked when there are pending orders; the backend returns
+// 409 with pending_count so we can route the user to their orders tab.
+async function toggleShopPause(wantsPause) {
+  if (!currentSeller || !currentSeller.id) return;
+  const verb = wantsPause ? (lang === 'fr' ? 'mettre en pause' : 'pause') : (lang === 'fr' ? 'rouvrir' : 'reopen');
+  if (!confirm((lang === 'fr' ? 'Voulez-vous ' : 'Are you sure you want to ') + verb + (lang === 'fr' ? ' votre boutique ?' : ' your shop?'))) return;
+  const path = wantsPause ? '/dozie-sub/shop-pause' : '/dozie-sub/shop-reopen';
+  try {
+    const r = await fetch(MP_API + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-dozie-seller-id': currentSeller.id },
+      body: JSON.stringify({ seller_id: currentSeller.id })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 409 && data.pending_count) {
+      alert((lang === 'fr'
+        ? `Vous avez ${data.pending_count} commande(s) en cours. Réglez-les avant de mettre la boutique en pause.`
+        : `You have ${data.pending_count} pending order(s). Settle them before pausing your shop.`));
+      switchTab('tab-orders');
+      return;
+    }
+    if (!r.ok || !data.success) throw new Error(data.message || 'Action failed');
+    currentSeller.status = wantsPause ? 'paused' : 'active';
+    toast(wantsPause
+      ? (lang === 'fr' ? '⏸ Boutique mise en pause' : '⏸ Shop paused')
+      : (lang === 'fr' ? '✓ Boutique rouverte'      : '✓ Shop reopened'), 'success');
+    renderProfileHero();
+    renderDozieAccessBanner();
+  } catch (e) { alert('Error: ' + (e.message || 'unknown')); }
+}
+
 async function cancelDozieSub() {
   if (!confirm('Annuler votre abonnement Standalone ? Il restera actif jusqu\'à la date d\'expiration.')) return;
   try {
@@ -2377,10 +2409,24 @@ function renderProfileHero() {
                   : s.badge_status === 'rejected' ? '<span class="badge-status rejected">✕ Verification rejected</span>'
                   : s.badge_status === 'pending'  ? '<span class="badge-status pending">⏳ Pending review</span>'
                   : '';
-  const html = `<div class="badge-card ${pc.cls}" style="margin-bottom:16px">
+  // FU.5 — pause control. Paused sellers see a big red Reopen card;
+  // active sellers see a small "Pause shop" link in the plan card.
+  const isPaused = s.status === 'paused';
+  const pauseControl = isPaused
+    ? `<div style="background:rgba(239,68,68,0.1);border:1.5px solid rgba(239,68,68,0.4);border-radius:12px;padding:14px;margin-bottom:16px">
+         <div style="font-weight:800;color:#C62828;font-size:14px;margin-bottom:4px">⏸ ${lang === 'fr' ? 'Boutique en pause' : 'Shop paused'}</div>
+         <div style="font-size:12px;color:var(--grey);line-height:1.5;margin-bottom:10px">${lang === 'fr' ? 'Vos annonces sont cachées du marketplace. Rouvrez pour revenir en ligne.' : 'Your listings are hidden from the marketplace. Reopen to come back online.'}</div>
+         <button onclick="toggleShopPause(false)" style="background:#2E7D32;color:#fff;border:0;padding:8px 16px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px">${lang === 'fr' ? '↻ Rouvrir' : '↻ Reopen shop'}</button>
+       </div>`
+    : '';
+  const pauseLink = isPaused ? '' :
+    `<div style="margin-top:8px;font-size:11px;color:var(--grey)">
+       <a href="javascript:void(0)" onclick="toggleShopPause(true)" style="color:var(--grey);text-decoration:underline;cursor:pointer">⏸ ${lang === 'fr' ? 'Mettre la boutique en pause' : 'Pause my shop'}</a>
+     </div>`;
+  const html = `${pauseControl}<div class="badge-card ${pc.cls}" style="margin-bottom:16px">
     <div class="badge-icon">${pc.icon}</div>
     <div style="flex:1"><div class="badge-info-title" style="color:${pc.color}">${pc.label}</div>
-    <div class="badge-info-sub">${sub}</div></div>
+    <div class="badge-info-sub">${sub}</div>${pauseLink}</div>
     ${verifPill}
   </div>`;
   document.getElementById('badge-card-profile').innerHTML = html;

@@ -990,7 +990,7 @@ function buildShopCard(s) {
       ${bi?`<div class="shop-badge-icon">${bi}</div>`:''}
     </div>
     <div class="shop-body">
-      <div class="shop-name">${s.company||s.name}</div>
+      <div class="shop-name">${s.company||s.name}${s.has_premium_perks ? ' <span title="Priority listing · Free pickup included" style="display:inline-block;font-size:10px;background:linear-gradient(135deg,#FFD93D,#C9A84C);color:#1A2B4A;padding:2px 7px;border-radius:10px;font-weight:800;letter-spacing:0.3px;margin-left:6px;vertical-align:middle">⭐ Premium</span>' : ''}</div>
       <div class="shop-city">📍 ${s.city||'—'} · ${CATS[s.category]||'General'}</div>
       <div class="shop-meta">
         <span class="badge-pill ${bc}">${bi} ${s.badge_tier?.charAt(0).toUpperCase()+s.badge_tier?.slice(1)}</span>
