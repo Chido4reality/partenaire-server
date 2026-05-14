@@ -605,6 +605,113 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 const SUPABASE_URL = 'https://ftxttdagpioieyzaijdc.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0eHR0ZGFncGlvaWV5emFpamRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MTc1MTAsImV4cCI6MjA5MDA5MzUxMH0.QQwoyo370gaDi-5I0DRJuHJtSa6FG6EFbJ1_QdR9u1g';
 
+// ══════════════════════════════════════════════════════════════
+//  ADMIN IMPERSONATION HANDLING (Phase C) — buyer side
+//  Mirror of the same block in PARTENAIRE_Seller.html. Sets
+//  currentBuyer instead of currentSeller; otherwise identical.
+// ══════════════════════════════════════════════════════════════
+const DOZIE_IMP_SS_KEY_B = 'dozie_impersonation';
+
+function dzImpGetStateB() {
+  try {
+    const raw = sessionStorage.getItem(DOZIE_IMP_SS_KEY_B);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+function dzImpSetStateB(s) {
+  if (s) sessionStorage.setItem(DOZIE_IMP_SS_KEY_B, JSON.stringify(s));
+  else sessionStorage.removeItem(DOZIE_IMP_SS_KEY_B);
+}
+function dzImpClearB() { dzImpSetStateB(null); }
+
+function dzImpEscapeB(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]);
+  });
+}
+
+function dzImpRenderBannerB() {
+  const state = dzImpGetStateB();
+  const existing = document.getElementById('dz-imp-banner');
+  if (existing) existing.remove();
+  if (!state) return;
+  const userName = (state.user && state.user.name) || state.user_name || 'this user';
+  const adminEmail = state.admin_email || 'admin';
+  const bar = document.createElement('div');
+  bar.id = 'dz-imp-banner';
+  bar.style.cssText = 'position:sticky;top:0;left:0;right:0;background:rgba(245,158,11,0.18);color:#fbbf24;border-bottom:1px solid rgba(245,158,11,0.45);padding:8px 16px;display:flex;align-items:center;gap:12px;font-size:13px;font-weight:600;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif';
+  bar.innerHTML = '<span style="font-size:16px">&#9888;</span><span style="flex:1;min-width:0">Admin impersonation &mdash; viewing as <strong>' + dzImpEscapeB(userName) + '</strong> &middot; by ' + dzImpEscapeB(adminEmail) + '</span><button id="dz-imp-end" type="button" style="background:transparent;border:1px solid rgba(245,158,11,0.55);color:#fbbf24;padding:5px 12px;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">End session &rarr;</button>';
+  document.body.prepend(bar);
+  document.getElementById('dz-imp-end').addEventListener('click', dzImpEndSessionB);
+}
+
+async function dzImpEndSessionB() {
+  const state = dzImpGetStateB();
+  if (state && state.token) {
+    try {
+      fetch('/api/auth/impersonate-end', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: state.token })
+      }).catch(function () {});
+    } catch (_) {}
+  }
+  dzImpClearB();
+  window.location.replace(window.location.pathname);
+}
+
+async function dzImpConsumeUrlTokenB() {
+  var params = new URLSearchParams(window.location.search);
+  var token = params.get('impersonate');
+  if (!token) return false;
+  try {
+    var res = await fetch('/api/auth/impersonate-exchange?token=' + encodeURIComponent(token));
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok || !data || !data.ok) {
+      alert('Impersonation failed: ' + ((data && data.error) || ('HTTP ' + res.status)) + '. Close this tab and try again from the admin portal.');
+      window.history.replaceState({}, '', window.location.pathname);
+      return false;
+    }
+    dzImpSetStateB({
+      user:        data.user,
+      user_name:   data.user && data.user.name,
+      admin_email: data.admin_email,
+      admin_id:    data.admin_id,
+      token:       token,
+      issued_at:   Date.now()
+    });
+    window.history.replaceState({}, '', window.location.pathname);
+    return true;
+  } catch (e) {
+    alert('Impersonation network error: ' + e.message);
+    return false;
+  }
+}
+
+async function dzImpBootstrapB() {
+  await dzImpConsumeUrlTokenB();
+  var state = dzImpGetStateB();
+  if (!state || !state.user) return;
+  if (state.issued_at && (Date.now() - state.issued_at > 3600 * 1000)) {
+    dzImpClearB();
+    return;
+  }
+  var tries = 0;
+  function tryEnter() {
+    tries++;
+    if (typeof currentBuyer !== 'undefined' && typeof enterApp === 'function') {
+      currentBuyer = state.user;
+      enterApp();
+      dzImpRenderBannerB();
+      return;
+    }
+    if (tries < 100) setTimeout(tryEnter, 30);
+  }
+  tryEnter();
+}
+
+window.addEventListener('load', dzImpBootstrapB);
+
 function apiUrl(table, params) {
   const base = (window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')
     ? '/api/' : SUPABASE_URL+'/rest/v1/';

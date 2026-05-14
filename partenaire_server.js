@@ -1,4 +1,5 @@
 ﻿require('dotenv').config();
+const jwt = require('jsonwebtoken');
 
 // â”€â”€â”€ CAMPAY CONFIGURATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const CAMPAY_BASE_URL = process.env.CAMPAY_ENV === 'production'
@@ -344,6 +345,168 @@ http.createServer((req, res) => {
       } catch(e) {
         res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ── ADMIN IMPERSONATE EXCHANGE ─────────────────────────────────────────────
+  //
+  // Same-origin to PARTENAIRE_Buyer.html / PARTENAIRE_Seller.html so the
+  // admin-impersonation flow doesn't need CORS gymnastics. The admin portal
+  // (MP backend) minted a JWT signed with ADMIN_IMPERSONATE_SECRET; we
+  // verify it here, fetch the target ptn_users row, and return it. The
+  // frontend stores the result in sessionStorage and renders an amber
+  // banner. NO persistent token is issued — Dozie's existing auth model
+  // is "currentUser in memory, anon-key Supabase calls", and we match it
+  // exactly (just flagged as impersonation).
+  //
+  // Audit: writes one row to ptn_audit_log on success (best-effort —
+  // failure is logged server-side but does not break the user flow,
+  // because the MP-side audit entry on token mint is the load-bearing
+  // record of the impersonation attempt).
+  if (req.url.startsWith('/api/auth/impersonate-exchange') && req.method === 'GET') {
+    try {
+      if (!process.env.ADMIN_IMPERSONATE_SECRET) {
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: false, error: 'ADMIN_IMPERSONATE_SECRET not configured on Dozie backend' }));
+        return;
+      }
+      const u = new URL(req.url, 'http://x');
+      const token = u.searchParams.get('token');
+      if (!token) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: false, error: 'token query param required' }));
+        return;
+      }
+      let payload;
+      try {
+        payload = jwt.verify(token, process.env.ADMIN_IMPERSONATE_SECRET);
+      } catch (e) {
+        res.writeHead(401, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: false, error: 'Impersonation token expired or invalid' }));
+        return;
+      }
+      if (payload.type !== 'impersonate_dozie') {
+        res.writeHead(401, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: false, error: 'Wrong token type' }));
+        return;
+      }
+
+      // SELECT the user row — anon-key Supabase REST, same way the frontend
+      // does its reads. If the user was deleted in the 1-hour window we
+      // return a clear error rather than a hollow session.
+      (async () => {
+        try {
+          const fetchRes = await fetch('https://' + SUPA + '/rest/v1/ptn_users?id=eq.' + encodeURIComponent(payload.target_user_id) + '&select=*', {
+            headers: { 'apikey': KEY, 'Authorization': 'Bearer ' + KEY }
+          });
+          const rows = await fetchRes.json();
+          if (!rows || !rows.length) {
+            res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify({ ok: false, error: 'Target user no longer exists' }));
+            return;
+          }
+          const user = rows[0];
+          if (user.status === 'suspended') {
+            res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify({ ok: false, error: 'Target user is suspended' }));
+            return;
+          }
+
+          // Best-effort audit insert. ptn_audit_log columns:
+          // admin_email, action, target_type, target_id, details (jsonb).
+          // Failure logged but doesn't block — MP-side audit entry on
+          // token mint is the canonical record.
+          fetch('https://' + SUPA + '/rest/v1/ptn_audit_log', {
+            method: 'POST',
+            headers: { 'apikey': KEY, 'Authorization': 'Bearer ' + KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+            body: JSON.stringify({
+              admin_email: payload.admin_email,
+              action:      'impersonate_exchange',
+              target_type: 'ptn_users',
+              target_id:   user.id,
+              details:     {
+                admin_id: payload.admin_id,
+                target_user_name: user.name,
+                target_user_role: user.role,
+                ip: (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || (req.socket && req.socket.remoteAddress) || null
+              }
+            })
+          }).catch(e => console.warn('[impersonate-exchange] audit insert failed:', e.message));
+
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({
+            ok: true,
+            user,
+            admin_email: payload.admin_email,
+            admin_id: payload.admin_id,
+            impersonating: true
+          }));
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      })();
+    } catch (outerErr) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ ok: false, error: outerErr.message }));
+    }
+    return;
+  }
+
+  // ── ADMIN IMPERSONATE END ──────────────────────────────────────────────────
+  //
+  // The frontend POSTs the same impersonation token back when the user
+  // clicks "End session". We re-verify the signature (still valid for
+  // 1h after issue) and write the closing audit entry. Failure is
+  // non-fatal — the user's tab returns to login regardless.
+  if (req.url === '/api/auth/impersonate-end' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { token } = JSON.parse(body || '{}');
+        if (!token || !process.env.ADMIN_IMPERSONATE_SECRET) {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ ok: true, audited: false, reason: 'token or secret missing' }));
+          return;
+        }
+        let payload;
+        try { payload = jwt.verify(token, process.env.ADMIN_IMPERSONATE_SECRET); }
+        catch (e) {
+          // Token expired or invalid — still respond 200 so the frontend
+          // can clear its state, but don't write a fake audit row.
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ ok: true, audited: false, reason: 'token invalid' }));
+          return;
+        }
+        if (payload.type !== 'impersonate_dozie') {
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ ok: true, audited: false, reason: 'wrong token type' }));
+          return;
+        }
+
+        fetch('https://' + SUPA + '/rest/v1/ptn_audit_log', {
+          method: 'POST',
+          headers: { 'apikey': KEY, 'Authorization': 'Bearer ' + KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+          body: JSON.stringify({
+            admin_email: payload.admin_email,
+            action:      'admin_impersonate_end',
+            target_type: 'ptn_users',
+            target_id:   payload.target_user_id,
+            details: {
+              admin_id: payload.admin_id,
+              ip: (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || (req.socket && req.socket.remoteAddress) || null
+            }
+          })
+        }).catch(e => console.warn('[impersonate-end] audit insert failed:', e.message));
+
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: true, audited: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
       }
     });
     return;

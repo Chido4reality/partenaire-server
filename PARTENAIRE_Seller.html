@@ -793,6 +793,126 @@ const SUPABASE_URL = 'https://ftxttdagpioieyzaijdc.supabase.co'; // direct fallb
 const API_BASE = window.location.hostname === 'localhost' ? '' : SUPABASE_URL;
 const MP_API = 'https://partenaire-account-api.onrender.com/api';
 
+// ══════════════════════════════════════════════════════════════
+//  ADMIN IMPERSONATION HANDLING (Phase C)
+//
+//  Detects ?impersonate=<jwt> in the URL and swaps it for the target
+//  ptn_users row via the Dozie backend's same-origin
+//  /api/auth/impersonate-exchange endpoint. The exchanged user is
+//  written to sessionStorage so a refresh keeps the impersonation
+//  alive (closing the tab clears it). Renders a sticky amber banner
+//  on top of everything; "End session" reloads to a clean login
+//  state AND POSTs the original token back to /api/auth/impersonate-end
+//  so the audit trail captures the close event.
+// ══════════════════════════════════════════════════════════════
+const DOZIE_IMP_SS_KEY = 'dozie_impersonation';
+
+function dzImpGetState() {
+  try {
+    const raw = sessionStorage.getItem(DOZIE_IMP_SS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+function dzImpSetState(s) {
+  if (s) sessionStorage.setItem(DOZIE_IMP_SS_KEY, JSON.stringify(s));
+  else sessionStorage.removeItem(DOZIE_IMP_SS_KEY);
+}
+function dzImpClear() { dzImpSetState(null); }
+
+function dzImpRenderBanner() {
+  const state = dzImpGetState();
+  const existing = document.getElementById('dz-imp-banner');
+  if (existing) existing.remove();
+  if (!state) return;
+  const userName = (state.user && state.user.name) || state.user_name || 'this user';
+  const adminEmail = state.admin_email || 'admin';
+  const bar = document.createElement('div');
+  bar.id = 'dz-imp-banner';
+  bar.style.cssText = 'position:sticky;top:0;left:0;right:0;background:rgba(245,158,11,0.18);color:#fbbf24;border-bottom:1px solid rgba(245,158,11,0.45);padding:8px 16px;display:flex;align-items:center;gap:12px;font-size:13px;font-weight:600;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif';
+  bar.innerHTML = '<span style="font-size:16px">&#9888;</span><span style="flex:1;min-width:0">Admin impersonation &mdash; viewing as <strong>' + dzImpEscape(userName) + '</strong> &middot; by ' + dzImpEscape(adminEmail) + '</span><button id="dz-imp-end" type="button" style="background:transparent;border:1px solid rgba(245,158,11,0.55);color:#fbbf24;padding:5px 12px;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">End session &rarr;</button>';
+  document.body.prepend(bar);
+  document.getElementById('dz-imp-end').addEventListener('click', dzImpEndSession);
+}
+
+function dzImpEscape(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]);
+  });
+}
+
+async function dzImpEndSession() {
+  const state = dzImpGetState();
+  // Fire-and-forget audit close to the Dozie backend. Don't await — if it
+  // fails or hangs, we still clear local state and reload.
+  if (state && state.token) {
+    try {
+      fetch('/api/auth/impersonate-end', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: state.token })
+      }).catch(function () {});
+    } catch (_) {}
+  }
+  dzImpClear();
+  // Reload to a clean URL — wipes currentSeller in memory and shows login.
+  window.location.replace(window.location.pathname);
+}
+
+async function dzImpConsumeUrlToken() {
+  var params = new URLSearchParams(window.location.search);
+  var token = params.get('impersonate');
+  if (!token) return false;
+  try {
+    var res = await fetch('/api/auth/impersonate-exchange?token=' + encodeURIComponent(token));
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok || !data || !data.ok) {
+      alert('Impersonation failed: ' + ((data && data.error) || ('HTTP ' + res.status)) + '. Close this tab and try again from the admin portal.');
+      window.history.replaceState({}, '', window.location.pathname);
+      return false;
+    }
+    dzImpSetState({
+      user:        data.user,
+      user_name:   data.user && data.user.name,
+      admin_email: data.admin_email,
+      admin_id:    data.admin_id,
+      token:       token,
+      issued_at:   Date.now()
+    });
+    window.history.replaceState({}, '', window.location.pathname);
+    return true;
+  } catch (e) {
+    alert('Impersonation network error: ' + e.message);
+    return false;
+  }
+}
+
+async function dzImpBootstrap() {
+  // First, consume the URL token if present (fresh impersonation).
+  await dzImpConsumeUrlToken();
+  var state = dzImpGetState();
+  if (!state || !state.user) return;
+  // Stale-state guard — if the impersonation is older than 1h, clear.
+  if (state.issued_at && (Date.now() - state.issued_at > 3600 * 1000)) {
+    dzImpClear();
+    return;
+  }
+  // Wait for currentSeller declaration + enterApp() to be defined.
+  var tries = 0;
+  function tryEnter() {
+    tries++;
+    if (typeof currentSeller !== 'undefined' && typeof enterApp === 'function') {
+      currentSeller = state.user;
+      enterApp();
+      dzImpRenderBanner();
+      return;
+    }
+    if (tries < 100) setTimeout(tryEnter, 30);
+  }
+  tryEnter();
+}
+
+window.addEventListener('load', dzImpBootstrap);
+
 // Proxy helper — routes through local server when on localhost to avoid CORS
 function apiUrl(table, params='') {
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
