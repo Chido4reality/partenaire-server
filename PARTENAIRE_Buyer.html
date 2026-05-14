@@ -1029,8 +1029,24 @@ async function openShop(id) {
       document.getElementById('shop-detail').appendChild(reviewsDiv);
     }
   } catch(e) { console.log('Reviews load error:', e.message); }
+  // Sprint B: fetch the seller's Dozie access state in parallel with
+  // product loading. If can_accept_orders=false (free-tier seller at
+  // their 2/2 cap), products still render but Add-to-cart + Order
+  // buttons go to a muted state and surface a "seller capped" message.
   try {
-    const products = await GET('ptn_products', `seller_id=eq.${id}&published=eq.true&select=*`);
+    const [products, accessRows] = await Promise.all([
+      GET('ptn_products', `seller_id=eq.${id}&published=eq.true&select=*`),
+      GET('dozie_seller_access', `seller_id=eq.${id}&select=can_accept_orders,source,orders_used,orders_cap`)
+    ]);
+    const access = accessRows && accessRows[0] ? accessRows[0] : null;
+    shop._dozieAccess = access; // cache for renderShopProducts + placeOrder
+    if (access && access.can_accept_orders === false) {
+      const banner = document.createElement('div');
+      banner.style.cssText = 'background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);border-radius:10px;padding:10px 14px;margin:8px 16px;font-size:13px;color:#92400e';
+      banner.innerHTML = `🔒 <strong>Ce vendeur a atteint sa limite gratuite</strong> et ne peut pas accepter de nouvelles commandes pour l'instant. Essayez d'autres vendeurs.`;
+      const host = document.getElementById('shop-detail');
+      if (host) host.insertBefore(banner, document.getElementById('sd-products'));
+    }
     renderShopProducts(products||[], shop);
   } catch(e) {
     document.getElementById('sd-products').innerHTML = '<div class="empty"><div class="empty-icon">📦</div><div>No products yet</div></div>';
@@ -1043,8 +1059,14 @@ function renderShopProducts(products, shop) {
     el.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="empty-icon">📦</div><div>No products listed yet</div></div>';
     return;
   }
+  // Sprint B: when the shop's seller is free-tier capped, mute the order
+  // buttons and route clicks through the "seller capped" message.
+  const capped = shop._dozieAccess && shop._dozieAccess.can_accept_orders === false;
   el.innerHTML = products.map(p => {
     const inCart = cart.find(c => c.product.id===p.id);
+    const baseStyle = capped ? 'opacity:0.6;cursor:pointer' : '';
+    const cartHandler = capped ? `showSellerCappedMessage()` : `addToCart(${JSON.stringify(p).replace(/"/g,'&quot;')}, '${shop.id}', '${shop.company||shop.name}', this)`;
+    const orderHandler = capped ? `showSellerCappedMessage()` : `addToQof('${p.name}',1,${p.price||0})`;
     return `<div class="product-card">
       <div class="product-emoji">${p.photo_url && p.photo_url.startsWith('data:') ? `<img src="${p.photo_url}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">` : EMOJIS[p.category]||'📦'}</div>
       <div class="product-name">${p.name}</div>
@@ -1052,10 +1074,9 @@ function renderShopProducts(products, shop) {
       <div class="product-stock">Stock: ${p.stock||0} units</div>
       <div style="display:flex;gap:6px;margin-top:8px">
         <button class="add-to-cart-btn ${inCart?'added':''}" id="btn-${p.id}"
-          onclick="addToCart(${JSON.stringify(p).replace(/"/g,'&quot;')}, '${shop.id}', '${shop.company||shop.name}', this)"
-          style="flex:1">${inCart ? '✓ In Cart' : '🛒 Cart'}</button>
-        <button style="padding:9px 10px;background:var(--amberl);color:var(--amber);border:1.5px solid #F0C050;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap"
-          onclick="addToQof('${p.name}',1,${p.price||0})" title="Add to Quick Order Form">⚡ Order</button>
+          onclick="${cartHandler}" style="flex:1;${baseStyle}">${capped ? '🔒 Limite atteinte' : (inCart ? '✓ In Cart' : '🛒 Cart')}</button>
+        <button style="padding:9px 10px;background:var(--amberl);color:var(--amber);border:1.5px solid #F0C050;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;${baseStyle}"
+          onclick="${orderHandler}" title="${capped ? 'Seller has reached free tier limit' : 'Add to Quick Order Form'}">${capped ? '🔒' : '⚡ Order'}</button>
       </div>
     </div>`;
   }).join('');
@@ -1155,8 +1176,42 @@ function selectMode(mode) {
 function changeQty(i, delta) { cart[i].qty = Math.max(1, cart[i].qty + delta); updateCartBadge(); renderCart(); }
 function removeFromCart(i) { cart.splice(i, 1); updateCartBadge(); renderCart(); toast('Item removed from cart', ''); }
 
+// Sprint B: lightweight overlay surfaced when a buyer tries to act on a
+// listing whose seller is at their free-tier order cap. Listings stay
+// visible; only the action is blocked.
+function showSellerCappedMessage() {
+  const root = document.createElement('div');
+  root.style.cssText = 'position:fixed;inset:0;z-index:600;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;padding:16px';
+  root.innerHTML = `
+    <div style="background:#fff;border-radius:18px;padding:24px;max-width:380px;width:100%;text-align:center">
+      <div style="font-size:48px;margin-bottom:8px">🔒</div>
+      <h2 style="margin:0 0 8px 0;color:var(--navy);font-size:18px">Vendeur en limite gratuite</h2>
+      <p style="margin:8px 0;font-size:13px;color:var(--grey);line-height:1.5">
+        Ce vendeur a atteint sa limite de commandes gratuites et ne peut pas accepter de nouvelles commandes pour l'instant. Essayez d'autres vendeurs à proximité.
+      </p>
+      <button style="margin-top:14px;padding:10px 20px;background:#C9A84C;color:#1A2B4A;border:0;border-radius:10px;font-weight:700;cursor:pointer">Voir d'autres vendeurs</button>
+    </div>`;
+  root.querySelector('button').onclick = () => { root.remove(); document.getElementById('shop-detail').style.display = 'none'; };
+  root.onclick = (e) => { if (e.target === root) root.remove(); };
+  document.body.appendChild(root);
+}
+
 async function placeOrder(total) {
   if (!cart.length) return;
+  // Sprint B: pre-check every distinct seller in cart against
+  // dozie_seller_access. If any can't accept orders, surface the
+  // capped message and let the buyer either change cart or wait.
+  try {
+    const sellerIds = [...new Set(cart.map(c => c.shopId))];
+    if (sellerIds.length) {
+      const cappedRows = await GET('dozie_seller_access',
+        'seller_id=in.(' + sellerIds.join(',') + ')&can_accept_orders=eq.false&select=seller_id,seller_name');
+      if (cappedRows && cappedRows.length) {
+        showSellerCappedMessage();
+        return;
+      }
+    }
+  } catch (_) { /* fail open — gate enforcement still happens server-side */ }
   try {
     const bySeller = {};
     cart.forEach(c => {
