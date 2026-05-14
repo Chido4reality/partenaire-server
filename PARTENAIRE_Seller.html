@@ -438,23 +438,47 @@ window.addEventListener('DOMContentLoaded', function() {
       <div style="height:12px"></div>
       <label class="auth-label">Shop Description</label>
       <textarea class="auth-input" id="reg-desc" placeholder="Tell buyers what you sell..." style="height:80px;resize:none;margin-bottom:16px"></textarea>
-      <label class="auth-label">Choose Your Badge & Subscription</label>
-      <!-- Billing toggle -->
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;background:#f8f6f0;border-radius:10px;padding:10px 14px">
-        <span style="font-size:13px;color:var(--grey);font-weight:600">Monthly</span>
-        <div style="position:relative;width:44px;height:24px;cursor:pointer" onclick="toggleBilling()">
-          <div style="position:absolute;inset:0;background:var(--navy);border-radius:12px;transition:background .2s" id="billing-track"></div>
-          <div style="position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:9px;transition:transform .2s" id="billing-thumb"></div>
-        </div>
-        <span style="font-size:13px;color:var(--navy);font-weight:600">Yearly</span>
-        <span style="font-size:11px;background:var(--greenl);color:var(--green);padding:2px 8px;border-radius:10px;font-weight:700;margin-left:4px">Save up to 2 months</span>
-      </div>
-      <div id="badge-selector" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px"></div>
+      <label class="auth-label">Choose Your Plan / Choisissez votre formule</label>
+      <!-- Sprint B-bis: replaces the legacy badge selector. Two
+           choices only: Free or Premium Standalone (3 000 FCFA/mo).
+           MP-linked sellers (Mon Partenaire Gold/Premium) get full
+           Dozie access included via their MP plan; that linkage is
+           done post-signup in settings, not here. -->
       <style>
-        .badge-option{border:1.5px solid var(--lgrey);border-radius:10px;padding:12px 14px;cursor:pointer;font-size:13px;transition:all .15s}
-        .badge-option:hover{border-color:var(--gold)}
-        .badge-option.selected{border-color:var(--gold);background:var(--amberl)}
+        .plan-option{border:1.5px solid var(--lgrey);border-radius:12px;padding:14px 16px;cursor:pointer;font-size:13px;transition:all .15s;background:#fff}
+        .plan-option:hover{border-color:var(--gold)}
+        .plan-option.selected{border-color:var(--gold);background:var(--amberl)}
+        .plan-option h4{margin:0 0 6px 0;font-size:15px;color:var(--navy);display:flex;justify-content:space-between;align-items:center}
+        .plan-option ul{margin:6px 0 0 0;padding-left:18px;font-size:12px;color:var(--grey);line-height:1.55}
+        .plan-price{font-weight:800;color:var(--gold)}
+        .plan-link-mp{background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:10px 14px;margin-top:10px;font-size:12px;color:var(--navy)}
+        .plan-link-mp a{color:var(--green);text-decoration:none;font-weight:700}
       </style>
+      <div id="plan-selector" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+        <div class="plan-option selected" data-plan="free" onclick="selectPlan(this)">
+          <h4>Free <span class="plan-price">0 FCFA / mois</span></h4>
+          <ul>
+            <li>2 active listings / annonces actives</li>
+            <li>Sell in your own city only / Vente dans votre ville uniquement</li>
+            <li>2 free orders to start / 2 commandes gratuites</li>
+            <li>Upgrade anytime / Mise à niveau à tout moment</li>
+          </ul>
+        </div>
+        <div class="plan-option" data-plan="paid_standalone" onclick="selectPlan(this)">
+          <h4>Premium Standalone <span class="plan-price">3 000 FCFA / mois</span></h4>
+          <ul>
+            <li>Unlimited active listings / Annonces illimitées</li>
+            <li>Sell anywhere in Cameroon / Vente partout au Cameroun</li>
+            <li>Unlimited orders / Commandes illimitées</li>
+            <li>Cancel anytime / Annulez à tout moment</li>
+          </ul>
+        </div>
+      </div>
+      <div class="plan-link-mp">
+        Already have Mon Partenaire? / Vous avez déjà Mon Partenaire ?<br>
+        <a href="https://mon-partenaire-app.vercel.app" target="_blank" rel="noopener">Sign up Free for Dozie, then link from settings →</a><br>
+        <span style="font-size:11px;color:var(--grey)">Free Dozie access included with MP Gold or Premium / Accès gratuit inclus avec MP Gold ou Premium</span>
+      </div>
       <label class="auth-label">Choose a PIN (4 digits)</label>
       <input class="auth-input" id="reg-pin" type="password" placeholder="Choose a 4-digit PIN e.g. 1234" maxlength="4" inputmode="numeric">
       <div class="auth-error" id="reg-error"></div>
@@ -1097,6 +1121,12 @@ async function verifyOTP() { loginWithPIN(); }
 // ══════════════════════════════════════════════════════════════
 //  REGISTER
 // ══════════════════════════════════════════════════════════════
+// Sprint B-bis: registration now uses Free vs Premium Standalone.
+// Free → creates a ptn_users row plus the Sprint B backfill RPC
+// inserts the free ptn_standalone_subs row.
+// Premium Standalone → same create + immediately opens the 3 000 FCFA
+// CamPay payment modal; on success, the existing webhook/poll path
+// upgrades the standalone sub. No badge fee, no yearly billing.
 async function registerSeller() {
   const name    = document.getElementById('reg-name').value.trim();
   const company = document.getElementById('reg-company').value.trim();
@@ -1104,10 +1134,7 @@ async function registerSeller() {
   const city    = document.getElementById('reg-city').value;
   const cat     = document.getElementById('reg-category').value;
   const desc    = document.getElementById('reg-desc').value.trim();
-  const badge   = document.querySelector('#badge-selector .badge-option.selected')?.dataset.badge || 'silver';
-  const billing = billingYearly ? 'yearly' : 'monthly';
-  const pricing = PRICING[badge];
-  const subFee  = billingYearly ? pricing.yearly : pricing.monthly;
+  const plan    = document.querySelector('#plan-selector .plan-option.selected')?.dataset.plan || 'free';
 
   if (!name || !company || phone.length < 8) {
     showAuthError('reg-error','Name, company and phone are required');
@@ -1115,71 +1142,50 @@ async function registerSeller() {
   }
 
   try {
-    // Check phone not already registered
     const existing = await GET('ptn_users', `phone=eq.${phone}&select=id`);
     if (existing.length) { showAuthError('reg-error','This phone is already registered. Sign in instead.'); return; }
 
-    // Create seller
     const pin = document.getElementById('reg-pin') ? document.getElementById('reg-pin').value.trim() : '0000';
     if (!pin || pin.length < 4) { showAuthError('reg-error','Choisissez un PIN a 4 chiffres'); return; }
+
+    // Create the ptn_users row WITHOUT legacy badge fields. badge_tier
+    // defaults to 'none'; subscription state lives in ptn_standalone_subs.
     const seller = await POST('ptn_users', {
       phone, name, company, city, category: cat, role: 'seller',
-      shop_desc: desc, badge_tier: badge, badge_status: 'pending', status: 'active'
+      shop_desc: desc, status: 'active', pin
     });
-    // Log badge payment intent
-    await POST('ptn_badge_payments', {
-      seller_id: seller.id, badge_tier: badge,
-      badge_fee: pricing.badge_fee || PRICING[badge].badge,
-      monthly_fee: subFee, payment_method: 'mobile_money', paid: false
-    }).catch(() => {});  // non-blocking
+
+    // Insert the free-tier standalone sub immediately so the seller has
+    // a live sub row from the moment they sign up. Sprint B backfill
+    // catches this too if missed, but inserting here keeps the new flow
+    // self-contained.
+    await POST('ptn_standalone_subs', {
+      seller_id: seller.id, tier: 'free', status: 'active'
+    }).catch(() => {});
 
     currentSeller = seller;
     toast('✓ Shop created! Welcome to PARTENAIRE', 'success');
-    enterApp();
+
+    if (plan === 'paid_standalone') {
+      // Bootstrap dozie_access shape so openDozieSubPaymentModal can
+      // read mp_id/seller_city without a round-trip; the modal's
+      // success path refetches the real view row.
+      currentSeller._dozieAccess = { source: 'free', access: 'limited',
+        listing_cap: 2, orders_cap: 2, orders_used: 0, can_accept_orders: true,
+        seller_city: city };
+      enterApp();
+      setTimeout(() => openDozieSubPaymentModal('upgrade'), 400);
+    } else {
+      enterApp();
+    }
   } catch(e) {
     showAuthError('reg-error', e.message.includes('duplicate') ? 'Phone already registered' : e.message);
   }
 }
 
-// ── BILLING TOGGLE ───────────────────────────────────────────
-const PRICING = {
-  silver:  { badge:10000, monthly:3000,  yearly:10000, icon:'🥈', label:'Silver',      perks:'Max 50 listings · Chat access · Pickup with 2% deposit' },
-  gold:    { badge:15000, monthly:8000,  yearly:15000, icon:'🥇', label:'Gold',         perks:'Unlimited listings · Free pickup 2 months · Search priority' },
-  premium: { badge:25000, monthly:15000, yearly:15000, icon:'❖',  label:'Gold Premium', perks:'Free pickup FOREVER · Top search ranking · Exclusive badge' },
-};
-let billingYearly = false;
-
-function toggleBilling() {
-  billingYearly = !billingYearly;
-  document.getElementById('billing-thumb').style.transform = billingYearly ? 'translateX(20px)' : 'translateX(0)';
-  document.getElementById('billing-track').style.background = billingYearly ? 'var(--green)' : 'var(--navy)';
-  renderBadgeSelector();
-}
-
-function renderBadgeSelector() {
-  const selected = document.querySelector('.badge-option.selected')?.dataset.badge || 'silver';
-  const container = document.getElementById('badge-selector');
-  container.innerHTML = Object.entries(PRICING).map(([key, p]) => {
-    const fee = billingYearly ? p.yearly : p.monthly;
-    const saving = billingYearly ? `<span style="font-size:10px;background:var(--greenl);color:var(--green);padding:2px 6px;border-radius:8px;margin-left:6px;font-weight:700">Save ${((p.monthly*12-p.yearly)/1000).toFixed(0)}K/yr</span>` : '';
-    return `<div class="badge-option ${key===selected?'selected':''}" data-badge="${key}" onclick="selectBadge(this)">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <strong>${p.icon} ${p.label}</strong>
-        <span style="font-size:13px;color:var(--gold);font-weight:800">${fee.toLocaleString()} FCFA/${billingYearly?'yr':'mo'}${saving}</span>
-      </div>
-      <div style="font-size:11px;color:var(--grey);margin-top:3px">
-        Badge: <strong>${p.badge.toLocaleString()} FCFA</strong> one-time · ${p.perks}
-      </div>
-    </div>`;
-  }).join('');
-  // Re-attach click handlers
-  document.querySelectorAll('.badge-option').forEach(el => {
-    el.addEventListener('click', function() { selectBadge(this); });
-  });
-}
-
-function selectBadge(el) {
-  document.querySelectorAll('#badge-selector .badge-option').forEach(b => b.classList.remove('selected'));
+// Sprint B-bis: simple plan selector — Free vs Premium Standalone.
+function selectPlan(el) {
+  document.querySelectorAll('#plan-selector .plan-option').forEach(b => b.classList.remove('selected'));
   el.classList.add('selected');
 }
 
@@ -1213,9 +1219,12 @@ function enterApp() {
   checkBroadcasts("sellers", currentSeller.city);
   broadcastInterval = setInterval(() => checkBroadcasts("sellers", currentSeller.city), 60000);
 
-  // Show Promo Blast button only for Premium and Gold sellers
+  // Sprint B-bis: Promo Blast is a "premium seller" feature. Show for
+  // paid_standalone or MP-linked (Gold/Premium MP) sellers — the same
+  // set who would have qualified under the old gold/premium badges.
   const promoBtn = document.getElementById('promo-blast-btn');
-  if (promoBtn && (currentSeller.badge_tier === 'premium' || currentSeller.badge_tier === 'gold')) {
+  const accSrc = currentSeller._dozieAccess && currentSeller._dozieAccess.source;
+  if (promoBtn && (accSrc === 'paid_standalone' || accSrc === 'mp_linked')) {
     promoBtn.style.display = 'inline-flex';
   }
 
@@ -2310,21 +2319,42 @@ function renderProfileHero() {
     buyerBadge.style.display = 'none';
   }
 
-  // Badge card
-  const badgeCfg = {
-    gold:    { cls:'gold',    icon:'🥇', label:'Gold Badge',    color:'var(--amber)' },
-    silver:  { cls:'silver',  icon:'🥈', label:'Silver Badge',  color:'var(--grey)'  },
-    premium: { cls:'premium', icon:'❖',  label:'Gold Premium',  color:'var(--blue)'  },
-    none:    { cls:'none',    icon:'⏳', label:'No Badge Yet',  color:'var(--grey)'  },
+  // Sprint B-bis: replaced the legacy "Badge card" (Silver/Gold/Premium
+  // badge tiers) with a "Plan card" reading from _dozieAccess. Source
+  // drives the display: mp_linked / paid_standalone / free / blocked.
+  // badge_status (verification doc state) is rendered separately as a
+  // small pill so admins can still track KYC progress.
+  const acc = s._dozieAccess || { source: 'free', access: 'limited' };
+  const planCfg = {
+    mp_linked:       { cls:'premium', icon:'🔗', label:'Linked to Mon Partenaire', color:'var(--blue)' },
+    paid_standalone: { cls:'gold',    icon:'💎', label:'Premium Standalone',       color:'var(--amber)' },
+    free:            { cls:'none',    icon:'🆓', label:'Free tier',                color:'var(--grey)' },
+    blocked:         { cls:'none',    icon:'⛔', label:'Access suspended',         color:'var(--red)' },
+    none:            { cls:'none',    icon:'❓', label:'No access',                color:'var(--grey)' }
   };
-  const bc = badgeCfg[s.badge_tier||'none'];
-  const statusCls = s.badge_status==='approved'?'approved':s.badge_status==='rejected'?'rejected':'pending';
-  const statusTxt = s.badge_status==='approved'?'✓ Approved':s.badge_status==='rejected'?'✕ Rejected':'⏳ Pending Review';
-  const html = `<div class="badge-card ${bc.cls}" style="margin-bottom:16px">
-    <div class="badge-icon">${bc.icon}</div>
-    <div><div class="badge-info-title" style="color:${bc.color}">${bc.label}</div>
-    <div class="badge-info-sub">Badge status: <strong>${statusTxt}</strong></div></div>
-    <div class="badge-status ${statusCls}">${statusTxt}</div>
+  const pc = planCfg[acc.source] || planCfg.free;
+  let sub = '';
+  if (acc.source === 'mp_linked') {
+    sub = 'MP-' + (acc.mp_id || '—') + ' · ' + (acc.mp_plan || 'plan');
+    if (acc.is_grace) sub += ' · trial grace';
+  } else if (acc.source === 'paid_standalone') {
+    const days = acc.paid_expires_at ? Math.max(0, Math.ceil((new Date(acc.paid_expires_at) - Date.now()) / 86400000)) : 0;
+    sub = 'Expires in ' + days + ' day' + (days === 1 ? '' : 's') + ' · 3 000 FCFA / month';
+  } else if (acc.source === 'free') {
+    sub = (acc.active_listings_count || 0) + ' / ' + (acc.listing_cap || 2) + ' listings · ' +
+          (acc.orders_used || 0) + ' / ' + (acc.orders_cap || 2) + ' orders';
+  } else if (acc.source === 'blocked') {
+    sub = 'Contact support / Contactez le support';
+  }
+  const verifPill = s.badge_status === 'approved' ? '<span class="badge-status approved">✓ Verified</span>'
+                  : s.badge_status === 'rejected' ? '<span class="badge-status rejected">✕ Verification rejected</span>'
+                  : s.badge_status === 'pending'  ? '<span class="badge-status pending">⏳ Pending review</span>'
+                  : '';
+  const html = `<div class="badge-card ${pc.cls}" style="margin-bottom:16px">
+    <div class="badge-icon">${pc.icon}</div>
+    <div style="flex:1"><div class="badge-info-title" style="color:${pc.color}">${pc.label}</div>
+    <div class="badge-info-sub">${sub}</div></div>
+    ${verifPill}
   </div>`;
   document.getElementById('badge-card-profile').innerHTML = html;
   document.getElementById('badge-status-card').innerHTML = html;
@@ -2496,30 +2526,22 @@ function switchTab(tabId) {
 // ══════════════════════════════════════════════════════════════
 //  SIGN OUT
 // ══════════════════════════════════════════════════════════════
+// Sprint B-bis: showSuspendedScreen no longer pulls from the archived
+// ptn_subscriptions table. Account suspension is ptn_users.status='suspended'
+// and is admin-controlled; the suspension screen just announces that
+// the account is locked. Any active dozie_access info is irrelevant
+// while suspended.
 function showSuspendedScreen() {
   showScreen('screen-suspended');
-  // Load their subscription details
-  GET('ptn_subscriptions', `seller_id=eq.${currentSeller.id}&select=*`)
-    .then(subs => {
-      const sub = subs[0];
-      if (!sub) return;
-      const el = document.getElementById('suspended-sub-info');
-      const PRICING = { silver:{monthly:3000,yearly:10000}, gold:{monthly:8000,yearly:15000}, premium:{monthly:15000,yearly:15000} };
-      const price = PRICING[sub.badge_tier]?.[sub.billing_cycle] || sub.amount;
-      el.innerHTML = `<div style="background:#fff;border:1.5px solid var(--lgrey);border-radius:12px;padding:14px;text-align:left">
-        <div style="font-size:12px;font-weight:700;color:var(--grey);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">Your Subscription</div>
-        <div style="font-size:13px;color:var(--navy);line-height:1.9">
-          Plan: <strong>${badgeLabelSimple(sub.badge_tier)}</strong><br>
-          Cycle: <strong>${sub.billing_cycle === 'yearly' ? 'Yearly' : 'Monthly'}</strong><br>
-          Amount due: <strong style="color:var(--red)">${parseFloat(price).toLocaleString()} FCFA</strong><br>
-          Due date: <strong>${new Date(sub.next_due_date).toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})}</strong>
-        </div>
-      </div>`;
-    }).catch(() => {});
-}
-
-function badgeLabelSimple(t) {
-  return t==='premium'?'❖ Gold Premium':t==='gold'?'🥇 Gold':t==='silver'?'🥈 Silver':'None';
+  const el = document.getElementById('suspended-sub-info');
+  if (el) {
+    el.innerHTML = `<div style="background:#fff;border:1.5px solid var(--lgrey);border-radius:12px;padding:14px;text-align:left">
+      <div style="font-size:13px;color:var(--navy);line-height:1.6">
+        Votre compte est suspendu. Contactez le support pour rétablir l'accès.<br>
+        <span style="color:var(--grey)">Your account is suspended. Contact support to restore access.</span>
+      </div>
+    </div>`;
+  }
 }
 
 
@@ -3024,26 +3046,12 @@ function stopSellerSync() {
 let momoContext = null;
 let momoOperator = 'mtn';
 
+// Sprint B-bis: legacy badge subscription renewal removed. Sprint B's
+// openDozieSubPaymentModal('renew') is the canonical renewal path —
+// 3 000 FCFA / month via CamPay, hits /api/dozie-sub/start-payment.
+// Kept as a thin alias so any straggler caller doesn't crash.
 function openSubscriptionPayment() {
-  // Get subscription amount from current seller data
-  const amount = currentSeller?.badge_tier === 'premium' ? 15000
-    : currentSeller?.badge_tier === 'gold' ? 8000 : 3000;
-  openMomoModal({
-    type: 'subscription',
-    title: '💳 Pay Subscription',
-    subtitle: 'Renew your PARTENAIRE ' + (currentSeller?.badge_tier||'') + ' subscription for 30 days',
-    amount,
-    ref: 'SUB-' + currentSeller.id + '-' + Date.now().toString().slice(-6),
-    onSuccess: async () => {
-      // Reload seller data to reflect renewed subscription
-      const sellers = await GET('ptn_users', `phone=eq.${currentSeller.phone}&role=eq.seller&select=*`);
-      if (sellers && sellers[0]) {
-        currentSeller = sellers[0];
-        renderProfileHero();
-      }
-      toast('✅ Subscription renewed for 30 days!', 'success');
-    }
-  });
+  openDozieSubPaymentModal('renew');
 }
 
 function openMomoModal(context) {
@@ -3418,8 +3426,9 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
 }
 
-// Init on page load
-document.addEventListener('DOMContentLoaded', () => renderBadgeSelector());
+// Sprint B-bis: legacy renderBadgeSelector init removed — the new
+// plan selector is rendered inline in the HTML; no DOMContentLoaded
+// hook needed for it.
 
 // Keyboard nav for OTP
 document.addEventListener('keydown', e => {

@@ -246,40 +246,14 @@ async function handleMonetbilNotify(body) {
       }
 
     } else if (paymentRef.startsWith('SUB-')) {
-      const sellerId = paymentRef.replace('SUB-', '').split('-')[0];
-      const subs = await supaRequest('GET', 'ptn_subscriptions', 'seller_id=eq.' + sellerId + '&select=*');
-      if (subs && subs[0]) {
-        const sub = subs[0];
-        const nextDue = new Date();
-        nextDue.setDate(nextDue.getDate() + 30);
-        await supaRequest('PATCH', 'ptn_subscriptions', 'seller_id=eq.' + sellerId, {
-          status: 'active',
-          last_paid_date: new Date().toISOString().split('T')[0],
-          next_due_date: nextDue.toISOString().split('T')[0],
-          payment_alert: false,
-          updated_at: new Date().toISOString()
-        });
-        await supaRequest('POST', 'ptn_sub_payments', null, {
-          subscription_id: sub.id,
-          seller_id: sellerId,
-          amount,
-          method: operator,
-          payment_ref: paymentRef,
-          paid_at: new Date().toISOString(),
-          notes: 'Paid via Monetbil MoMo'
-        });
-        await supaRequest('PATCH', 'ptn_users', 'id=eq.' + sellerId, { status: 'active' });
-        await supaRequest('POST', 'ptn_notifications', null, {
-          user_id: sellerId,
-          type: 'payment',
-          title_en: 'âœ… Subscription Renewed!',
-          title_fr: 'âœ… Abonnement renouvelÃ©!',
-          body_en: `Payment of ${amount.toLocaleString()} XAF confirmed. Your shop is active until ${nextDue.toDateString()}.`,
-          body_fr: `Paiement de ${amount.toLocaleString()} XAF confirmÃ©. Votre boutique est active jusqu'au ${nextDue.toLocaleDateString('fr-FR')}.`,
-          read: false
-        });
-        console.log('[Monetbil] Subscription renewed for seller', sellerId);
-      }
+      // Sprint B-bis: legacy badge-subscription renewal via Monetbil.
+      // The badge model (ptn_subscriptions table) was archived to
+      // ptn_subscriptions_legacy_archive_2026_05 and replaced by the
+      // CamPay-driven standalone flow (DZSUB- prefix → /api/dozie-sub
+      // on the MP backend). Webhook ignores SUB-* refs now; any
+      // straggler payment would be visible in Monetbil's dashboard
+      // for manual reconciliation.
+      console.log('[Monetbil] Ignoring legacy SUB- ref (badge model retired in Sprint B-bis):', paymentRef);
     }
   } catch(e) {
     console.error('[Monetbil] Webhook error:', e.message);
