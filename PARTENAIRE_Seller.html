@@ -1076,6 +1076,13 @@ async function loginWithPIN() {
     }
     currentSeller = result.data.seller;
     if (result.data.mp_org) currentSeller._mpOrg = result.data.mp_org;
+    // Phase D: store MP subscription status so enterApp() can render the
+    // "subscription inactive" banner. effective_status ∈ active | trial |
+    // inactive | no_mp_account; mp_subscription_active is a convenience bool.
+    currentSeller._mpSubscriptionStatus = result.data.mp_subscription_status || 'no_mp_account';
+    currentSeller._mpSubscriptionActive = result.data.mp_subscription_active === true;
+    currentSeller._mpPlanExpiresAt      = result.data.mp_plan_expires_at || null;
+    currentSeller._mpId                 = result.data.mp_id || null;
     const buyers = await GET('ptn_users', `phone=eq.${cleanPhone}&role=eq.buyer&select=id`);
     currentSeller._hasBuyerAccount = buyers && buyers.length > 0;
     if (currentSeller.status === 'suspended') { showSuspendedScreen(); return; }
@@ -1209,6 +1216,85 @@ function enterApp() {
   if (promoBtn && (currentSeller.badge_tier === 'premium' || currentSeller.badge_tier === 'gold')) {
     promoBtn.style.display = 'inline-flex';
   }
+
+  // Phase D — MP-subscription inactive banner.
+  renderMpStatusBanner().catch(e => console.warn('[mp-banner] failed:', e));
+}
+
+// ════════════════════════════════════════════════════════════════
+//  MP SUBSCRIPTION STATUS BANNER (Phase D-B)
+//
+//  Renders a persistent amber banner above the seller dashboard when
+//  the seller's Mon Partenaire subscription isn't active/trial. The
+//  banner mirrors the server-side gate: order acceptance and listing
+//  CRUD will be rejected with a 403, so we tell the seller WHY.
+//
+//  When currentSeller arrived via impersonation, the login response
+//  isn't available — we fall back to fetching dozie_seller_mp_status
+//  directly from the proxy.
+// ════════════════════════════════════════════════════════════════
+async function renderMpStatusBanner() {
+  // Banner is anchored above the app-screen body. Inject once.
+  if (!document.getElementById('mp-status-banner')) {
+    const css = document.createElement('style');
+    css.textContent = `
+      .mp-status-banner {
+        background: #fef3c7; color: #78350f;
+        border: 1px solid #f59e0b; border-radius: 12px;
+        padding: 12px 16px; margin: 12px 16px;
+        display: flex; gap: 12px; align-items: center; justify-content: space-between;
+        font-size: 14px; line-height: 1.4;
+      }
+      .mp-status-banner .mp-status-icon { font-size: 20px; flex-shrink: 0; }
+      .mp-status-banner .mp-status-text { flex: 1; }
+      .mp-status-banner .mp-status-text strong { display: block; margin-bottom: 2px; }
+      .mp-status-banner .mp-status-renew {
+        background: #b45309; color: #fff; border: 0; border-radius: 8px;
+        padding: 8px 14px; font-weight: 700; cursor: pointer; white-space: nowrap;
+        text-decoration: none; display: inline-block;
+      }
+      .mp-status-banner .mp-status-renew:hover { background: #92400e; }
+    `;
+    document.head.appendChild(css);
+    const banner = document.createElement('div');
+    banner.id = 'mp-status-banner';
+    banner.className = 'mp-status-banner';
+    banner.style.display = 'none';
+    const appScreen = document.getElementById('app-screen');
+    if (appScreen && appScreen.firstChild) appScreen.insertBefore(banner, appScreen.firstChild);
+    else if (appScreen) appScreen.appendChild(banner);
+  }
+
+  // If we have a fresh status from login, use it. Else fetch from view.
+  let status = currentSeller._mpSubscriptionStatus;
+  let mpId   = currentSeller._mpId;
+  if (!status && currentSeller.id) {
+    try {
+      const rows = await GET('dozie_seller_mp_status',
+        `seller_id=eq.${currentSeller.id}&select=effective_status,mp_id`);
+      if (rows && rows.length) {
+        status = rows[0].effective_status;
+        mpId   = rows[0].mp_id;
+      }
+    } catch (_) { /* keep banner hidden on lookup failure */ }
+  }
+
+  const banner = document.getElementById('mp-status-banner');
+  if (!banner) return;
+  if (status === 'active' || status === 'trial') { banner.style.display = 'none'; return; }
+
+  const idLabel = mpId ? `MP-${mpId}` : 'no linked MP account';
+  const bodyHtml = status === 'no_mp_account'
+    ? `<strong>Lien Mon Partenaire requis</strong>
+       Pour vendre sur Dozie, vous devez lier un abonnement Mon Partenaire actif. Listings en pause et nouvelles commandes refusées.`
+    : `<strong>Abonnement Mon Partenaire inactif (${idLabel})</strong>
+       Listings en pause et vous ne pouvez pas accepter de nouvelles commandes. Renouvelez pour réactiver.`;
+  banner.innerHTML = `
+    <div class="mp-status-icon">⚠️</div>
+    <div class="mp-status-text">${bodyHtml}</div>
+    <a class="mp-status-renew" href="https://mon-partenaire-app.vercel.app" target="_blank" rel="noopener">Renouveler</a>
+  `;
+  banner.style.display = 'flex';
 }
 
 async function loadAll() {

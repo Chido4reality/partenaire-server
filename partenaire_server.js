@@ -569,12 +569,124 @@ http.createServer((req, res) => {
     return;
   }
 
-  // â”€â”€ SUPABASE API PROXY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── SUPABASE API PROXY ────────────────────────────────────────────────
+  //
+  // Phase D — MP-subscription gating for sellers. Before forwarding to
+  // Supabase REST, we intercept three operations:
+  //   • PATCH /api/ptn_orders?id=eq.<id>     when the patch "accepts" an order
+  //   • POST  /api/ptn_products              new listing
+  //   • PATCH /api/ptn_products?id=eq.<id>   listing update
+  // …and reject with a clear error if the seller's MP subscription is
+  // anything other than active/trial. Buyers and read-only operations pass
+  // through untouched. Full anon-key trust elimination is post-F.
   if (req.url.startsWith('/api/')) {
     const supaPath = '/rest/v1/' + req.url.slice(5);
     let body = '';
     req.on('data', c => body += c);
-    req.on('end', () => {
+    req.on('end', async () => {
+
+      // ── GATE: ORDER ACCEPTANCE (PATCH ptn_orders) ────────────────────
+      // We treat a patch as "acceptance" when it sets status to 'confirmed'/
+      // 'shipped' OR escrow_held > 0. Other PATCH operations (e.g. buyer
+      // raising a dispute, counter-offer flow) pass through.
+      try {
+        const isOrdersPatch  = req.method === 'PATCH' && /^\/api\/ptn_orders\b/.test(req.url);
+        const isProductsPost = req.method === 'POST'  && /^\/api\/ptn_products(\?|$)/.test(req.url);
+        const isProductsPatch = req.method === 'PATCH' && /^\/api\/ptn_products\b/.test(req.url);
+
+        if (isOrdersPatch || isProductsPost || isProductsPatch) {
+          let parsedBody = null;
+          try { parsedBody = body ? JSON.parse(body) : null; } catch (_) { parsedBody = null; }
+
+          // Helper: pull a UUID out of an "id=eq.<UUID>" query string.
+          const extractIdFilter = (urlStr) => {
+            const m = /[?&]id=eq\.([^&]+)/i.exec(urlStr);
+            return m ? decodeURIComponent(m[1]) : null;
+          };
+
+          // Helper: check effective_status via the unified view. Returns
+          // 'active' | 'trial' | 'inactive' | 'no_mp_account' or null on
+          // lookup failure. We FAIL OPEN on lookup error so a temporary
+          // Supabase blip doesn't lock every seller out — admin-side
+          // monitoring + the front-end banner are still in place.
+          const fetchMpStatus = async (sellerId) => {
+            try {
+              const rows = await supaRequest('GET', 'dozie_seller_mp_status',
+                'seller_id=eq.' + encodeURIComponent(sellerId) + '&select=effective_status,mp_id,mp_org_name');
+              if (Array.isArray(rows) && rows.length > 0) return rows[0];
+              return { effective_status: 'no_mp_account', mp_id: null };
+            } catch (_) { return null; }
+          };
+
+          const denyResponse = (mp) => {
+            const mpRef = mp && mp.mp_id ? `MP-${mp.mp_id}` : 'no MP account linked';
+            res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify({
+              code: 'mp_subscription_inactive',
+              message: `Your Mon Partenaire subscription is inactive (${mpRef}). Renew to continue selling on Dozie.`,
+              mp_id: mp && mp.mp_id,
+              effective_status: mp && mp.effective_status
+            }));
+          };
+
+          // ─── ORDER ACCEPTANCE ───────────────────────────────────────
+          if (isOrdersPatch) {
+            const looksLikeAccept = parsedBody && (
+              parsedBody.status === 'confirmed' ||
+              parsedBody.status === 'shipped' ||
+              (parsedBody.escrow_held !== undefined && Number(parsedBody.escrow_held) > 0)
+            );
+            if (looksLikeAccept) {
+              const orderId = extractIdFilter(req.url);
+              if (orderId) {
+                const orderRows = await supaRequest('GET', 'ptn_orders',
+                  'id=eq.' + encodeURIComponent(orderId) + '&select=seller_id');
+                const sellerId = Array.isArray(orderRows) && orderRows[0] && orderRows[0].seller_id;
+                if (sellerId) {
+                  const mp = await fetchMpStatus(sellerId);
+                  if (mp && mp.effective_status !== 'active' && mp.effective_status !== 'trial') {
+                    return denyResponse(mp);
+                  }
+                }
+              }
+            }
+          }
+
+          // ─── LISTING CREATE ────────────────────────────────────────
+          if (isProductsPost) {
+            const sellerId = parsedBody && (parsedBody.seller_id || (Array.isArray(parsedBody) && parsedBody[0] && parsedBody[0].seller_id));
+            if (sellerId) {
+              const mp = await fetchMpStatus(sellerId);
+              if (mp && mp.effective_status !== 'active' && mp.effective_status !== 'trial') {
+                return denyResponse(mp);
+              }
+            }
+          }
+
+          // ─── LISTING UPDATE ────────────────────────────────────────
+          if (isProductsPatch) {
+            const productId = extractIdFilter(req.url);
+            if (productId) {
+              const productRows = await supaRequest('GET', 'ptn_products',
+                'id=eq.' + encodeURIComponent(productId) + '&select=seller_id');
+              const sellerId = Array.isArray(productRows) && productRows[0] && productRows[0].seller_id;
+              if (sellerId) {
+                const mp = await fetchMpStatus(sellerId);
+                if (mp && mp.effective_status !== 'active' && mp.effective_status !== 'trial') {
+                  return denyResponse(mp);
+                }
+              }
+            }
+          }
+        }
+      } catch (gateErr) {
+        // Gate failure → fail open. Better to let the action through than
+        // to lock the seller out on a transient internal error. The MP
+        // admin still sees the audit trail downstream.
+        console.warn('[mp-gate] gate evaluation failed:', gateErr && gateErr.message);
+      }
+
+      // ── Forward to Supabase REST (existing behaviour) ────────────────
       const options = {
         hostname: SUPA, path: supaPath, method: req.method,
         headers: {
