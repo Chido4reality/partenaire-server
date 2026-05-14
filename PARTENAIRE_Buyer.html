@@ -903,8 +903,20 @@ function enterApp() {
 // ══════════════════════════════════════════════════════════════
 async function loadShops() {
   try {
-    const sellers = await GET('ptn_users','role=eq.seller&badge_status=eq.approved&status=eq.active&select=*&order=badge_tier.desc');
-    const products = await GET('ptn_products', 'published=eq.true&select=seller_id');
+    // Sprint C: badge_status was cleared to NULL across all sellers in
+    // Sprint B-bis (legacy badge model retired). The old filter
+    // badge_status=eq.approved would now return zero rows. Replace
+    // with "active seller, not blocked". Premium-perk sellers (paid
+    // standalone + MP-linked Gold/Premium) sort first via the
+    // dozie_seller_access view; we lookup that flag in a parallel
+    // request and use it to reorder client-side.
+    const [sellers, accessRows, products] = await Promise.all([
+      GET('ptn_users','role=eq.seller&status=eq.active&select=*'),
+      GET('dozie_seller_access','select=seller_id,has_premium_perks,access_state'),
+      GET('dozie_marketplace_products','select=seller_id&published=eq.true')
+    ]);
+    const accessMap = {};
+    (accessRows||[]).forEach(r => { accessMap[r.seller_id] = r; });
     const pCount = {};
     if (products && products.length) products.forEach(p => pCount[p.seller_id] = (pCount[p.seller_id]||0)+1);
     // Load ratings
@@ -919,14 +931,26 @@ async function loadShops() {
     allShops = (sellers||[]).map(s => {
       const ratings = ratingMap[s.id] || [];
       const avgRating = ratings.length ? (ratings.reduce((a,b)=>a+b,0)/ratings.length).toFixed(1) : null;
-      return {...s, productCount: pCount[s.id]||0, avgRating: avgRating ? parseFloat(avgRating) : null, reviewCount: ratings.length};
+      const acc = accessMap[s.id] || {};
+      return {
+        ...s,
+        productCount: pCount[s.id] || 0,
+        avgRating: avgRating ? parseFloat(avgRating) : null,
+        reviewCount: ratings.length,
+        // Sprint C: perks rollup drives sort + the "Premium perks" pill.
+        has_premium_perks: !!acc.has_premium_perks,
+        access_state: acc.access_state || 'limited'
+      };
     });
-    const tierOrder = { premium:3, gold:2, silver:1 };
+    // Hide blocked sellers from the marketplace entirely.
+    allShops = allShops.filter(s => s.access_state !== 'blocked');
     allShops.sort((a,b) => {
       if (a.featured && !b.featured) return -1;
       if (!a.featured && b.featured) return 1;
       if (a.featured && b.featured) return (b.featured_order||0) - (a.featured_order||0);
-      return (tierOrder[b.badge_tier]||0) - (tierOrder[a.badge_tier]||0);
+      // Sprint C: paid_standalone + MP-linked Gold/Premium first.
+      if (a.has_premium_perks !== b.has_premium_perks) return a.has_premium_perks ? -1 : 1;
+      return 0;
     });
     renderShops();
   } catch(e) { console.error('loadShops:', e); }
@@ -1029,14 +1053,16 @@ async function openShop(id) {
       document.getElementById('shop-detail').appendChild(reviewsDiv);
     }
   } catch(e) { console.log('Reviews load error:', e.message); }
-  // Sprint B: fetch the seller's Dozie access state in parallel with
-  // product loading. If can_accept_orders=false (free-tier seller at
-  // their 2/2 cap), products still render but Add-to-cart + Order
-  // buttons go to a muted state and surface a "seller capped" message.
+  // Sprint B + C: query the unified dozie_marketplace_products view
+  // (combines standalone ptn_products + MP-linked via
+  // pa_dozie_seller_listings → pa_products) so buyers see a uniform
+  // listing surface regardless of seller source. The fields returned
+  // (name, photo_url, price, stock, published, city, description)
+  // match what renderShopProducts expects.
   try {
     const [products, accessRows] = await Promise.all([
-      GET('ptn_products', `seller_id=eq.${id}&published=eq.true&select=*`),
-      GET('dozie_seller_access', `seller_id=eq.${id}&select=can_accept_orders,source,orders_used,orders_cap`)
+      GET('dozie_marketplace_products', `seller_id=eq.${id}&published=eq.true&select=*&order=has_premium_perks.desc,created_at.desc`),
+      GET('dozie_seller_access', `seller_id=eq.${id}&select=can_accept_orders,source,orders_used,orders_cap,has_premium_perks`)
     ]);
     const access = accessRows && accessRows[0] ? accessRows[0] : null;
     shop._dozieAccess = access; // cache for renderShopProducts + placeOrder
@@ -1061,22 +1087,35 @@ function renderShopProducts(products, shop) {
   }
   // Sprint B: when the shop's seller is free-tier capped, mute the order
   // buttons and route clicks through the "seller capped" message.
+  // Sprint C addendum: NEVER show stock quantities. The unified view
+  // returns is_available boolean — render "In stock" / "Out of stock"
+  // only. Listing id is `listing_id`; photo may be http(s) or data URL.
   const capped = shop._dozieAccess && shop._dozieAccess.can_accept_orders === false;
   el.innerHTML = products.map(p => {
-    const inCart = cart.find(c => c.product.id===p.id);
+    // Map view shape → existing cart shape: cart expects { id, name, price }.
+    const cartProduct = { id: p.listing_id, name: p.name, price: p.price };
+    const inCart = cart.find(c => c.product.id === p.listing_id);
     const baseStyle = capped ? 'opacity:0.6;cursor:pointer' : '';
-    const cartHandler = capped ? `showSellerCappedMessage()` : `addToCart(${JSON.stringify(p).replace(/"/g,'&quot;')}, '${shop.id}', '${shop.company||shop.name}', this)`;
+    const cartHandler = capped
+      ? `showSellerCappedMessage()`
+      : `addToCart(${JSON.stringify(cartProduct).replace(/"/g,'&quot;')}, '${shop.id}', '${shop.company||shop.name}', this)`;
     const orderHandler = capped ? `showSellerCappedMessage()` : `addToQof('${p.name}',1,${p.price||0})`;
+    const photoSrc = p.photo_url
+      ? (p.photo_url.startsWith('data:') || p.photo_url.startsWith('http') ? p.photo_url : null)
+      : null;
+    const availBadge = p.is_available
+      ? '<span style="font-size:10px;background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:10px;font-weight:700">✓ In stock</span>'
+      : '<span style="font-size:10px;background:#FEECEC;color:#C62828;padding:2px 8px;border-radius:10px;font-weight:700">Out of stock</span>';
     return `<div class="product-card">
-      <div class="product-emoji">${p.photo_url && p.photo_url.startsWith('data:') ? `<img src="${p.photo_url}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">` : EMOJIS[p.category]||'📦'}</div>
+      <div class="product-emoji">${photoSrc ? `<img src="${photoSrc}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">` : EMOJIS[p.category]||'📦'}</div>
       <div class="product-name">${p.name}</div>
       <div class="product-price">${p.price ? p.price.toLocaleString()+' FCFA' : 'Ask for price'}</div>
-      <div class="product-stock">Stock: ${p.stock||0} units</div>
+      <div class="product-stock" style="margin-top:4px">${availBadge}</div>
       <div style="display:flex;gap:6px;margin-top:8px">
-        <button class="add-to-cart-btn ${inCart?'added':''}" id="btn-${p.id}"
-          onclick="${cartHandler}" style="flex:1;${baseStyle}">${capped ? '🔒 Limite atteinte' : (inCart ? '✓ In Cart' : '🛒 Cart')}</button>
-        <button style="padding:9px 10px;background:var(--amberl);color:var(--amber);border:1.5px solid #F0C050;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;${baseStyle}"
-          onclick="${orderHandler}" title="${capped ? 'Seller has reached free tier limit' : 'Add to Quick Order Form'}">${capped ? '🔒' : '⚡ Order'}</button>
+        <button class="add-to-cart-btn ${inCart?'added':''}" id="btn-${p.listing_id}"
+          onclick="${cartHandler}" style="flex:1;${baseStyle}" ${p.is_available ? '' : 'disabled'}>${capped ? '🔒 Limite atteinte' : (inCart ? '✓ In Cart' : (p.is_available ? '🛒 Cart' : 'Out of stock'))}</button>
+        <button style="padding:9px 10px;background:var(--amberl);color:var(--amber);border:1.5px solid #F0C050;border-radius:8px;font-size:11px;font-weight:700;cursor:${p.is_available ? 'pointer' : 'not-allowed'};white-space:nowrap;${baseStyle}"
+          onclick="${orderHandler}" ${p.is_available ? '' : 'disabled'} title="${capped ? 'Seller has reached free tier limit' : 'Add to Quick Order Form'}">${capped ? '🔒' : '⚡ Order'}</button>
       </div>
     </div>`;
   }).join('');
