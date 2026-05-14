@@ -1083,6 +1083,8 @@ async function loginWithPIN() {
     currentSeller._mpSubscriptionActive = result.data.mp_subscription_active === true;
     currentSeller._mpPlanExpiresAt      = result.data.mp_plan_expires_at || null;
     currentSeller._mpId                 = result.data.mp_id || null;
+    // Sprint B: unified Dozie access state (free / paid_standalone / mp_linked)
+    currentSeller._dozieAccess          = result.data.dozie_access || null;
     const buyers = await GET('ptn_users', `phone=eq.${cleanPhone}&role=eq.buyer&select=id`);
     currentSeller._hasBuyerAccount = buyers && buyers.length > 0;
     if (currentSeller.status === 'suspended') { showSuspendedScreen(); return; }
@@ -1219,6 +1221,280 @@ function enterApp() {
 
   // Phase D — MP-subscription inactive banner.
   renderMpStatusBanner().catch(e => console.warn('[mp-banner] failed:', e));
+
+  // Sprint B — standalone subscription banner + cap usage badges.
+  renderDozieAccessBanner();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  SPRINT B — DOZIE STANDALONE SUBSCRIPTION UX
+//
+//  Free tier sellers see:
+//    • Onboarding banner explaining the three options
+//    • Usage badges (X/2 listings, 1/1 cities, X/2 orders)
+//    • Cap-hit modal when they hit a limit
+//    • Inline CamPay payment flow for the 3 000 FCFA/month upgrade
+//  Paid_standalone sellers see expiry status + Renew/Cancel.
+//  MP-linked sellers see a brief link banner (handled separately).
+// ════════════════════════════════════════════════════════════════
+const DOZIE_SUB_PRICE_FCFA = 3000;
+const MP_API_BASE = 'https://partenaire-account-api.onrender.com/api';
+
+function renderDozieAccessBanner() {
+  if (!document.getElementById('dozie-access-ui')) {
+    const css = document.createElement('style');
+    css.textContent = `
+      .dozie-access-host { padding: 0 16px; }
+      .dozie-onboarding {
+        background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(168,85,247,0.08));
+        border: 1px solid rgba(99,102,241,0.35); border-radius: 14px;
+        padding: 14px 16px; margin: 12px 0; font-size: 13px; line-height: 1.5;
+      }
+      .dozie-onboarding h3 { margin: 0 0 6px 0; font-size: 15px; }
+      .dozie-onboarding ul { margin: 6px 0; padding-left: 20px; }
+      .dozie-onboarding-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+      .dozie-onboarding-actions button {
+        padding: 8px 14px; border-radius: 8px; border: 0; cursor: pointer;
+        font-weight: 700; font-size: 12px;
+      }
+      .dozie-onboard-pay { background: #c9a84c; color: #1a2b4a; }
+      .dozie-onboard-link { background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.2); }
+      .dozie-badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+      .dozie-badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 12px; border-radius: 16px; font-size: 12px; font-weight: 600;
+        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+      }
+      .dozie-badge.at-cap { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.35); color: #fca5a5; cursor: pointer; }
+      .dozie-paid-status {
+        background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.35);
+        border-radius: 12px; padding: 10px 14px; margin: 10px 0; font-size: 13px;
+        display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+      }
+      .dozie-paid-status button {
+        background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.2);
+        padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 600;
+      }
+      .cap-hit-overlay {
+        position: fixed; inset: 0; z-index: 600; background: rgba(0,0,0,0.85);
+        display: flex; align-items: center; justify-content: center; padding: 16px;
+      }
+      .cap-hit-modal {
+        background: #1A2B4A; border: 1px solid rgba(255,255,255,0.15); border-radius: 18px;
+        padding: 22px; max-width: 420px; width: 100%; color: #fff;
+      }
+      .cap-hit-modal h2 { margin: 0 0 8px 0; font-size: 18px; }
+      .cap-hit-modal p  { font-size: 13px; opacity: 0.9; line-height: 1.5; margin: 8px 0; }
+      .cap-hit-actions { display: flex; gap: 10px; margin-top: 16px; }
+      .cap-hit-actions button { flex: 1; padding: 10px 14px; border-radius: 10px; border: 0; cursor: pointer; font-weight: 700; }
+      .cap-hit-pay  { background: #c9a84c; color: #1A2B4A; }
+      .cap-hit-cancel { background: rgba(255,255,255,0.1); color: #fff; }
+      .pay-prompt { background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.35); border-radius: 10px; padding: 12px; margin: 12px 0; font-size: 12px; }
+      .pay-prompt code { font-family: ui-monospace, monospace; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; }
+    `;
+    document.head.appendChild(css);
+    const host = document.createElement('div');
+    host.id = 'dozie-access-ui';
+    host.className = 'dozie-access-host';
+    const appScreen = document.getElementById('app-screen');
+    if (appScreen) {
+      const banner = document.getElementById('mp-status-banner');
+      if (banner && banner.nextSibling) appScreen.insertBefore(host, banner.nextSibling);
+      else appScreen.insertBefore(host, appScreen.firstChild);
+    }
+  }
+  const host = document.getElementById('dozie-access-ui');
+  if (!host) return;
+  const acc = currentSeller._dozieAccess;
+  if (!acc) { host.innerHTML = ''; return; }
+
+  if (acc.source === 'mp_linked' && acc.access === 'full') {
+    // MP-linked path — Phase D banner already handles the "inactive" case.
+    // Nothing extra to render here on the standalone surface.
+    host.innerHTML = '';
+    return;
+  }
+
+  if (acc.source === 'paid_standalone' && acc.access === 'full') {
+    const days = acc.paid_expires_at ? Math.max(0, Math.ceil((new Date(acc.paid_expires_at) - Date.now()) / 86400000)) : 0;
+    host.innerHTML = `
+      <div class="dozie-paid-status">
+        <div>✓ <strong>Standalone Dozie</strong> — expires in ${days} day${days === 1 ? '' : 's'}</div>
+        <div style="display:flex;gap:8px">
+          <button onclick="openDozieSubPaymentModal('renew')">Renew</button>
+          <button onclick="cancelDozieSub()">Cancel</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // Free tier (or none/blocked) — show onboarding + caps.
+  const cap = acc.listing_cap || 2;
+  const ordersCap = acc.orders_cap || 2;
+  const orders = acc.orders_used || 0;
+  const listings = acc.active_listings_count || 0;
+  const atOrderCap = orders >= ordersCap;
+  const atListingCap = listings >= cap;
+  host.innerHTML = `
+    <div class="dozie-onboarding">
+      <h3>🛒 Bienvenue sur Partenaire Dozie — niveau gratuit</h3>
+      <ul>
+        <li>Jusqu'à <strong>${cap} annonces actives</strong></li>
+        <li>Vente dans votre ville (<strong>${acc.seller_city || 'votre ville'}</strong>) uniquement</li>
+        <li><strong>${ordersCap} commandes</strong> gratuites pour démarrer</li>
+      </ul>
+      <div style="font-size:12px;opacity:0.85">Besoin de plus ? Passez à <strong>Standalone (3 000 FCFA / mois)</strong> — annonces, villes et commandes illimitées. Ou liez un compte Mon Partenaire (Gold/Premium) pour un accès complet inclus.</div>
+      <div class="dozie-onboarding-actions">
+        <button class="dozie-onboard-pay"  onclick="openDozieSubPaymentModal('upgrade')">Passer à 3 000 FCFA / mois</button>
+        <button class="dozie-onboard-link" onclick="window.open('https://mon-partenaire-app.vercel.app','_blank')">Lier Mon Partenaire</button>
+      </div>
+    </div>
+    <div class="dozie-badges">
+      <div class="dozie-badge ${atListingCap ? 'at-cap' : ''}" ${atListingCap ? 'onclick="openCapHitModal(\'listing_cap\')"' : ''}>📦 Annonces ${listings} / ${cap}${atListingCap ? ' — limite atteinte' : ''}</div>
+      <div class="dozie-badge">🌍 Villes 1 / 1 (${acc.seller_city || '—'})</div>
+      <div class="dozie-badge ${atOrderCap ? 'at-cap' : ''}" ${atOrderCap ? 'onclick="openCapHitModal(\'orders_cap\')"' : ''}>📥 Commandes ${orders} / ${ordersCap}${atOrderCap ? ' — limite atteinte' : ''}</div>
+    </div>
+  `;
+}
+
+function openCapHitModal(feature) {
+  const acc = currentSeller._dozieAccess || {};
+  const titles = {
+    listing_cap: 'Limite d\'annonces atteinte',
+    city_cap:    'Vente hors ville bloquée',
+    orders_cap:  'Limite de commandes gratuites atteinte',
+    dozie_access:'Accès Partenaire Dozie requis'
+  };
+  const bodies = {
+    listing_cap: `Vous avez ${acc.listing_cap || 2} annonces actives. Passez à Standalone Dozie (3 000 FCFA / mois) pour des annonces illimitées.`,
+    city_cap:    `Le niveau gratuit limite la vente à votre ville (${acc.seller_city || ''}). Passez à Standalone pour vendre partout.`,
+    orders_cap:  `Vous avez accepté vos ${acc.orders_cap || 2} commandes gratuites. Passez à Standalone (3 000 FCFA / mois) pour continuer à vendre.`,
+    dozie_access:`Votre plan actuel n'inclut pas Partenaire Dozie. Passez à Standalone Dozie (3 000 FCFA / mois) ou à un plan Mon Partenaire Gold/Premium.`
+  };
+  const root = document.createElement('div');
+  root.className = 'cap-hit-overlay';
+  root.innerHTML = `
+    <div class="cap-hit-modal">
+      <h2>⚠️ ${titles[feature] || 'Limite atteinte'}</h2>
+      <p>${bodies[feature] || 'Mise à niveau requise.'}</p>
+      <div class="cap-hit-actions">
+        <button class="cap-hit-cancel">Plus tard</button>
+        <button class="cap-hit-pay">Mettre à niveau (3 000 FCFA)</button>
+      </div>
+    </div>`;
+  document.body.appendChild(root);
+  root.querySelector('.cap-hit-cancel').onclick = () => root.remove();
+  root.querySelector('.cap-hit-pay').onclick    = () => { root.remove(); openDozieSubPaymentModal('upgrade'); };
+  root.onclick = (e) => { if (e.target === root) root.remove(); };
+}
+
+function openDozieSubPaymentModal(mode) {
+  const acc = currentSeller._dozieAccess || {};
+  const phoneDefault = (currentSeller.phone || '').replace(/^\+?237/, '');
+  const root = document.createElement('div');
+  root.className = 'cap-hit-overlay';
+  root.innerHTML = `
+    <div class="cap-hit-modal">
+      <h2>💳 ${mode === 'renew' ? 'Renouveler Standalone Dozie' : 'Passer à Standalone Dozie'}</h2>
+      <p>3 000 FCFA / mois — annonces, villes et commandes illimitées.</p>
+      <p style="font-size:12px;opacity:0.75">Vous recevrez une invite USSD sur votre numéro Mobile Money pour confirmer le paiement.</p>
+      <div style="margin:14px 0">
+        <label style="display:block;font-size:12px;margin-bottom:6px;opacity:0.85">Numéro Mobile Money (MTN ou Orange)</label>
+        <input id="ds-pay-phone" type="tel" value="${phoneDefault}" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.3);color:#fff;font-size:14px" />
+      </div>
+      <div id="ds-pay-status" class="pay-prompt" style="display:none"></div>
+      <div class="cap-hit-actions">
+        <button class="cap-hit-cancel">Annuler</button>
+        <button class="cap-hit-pay" id="ds-pay-submit">Démarrer le paiement</button>
+      </div>
+    </div>`;
+  document.body.appendChild(root);
+  root.querySelector('.cap-hit-cancel').onclick = () => root.remove();
+  root.onclick = (e) => { if (e.target === root) root.remove(); };
+
+  root.querySelector('#ds-pay-submit').onclick = async () => {
+    const phone = root.querySelector('#ds-pay-phone').value.trim();
+    if (!phone) return alert('Numéro requis');
+    const statusEl = root.querySelector('#ds-pay-status');
+    const btn = root.querySelector('#ds-pay-submit');
+    btn.disabled = true; btn.textContent = '⏳ Initialisation…';
+    statusEl.style.display = 'none';
+    try {
+      const r = await fetch(MP_API_BASE + '/dozie-sub/start-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-dozie-seller-id': currentSeller.id },
+        body: JSON.stringify({ seller_id: currentSeller.id, phone, months: 1 })
+      });
+      const data = await r.json();
+      if (!r.ok || !data.success) throw new Error((data && data.message) || 'Échec de l\'initialisation');
+      statusEl.style.display = 'block';
+      statusEl.innerHTML = `📱 Vérifiez votre téléphone. Code USSD: <code>${data.data.ussd_code || '—'}</code><br>Référence: <code>${data.data.reference}</code>`;
+      btn.textContent = '⏳ En attente du paiement…';
+      pollDozieSubPayment(data.data.payment_id, root);
+    } catch (e) {
+      statusEl.style.display = 'block';
+      statusEl.innerHTML = '<span style="color:#fca5a5">⚠️ ' + (e.message || 'Erreur') + '</span>';
+      btn.disabled = false; btn.textContent = 'Réessayer';
+    }
+  };
+}
+
+async function pollDozieSubPayment(paymentId, root) {
+  const statusEl = root.querySelector('#ds-pay-status');
+  let elapsed = 0;
+  const timer = setInterval(async () => {
+    elapsed += 5;
+    if (elapsed > 90) {
+      clearInterval(timer);
+      statusEl.innerHTML = '<span style="color:#fbbf24">⏱️ Délai dépassé. Vérifiez votre compte plus tard.</span>';
+      return;
+    }
+    try {
+      const r = await fetch(MP_API_BASE + '/dozie-sub/payment-status/' + paymentId);
+      const data = await r.json();
+      const s = data && data.data && data.data.status;
+      if (s === 'approved') {
+        clearInterval(timer);
+        statusEl.innerHTML = '<span style="color:#10b981">✅ Paiement confirmé ! Mise à niveau effectuée.</span>';
+        // Refetch dozie_access by re-loading login state
+        try {
+          const rows = await GET('dozie_seller_access', `seller_id=eq.${currentSeller.id}&select=*`);
+          if (rows && rows[0]) {
+            currentSeller._dozieAccess = {
+              source: rows[0].source, access: rows[0].access_state,
+              listing_cap: rows[0].listing_cap, city_cap: rows[0].city_cap,
+              orders_cap: rows[0].orders_cap, orders_used: rows[0].orders_used,
+              can_accept_orders: rows[0].can_accept_orders,
+              paid_expires_at: rows[0].paid_expires_at,
+              active_listings_count: rows[0].active_listings_count,
+              seller_city: rows[0].seller_city
+            };
+          }
+          renderDozieAccessBanner();
+        } catch (_) {}
+        setTimeout(() => root.remove(), 2500);
+      } else if (s === 'rejected') {
+        clearInterval(timer);
+        statusEl.innerHTML = '<span style="color:#fca5a5">❌ Paiement refusé. Réessayez.</span>';
+        root.querySelector('#ds-pay-submit').disabled = false;
+        root.querySelector('#ds-pay-submit').textContent = 'Réessayer';
+      }
+    } catch (_) { /* keep polling */ }
+  }, 5000);
+}
+
+async function cancelDozieSub() {
+  if (!confirm('Annuler votre abonnement Standalone ? Il restera actif jusqu\'à la date d\'expiration.')) return;
+  try {
+    const r = await fetch(MP_API_BASE + '/dozie-sub/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-dozie-seller-id': currentSeller.id },
+      body: JSON.stringify({ seller_id: currentSeller.id })
+    });
+    const data = await r.json();
+    if (!r.ok || !data.success) throw new Error((data && data.message) || 'Échec');
+    alert(data.message || 'Abonnement annulé');
+  } catch (e) { alert('Erreur: ' + e.message); }
 }
 
 // ════════════════════════════════════════════════════════════════
