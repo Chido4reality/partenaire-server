@@ -585,10 +585,18 @@ http.createServer((req, res) => {
     req.on('data', c => body += c);
     req.on('end', async () => {
 
-      // ── GATE: ORDER ACCEPTANCE (PATCH ptn_orders) ────────────────────
-      // We treat a patch as "acceptance" when it sets status to 'confirmed'/
-      // 'shipped' OR escrow_held > 0. Other PATCH operations (e.g. buyer
-      // raising a dispute, counter-offer flow) pass through.
+      // ── GATE: UNIFIED DOZIE ACCESS (Sprint B) ────────────────────────
+      // Reads the dozie_seller_access view, which combines MP-linked
+      // status (Sprint A) with the new standalone tier (Sprint B). The
+      // view's access_state column is the authoritative answer:
+      //   'full'    → no caps, allow always
+      //   'limited' → free tier, enforce listing_cap/city_cap/orders_cap
+      //   'blocked' → reject outright
+      //
+      // Order acceptance on free tier uses an atomic Postgres RPC
+      // (increment_dozie_orders_accepted) so two concurrent acceptances
+      // can't both squeak past a count-then-update check. The RPC returns
+      // NULL when the cap was already at 2; gate treats NULL as block.
       try {
         const isOrdersPatch  = req.method === 'PATCH' && /^\/api\/ptn_orders\b/.test(req.url);
         const isProductsPost = req.method === 'POST'  && /^\/api\/ptn_products(\?|$)/.test(req.url);
@@ -598,48 +606,43 @@ http.createServer((req, res) => {
           let parsedBody = null;
           try { parsedBody = body ? JSON.parse(body) : null; } catch (_) { parsedBody = null; }
 
-          // Helper: pull a UUID out of an "id=eq.<UUID>" query string.
           const extractIdFilter = (urlStr) => {
             const m = /[?&]id=eq\.([^&]+)/i.exec(urlStr);
             return m ? decodeURIComponent(m[1]) : null;
           };
 
-          // Sprint A: read the COMPUTED effective_plan from the view
-          // (mirrors backend computeEffectivePlan). The previous
-          // "effective_status === 'active' || 'trial'" check let Silver
-          // MP users through — the new gate is "plan must include
-          // dozie_access", which is true for trial/gold/premium only.
-          // Fail-open on lookup errors stays — a transient Supabase blip
-          // shouldn't lock every seller out.
-          const PLANS_WITH_DOZIE = new Set(['trial', 'gold', 'premium']);
-          const fetchMpStatus = async (sellerId) => {
+          const fetchAccess = async (sellerId) => {
             try {
-              const rows = await supaRequest('GET', 'dozie_seller_mp_status',
+              const rows = await supaRequest('GET', 'dozie_seller_access',
                 'seller_id=eq.' + encodeURIComponent(sellerId) +
-                '&select=effective_plan,effective_status,is_grace,mp_id,mp_org_name');
+                '&select=source,access_state,listing_cap,city_cap,orders_cap,orders_used,can_accept_orders,mp_plan,mp_id,seller_city,active_listings_count');
               if (Array.isArray(rows) && rows.length > 0) return rows[0];
-              return { effective_plan: 'silver', effective_status: 'no_mp_account', mp_id: null };
+              return null;
             } catch (_) { return null; }
           };
 
-          const denyResponse = (mp) => {
-            const mpRef = mp && mp.mp_id ? `MP-${mp.mp_id}` : 'no MP account linked';
-            const planLabel = mp && mp.effective_plan ? mp.effective_plan : 'silver';
+          const denyResponse = (acc, feature, extra) => {
             res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            const planLabel = acc && (acc.mp_plan || acc.source || 'free');
+            const messages = {
+              dozie_access:  `Your current plan does not include Partenaire Dozie. Upgrade to a standalone Dozie subscription (3 000 FCFA/month) or to a Gold/Premium Mon Partenaire plan.`,
+              listing_cap:   `You've hit the free-tier limit of 2 active listings. Upgrade to standalone Dozie (3 000 FCFA/month) for unlimited listings.`,
+              city_cap:      `Free-tier sellers can only list in their own city (${(acc && acc.seller_city) || 'your city'}). Upgrade to standalone Dozie for unlimited cities.`,
+              orders_cap:    `You've accepted your 2 free orders. Upgrade to standalone Dozie (3 000 FCFA/month) to keep selling.`
+            };
             res.end(JSON.stringify({
-              code: 'mp_subscription_inactive',
               error: 'upgrade_required',
-              feature: 'dozie_access',
+              code: feature === 'dozie_access' ? 'dozie_blocked' : 'dozie_free_cap',
+              feature,
               current_plan: planLabel,
-              message: `Your current plan (${planLabel}) does not include Partenaire Dozie. Upgrade to Gold or Premium. (${mpRef})`,
-              mp_id: mp && mp.mp_id,
-              effective_plan: planLabel,
-              effective_status: mp && mp.effective_status,
-              upgrade_url: 'https://mon-partenaire-app.vercel.app'
+              source: acc && acc.source,
+              access_state: acc && acc.access_state,
+              mp_id: acc && acc.mp_id,
+              message: messages[feature] || `Free-tier limit reached for ${feature}.`,
+              upgrade_url: 'https://mon-partenaire-app.vercel.app',
+              ...(extra || {})
             }));
           };
-
-          const isBlocked = (mp) => !mp || !PLANS_WITH_DOZIE.has(mp.effective_plan);
 
           // ─── ORDER ACCEPTANCE ───────────────────────────────────────
           if (isOrdersPatch) {
@@ -655,8 +658,19 @@ http.createServer((req, res) => {
                   'id=eq.' + encodeURIComponent(orderId) + '&select=seller_id');
                 const sellerId = Array.isArray(orderRows) && orderRows[0] && orderRows[0].seller_id;
                 if (sellerId) {
-                  const mp = await fetchMpStatus(sellerId);
-                  if (mp && isBlocked(mp)) return denyResponse(mp);
+                  const acc = await fetchAccess(sellerId);
+                  if (!acc || acc.access_state === 'blocked') return denyResponse(acc, 'dozie_access');
+                  if (acc.access_state === 'limited') {
+                    // Atomic increment via Postgres RPC. Returns NULL when the
+                    // seller is already at the cap; otherwise the new count.
+                    let newCount = null;
+                    try {
+                      const rpc = await supaRequest('POST', 'rpc/increment_dozie_orders_accepted',
+                        null, { p_seller_id: sellerId });
+                      newCount = (typeof rpc === 'number') ? rpc : (rpc && rpc.length ? rpc[0] : null);
+                    } catch (_) { newCount = null; }
+                    if (newCount == null) return denyResponse(acc, 'orders_cap', { orders_used: acc.orders_used, orders_cap: acc.orders_cap });
+                  }
                 }
               }
             }
@@ -666,8 +680,22 @@ http.createServer((req, res) => {
           if (isProductsPost) {
             const sellerId = parsedBody && (parsedBody.seller_id || (Array.isArray(parsedBody) && parsedBody[0] && parsedBody[0].seller_id));
             if (sellerId) {
-              const mp = await fetchMpStatus(sellerId);
-              if (mp && isBlocked(mp)) return denyResponse(mp);
+              const acc = await fetchAccess(sellerId);
+              if (!acc || acc.access_state === 'blocked') return denyResponse(acc, 'dozie_access');
+              if (acc.access_state === 'limited') {
+                // Listing-count cap (re-read the view's count for accuracy
+                // since publishing/unpublishing toggles inclusion).
+                if (acc.listing_cap != null && acc.active_listings_count >= acc.listing_cap) {
+                  return denyResponse(acc, 'listing_cap', { listing_cap: acc.listing_cap, active_listings_count: acc.active_listings_count });
+                }
+                // City-cap — free tier sellers may only list in their own
+                // city. ptn_products doesn't currently carry a city field,
+                // but if the payload includes one and it differs from the
+                // seller's home city, reject.
+                if (acc.city_cap === 1 && parsedBody && parsedBody.city && parsedBody.city !== acc.seller_city) {
+                  return denyResponse(acc, 'city_cap', { seller_city: acc.seller_city, requested_city: parsedBody.city });
+                }
+              }
             }
           }
 
@@ -679,8 +707,15 @@ http.createServer((req, res) => {
                 'id=eq.' + encodeURIComponent(productId) + '&select=seller_id');
               const sellerId = Array.isArray(productRows) && productRows[0] && productRows[0].seller_id;
               if (sellerId) {
-                const mp = await fetchMpStatus(sellerId);
-                if (mp && isBlocked(mp)) return denyResponse(mp);
+                const acc = await fetchAccess(sellerId);
+                if (!acc || acc.access_state === 'blocked') return denyResponse(acc, 'dozie_access');
+                // Updates by a 'limited' seller stay allowed — they can
+                // edit existing listings without hitting the cap. Only the
+                // CREATE path enforces listing_cap.
+                if (acc.access_state === 'limited' && acc.city_cap === 1
+                    && parsedBody && parsedBody.city && parsedBody.city !== acc.seller_city) {
+                  return denyResponse(acc, 'city_cap', { seller_city: acc.seller_city, requested_city: parsedBody.city });
+                }
               }
             }
           }
