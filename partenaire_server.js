@@ -604,30 +604,42 @@ http.createServer((req, res) => {
             return m ? decodeURIComponent(m[1]) : null;
           };
 
-          // Helper: check effective_status via the unified view. Returns
-          // 'active' | 'trial' | 'inactive' | 'no_mp_account' or null on
-          // lookup failure. We FAIL OPEN on lookup error so a temporary
-          // Supabase blip doesn't lock every seller out — admin-side
-          // monitoring + the front-end banner are still in place.
+          // Sprint A: read the COMPUTED effective_plan from the view
+          // (mirrors backend computeEffectivePlan). The previous
+          // "effective_status === 'active' || 'trial'" check let Silver
+          // MP users through — the new gate is "plan must include
+          // dozie_access", which is true for trial/gold/premium only.
+          // Fail-open on lookup errors stays — a transient Supabase blip
+          // shouldn't lock every seller out.
+          const PLANS_WITH_DOZIE = new Set(['trial', 'gold', 'premium']);
           const fetchMpStatus = async (sellerId) => {
             try {
               const rows = await supaRequest('GET', 'dozie_seller_mp_status',
-                'seller_id=eq.' + encodeURIComponent(sellerId) + '&select=effective_status,mp_id,mp_org_name');
+                'seller_id=eq.' + encodeURIComponent(sellerId) +
+                '&select=effective_plan,effective_status,is_grace,mp_id,mp_org_name');
               if (Array.isArray(rows) && rows.length > 0) return rows[0];
-              return { effective_status: 'no_mp_account', mp_id: null };
+              return { effective_plan: 'silver', effective_status: 'no_mp_account', mp_id: null };
             } catch (_) { return null; }
           };
 
           const denyResponse = (mp) => {
             const mpRef = mp && mp.mp_id ? `MP-${mp.mp_id}` : 'no MP account linked';
+            const planLabel = mp && mp.effective_plan ? mp.effective_plan : 'silver';
             res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
             res.end(JSON.stringify({
               code: 'mp_subscription_inactive',
-              message: `Your Mon Partenaire subscription is inactive (${mpRef}). Renew to continue selling on Dozie.`,
+              error: 'upgrade_required',
+              feature: 'dozie_access',
+              current_plan: planLabel,
+              message: `Your current plan (${planLabel}) does not include Partenaire Dozie. Upgrade to Gold or Premium. (${mpRef})`,
               mp_id: mp && mp.mp_id,
-              effective_status: mp && mp.effective_status
+              effective_plan: planLabel,
+              effective_status: mp && mp.effective_status,
+              upgrade_url: 'https://mon-partenaire-app.vercel.app'
             }));
           };
+
+          const isBlocked = (mp) => !mp || !PLANS_WITH_DOZIE.has(mp.effective_plan);
 
           // ─── ORDER ACCEPTANCE ───────────────────────────────────────
           if (isOrdersPatch) {
@@ -644,9 +656,7 @@ http.createServer((req, res) => {
                 const sellerId = Array.isArray(orderRows) && orderRows[0] && orderRows[0].seller_id;
                 if (sellerId) {
                   const mp = await fetchMpStatus(sellerId);
-                  if (mp && mp.effective_status !== 'active' && mp.effective_status !== 'trial') {
-                    return denyResponse(mp);
-                  }
+                  if (mp && isBlocked(mp)) return denyResponse(mp);
                 }
               }
             }
@@ -657,9 +667,7 @@ http.createServer((req, res) => {
             const sellerId = parsedBody && (parsedBody.seller_id || (Array.isArray(parsedBody) && parsedBody[0] && parsedBody[0].seller_id));
             if (sellerId) {
               const mp = await fetchMpStatus(sellerId);
-              if (mp && mp.effective_status !== 'active' && mp.effective_status !== 'trial') {
-                return denyResponse(mp);
-              }
+              if (mp && isBlocked(mp)) return denyResponse(mp);
             }
           }
 
@@ -672,9 +680,7 @@ http.createServer((req, res) => {
               const sellerId = Array.isArray(productRows) && productRows[0] && productRows[0].seller_id;
               if (sellerId) {
                 const mp = await fetchMpStatus(sellerId);
-                if (mp && mp.effective_status !== 'active' && mp.effective_status !== 'trial') {
-                  return denyResponse(mp);
-                }
+                if (mp && isBlocked(mp)) return denyResponse(mp);
               }
             }
           }
