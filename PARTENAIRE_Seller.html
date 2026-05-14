@@ -3426,9 +3426,45 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
 }
 
-// Sprint B-bis: legacy renderBadgeSelector init removed — the new
-// plan selector is rendered inline in the HTML; no DOMContentLoaded
-// hook needed for it.
+// Sprint B-bis (REGRESSION FIX): the legacy badge-selector DOMContentLoaded
+// handler used to call renderBadgeSelector(); when I removed that handler
+// in the cleanup commit, no replacement init ran on the auth screens, and
+// Peter reported the login button click no longer fired. Static analysis
+// couldn't reproduce the failure (loginWithPIN is defined, inline onclick
+// resolves, scripts parse) — most plausible cause is an environment quirk
+// where the inline onclick attribute doesn't bind reliably on first paint.
+//
+// Defensive fix: programmatically re-attach click handlers via
+// addEventListener as a second path. The inline onclick stays in place
+// so this is belt-and-braces, not a replacement. Also re-wires the new
+// plan selector and signup button while we're here.
+document.addEventListener('DOMContentLoaded', function () {
+  const wire = (id, handler) => {
+    const el = document.getElementById(id);
+    if (el && !el.__wired) {
+      el.addEventListener('click', handler);
+      el.__wired = true;
+    }
+  };
+  // Login screen.
+  wire('btn-send-otp', () => { try { loginWithPIN(); } catch (e) { console.error('[login] failed:', e); } });
+  // PIN input — Enter key. The inline onkeydown handles this too, but
+  // some browsers swallow inline keydown on type=password fields when
+  // autofill is active.
+  const pinInput = document.getElementById('pin-input');
+  if (pinInput && !pinInput.__wired) {
+    pinInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loginWithPIN(); });
+    pinInput.__wired = true;
+  }
+  // Plan selector cards (Sprint B-bis — Free vs Premium Standalone).
+  // Inline onclick already there; this is the fallback.
+  document.querySelectorAll('#plan-selector .plan-option').forEach(el => {
+    if (!el.__wired) {
+      el.addEventListener('click', () => selectPlan(el));
+      el.__wired = true;
+    }
+  });
+});
 
 // Keyboard nav for OTP
 document.addEventListener('keydown', e => {
