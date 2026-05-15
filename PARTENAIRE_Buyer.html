@@ -1087,14 +1087,16 @@ function renderShopProducts(products, shop) {
   }
   // Sprint B: when the shop's seller is free-tier capped, mute the order
   // buttons and route clicks through the "seller capped" message.
-  // Sprint C addendum: NEVER show stock quantities. The unified view
-  // returns is_available boolean — render "In stock" / "Out of stock"
-  // only. Listing id is `listing_id`; photo may be http(s) or data URL.
+  // FIX 2: tri-state stock signal. The unified view returns stock_state
+  // ('in_stock' | 'low_stock' | 'out_of_stock') — NEVER a count, so
+  // the Sprint C buyer-privacy invariant holds. out_of_stock disables
+  // ordering; in/low both allow it.
   const capped = shop._dozieAccess && shop._dozieAccess.can_accept_orders === false;
   el.innerHTML = products.map(p => {
-    // Map view shape → existing cart shape: cart expects { id, name, price }.
     const cartProduct = { id: p.listing_id, name: p.name, price: p.price };
     const inCart = cart.find(c => c.product.id === p.listing_id);
+    const outOfStock = p.stock_state === 'out_of_stock';
+    const orderable = !outOfStock;
     const baseStyle = capped ? 'opacity:0.6;cursor:pointer' : '';
     const cartHandler = capped
       ? `showSellerCappedMessage()`
@@ -1103,19 +1105,22 @@ function renderShopProducts(products, shop) {
     const photoSrc = p.photo_url
       ? (p.photo_url.startsWith('data:') || p.photo_url.startsWith('http') ? p.photo_url : null)
       : null;
-    const availBadge = p.is_available
-      ? '<span style="font-size:10px;background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:10px;font-weight:700">✓ In stock</span>'
-      : '<span style="font-size:10px;background:#FEECEC;color:#C62828;padding:2px 8px;border-radius:10px;font-weight:700">Out of stock</span>';
+    const stockBadge =
+      p.stock_state === 'in_stock'
+        ? '<span style="font-size:10px;background:#E8F5E9;color:#2E7D32;padding:2px 8px;border-radius:10px;font-weight:700">✓ In stock</span>'
+      : p.stock_state === 'low_stock'
+        ? '<span style="font-size:10px;background:#FFF4E0;color:#B26A00;padding:2px 8px;border-radius:10px;font-weight:700">⚠ Low stock</span>'
+        : '<span style="font-size:10px;background:#FEECEC;color:#C62828;padding:2px 8px;border-radius:10px;font-weight:700">✗ Out of stock</span>';
     return `<div class="product-card">
       <div class="product-emoji">${photoSrc ? `<img src="${photoSrc}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">` : EMOJIS[p.category]||'📦'}</div>
       <div class="product-name">${p.name}</div>
       <div class="product-price">${p.price ? p.price.toLocaleString()+' FCFA' : 'Ask for price'}</div>
-      <div class="product-stock" style="margin-top:4px">${availBadge}</div>
+      <div class="product-stock" style="margin-top:4px">${stockBadge}</div>
       <div style="display:flex;gap:6px;margin-top:8px">
         <button class="add-to-cart-btn ${inCart?'added':''}" id="btn-${p.listing_id}"
-          onclick="${cartHandler}" style="flex:1;${baseStyle}" ${p.is_available ? '' : 'disabled'}>${capped ? '🔒 Limite atteinte' : (inCart ? '✓ In Cart' : (p.is_available ? '🛒 Cart' : 'Out of stock'))}</button>
-        <button style="padding:9px 10px;background:var(--amberl);color:var(--amber);border:1.5px solid #F0C050;border-radius:8px;font-size:11px;font-weight:700;cursor:${p.is_available ? 'pointer' : 'not-allowed'};white-space:nowrap;${baseStyle}"
-          onclick="${orderHandler}" ${p.is_available ? '' : 'disabled'} title="${capped ? 'Seller has reached free tier limit' : 'Add to Quick Order Form'}">${capped ? '🔒' : '⚡ Order'}</button>
+          onclick="${orderable ? cartHandler : ''}" style="flex:1;${baseStyle}" ${orderable ? '' : 'disabled'}>${capped ? '🔒 Limite atteinte' : (inCart ? '✓ In Cart' : (orderable ? '🛒 Cart' : '✗ Out of stock'))}</button>
+        <button style="padding:9px 10px;background:var(--amberl);color:var(--amber);border:1.5px solid #F0C050;border-radius:8px;font-size:11px;font-weight:700;cursor:${orderable ? 'pointer' : 'not-allowed'};white-space:nowrap;${baseStyle}"
+          onclick="${orderable ? orderHandler : ''}" ${orderable ? '' : 'disabled'} title="${capped ? 'Seller has reached free tier limit' : (orderable ? 'Add to Quick Order Form' : 'Out of stock')}">${capped ? '🔒' : (orderable ? '⚡ Order' : '🔒')}</button>
       </div>
     </div>`;
   }).join('');
