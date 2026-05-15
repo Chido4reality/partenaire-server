@@ -2029,8 +2029,16 @@ async function dozieHandoff(orderId, action, mode) {
   const path = action === 'mark-complete' ? 'complete-at-shop'
              : action === 'complete-at-shop' ? 'complete-at-shop'
              : 'send-to-mp-cart';
+  // The handoff routes live in partenaire_server.js (the Dozie server,
+  // partenaire-server.onrender.com) — which also serves this page and
+  // already returns 200 for OPTIONS. Posting to MP_API instead hit the
+  // MP Express backend, which has no such route and whose CORS
+  // allowlist rejected this origin → 500 on preflight → POST blocked.
+  // Use a same-origin relative URL so there is no cross-origin
+  // preflight at all and the request reaches the server that owns
+  // the route (works on localhost via its /api proxy too).
   try {
-    const r = await fetch(MP_API.replace('/api','') + '/api/orders/' + orderId + '/' + path, {
+    const r = await fetch('/api/orders/' + orderId + '/' + path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ payment_mode: mode, deposit_paid: o.deposit_paid || 0 })
