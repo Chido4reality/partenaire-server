@@ -1918,6 +1918,105 @@ function filterOrders(status, btn) {
 }
 
 // ══════════════════════════════════════════════════════════════
+//  SPRINT D-1 — HANDOFF TO MON PARTENAIRE
+//
+//  Payment mode derived from the order:
+//    payment_status='paid' & pay_option='full' → paid_online_full
+//    pay_option='full' (unpaid)                → pay_at_shop
+//    pay_option='partial'                      → partial
+//    pay_option='credit'                       → credit
+//
+//  MP-linked sellers: "Complete Sale at Shop" (full/paid) or
+//  "Send to MP Cart" (partial/credit). Standalone sellers: a single
+//  "Mark Order Complete" (full/paid only); partial/credit shows a
+//  disabled button explaining MP is required.
+// ══════════════════════════════════════════════════════════════
+function doziePaymentMode(o) {
+  if (o.payment_status === 'paid' && (o.pay_option === 'full' || !o.pay_option)) return 'paid_online_full';
+  if (o.pay_option === 'partial') return 'partial';
+  if (o.pay_option === 'credit')  return 'credit';
+  return 'pay_at_shop'; // pay_option 'full' but not yet paid
+}
+
+function dozieHandoffButtons(o) {
+  const fr = (currentLang === 'fr');
+  const mode = doziePaymentMode(o);
+  const isMpLinked = currentSeller._dozieAccess && currentSeller._dozieAccess.source === 'mp_linked';
+  const fullPay = (mode === 'paid_online_full' || mode === 'pay_at_shop');
+
+  if (!isMpLinked) {
+    // Standalone: only full/paid can complete locally.
+    if (fullPay) {
+      return `<button class="btn btn-green btn-block" style="margin-bottom:8px;padding:13px;font-size:14px"
+        onclick="dozieHandoff('${o.id}','mark-complete','${mode}')">
+        ✓ ${fr ? 'Marquer la commande terminée' : 'Mark Order Complete'}
+      </button>`;
+    }
+    return `<button class="btn btn-block" disabled style="margin-bottom:8px;padding:13px;font-size:13px;opacity:0.55;cursor:not-allowed"
+      title="${fr ? 'Nécessite un compte Mon Partenaire pour crédit/acompte' : 'Requires Mon Partenaire account for credit/partial payments'}">
+      🔒 ${fr ? 'Crédit/acompte — compte MP requis' : 'Credit/Partial — MP account required'}
+    </button>`;
+  }
+  // MP-linked.
+  if (fullPay) {
+    return `<button class="btn btn-green btn-block" style="margin-bottom:8px;padding:13px;font-size:14px"
+      onclick="dozieHandoff('${o.id}','complete-at-shop','${mode}')">
+      ✓ ${fr ? 'Finaliser la vente en boutique' : 'Complete Sale at Shop'}
+    </button>`;
+  }
+  return `<button class="btn btn-block" style="margin-bottom:8px;padding:13px;font-size:14px;color:var(--navy);border-color:var(--navy);font-weight:700"
+    onclick="dozieHandoff('${o.id}','send-to-mp-cart','${mode}')">
+    → ${fr ? 'Envoyer au Panier MP' : 'Send to MP Cart'}
+  </button>`;
+}
+
+async function dozieHandoff(orderId, action, mode) {
+  const fr = (currentLang === 'fr');
+  const o = allOrders.find(x => x.id === orderId) || {};
+  const msgs = {
+    'complete-at-shop': fr
+      ? "Ceci déplacera la commande vers votre boutique Mon Partenaire pour que le caissier confirme et enregistre la vente. Continuer ?"
+      : "This will move the order to your Mon Partenaire shop for the cashier to confirm and record the sale. Continue?",
+    'send-to-mp-cart': fr
+      ? "Ceci déplacera la commande vers votre Panier Mon Partenaire pour que le caissier enregistre le client, les conditions de paiement et finalise la vente. Continuer ?"
+      : "This will move the order to your Mon Partenaire Cart so the cashier can register the customer details, payment terms, and complete the sale. Continue?",
+    'mark-complete': fr
+      ? "Marquer cette commande comme terminée dans Dozie. Le stock sera déduit de vos produits Dozie. Continuer ?"
+      : "Mark this order as completed in Dozie. Stock will deduct from your Dozie products. Continue?"
+  };
+  const summary = fr
+    ? `Commande ${o.order_ref || ''} · ${(o.total||0).toLocaleString()} FCFA`
+    : `Order ${o.order_ref || ''} · ${(o.total||0).toLocaleString()} FCFA`;
+  if (!confirm(summary + "\n\n" + (msgs[action] || ''))) return;
+
+  const path = action === 'mark-complete' ? 'complete-at-shop'
+             : action === 'complete-at-shop' ? 'complete-at-shop'
+             : 'send-to-mp-cart';
+  try {
+    const r = await fetch(MP_API.replace('/api','') + '/api/orders/' + orderId + '/' + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payment_mode: mode, deposit_paid: o.deposit_paid || 0 })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.success) {
+      throw new Error(data.message || ('HTTP ' + r.status));
+    }
+    if (data.handed_off) {
+      toast(fr ? '✓ Envoyé à Mon Partenaire' : '✓ Sent to Mon Partenaire', 'success');
+    } else if (data.completed_locally) {
+      toast(fr ? '✓ Commande terminée' : '✓ Order completed', 'success');
+    } else {
+      toast(fr ? '✓ Fait' : '✓ Done', 'success');
+    }
+    document.getElementById('order-detail-screen').style.display = 'none';
+    if (typeof loadOrders === 'function') loadOrders();
+  } catch (e) {
+    alert((fr ? 'Erreur : ' : 'Error: ') + (e.message || 'unknown'));
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
 //  ORDER DETAIL
 // ══════════════════════════════════════════════════════════════
 function openOrderDetail(id) {
@@ -1967,9 +2066,9 @@ function openOrderDetail(id) {
         ✕ Reject Order
       </button>`
     : o.status==='confirmed'
-    ? isPickup
+    ? dozieHandoffButtons(o) + (isPickup
       ? `<button class="btn btn-primary btn-block" onclick="updateOrderStatus('${o.id}','ready')" style="background:#E67E22;border-color:#E67E22">📦 Mark as Ready for Pickup</button>`
-      : `<button class="btn btn-primary btn-block" onclick="updateOrderStatus('${o.id}','shipped')">🚚 Mark as Shipped</button>`
+      : `<button class="btn btn-primary btn-block" onclick="updateOrderStatus('${o.id}','shipped')">🚚 Mark as Shipped</button>`)
     : o.status==='shipped'
     ? `<button class="btn btn-green btn-block" onclick="updateOrderStatus('${o.id}','delivered')">✅ Confirm Delivered</button>`
     : o.status==='ready'
