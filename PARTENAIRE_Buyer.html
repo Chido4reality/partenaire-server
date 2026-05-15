@@ -416,6 +416,13 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
   </div>
   <div class="tab-page" id="page-orders">
     <div style="font-size:18px;font-weight:800;margin-bottom:16px">📦 My Orders</div>
+    <div style="position:relative;margin-bottom:14px">
+      <input id="buyer-order-search" autocomplete="off" oninput="buyerOrderSearch(this.value)"
+        placeholder="🔎 Rechercher une commande (QOF / chiffres)"
+        style="width:100%;padding:10px 12px;border:1px solid #dcd7cf;border-radius:10px;font-size:13px;box-sizing:border-box">
+      <div id="buyer-order-search-results"
+        style="display:none;position:absolute;top:46px;left:0;right:0;background:#fff;border:1px solid #dcd7cf;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.15);z-index:50;max-height:320px;overflow-y:auto"></div>
+    </div>
     <div id="orders-list"><div class="loading"><div class="spinner"></div></div></div>
   </div>
   <div class="tab-page" id="page-profile">
@@ -1354,6 +1361,52 @@ function renderOrders() {
       </div>` : ''}
     </div>`).join('');
 }
+
+// ── ORDER SEARCH (scoped to this buyer, server-side) ────────────────
+let _buyerSearchTimer = null;
+function buyerOrderSearch(v) {
+  const box = document.getElementById('buyer-order-search-results');
+  if (!box) return;
+  clearTimeout(_buyerSearchTimer);
+  const q = (v || '').trim();
+  if (q.length < 2) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  _buyerSearchTimer = setTimeout(async () => {
+    const fr = (currentLang === 'fr');
+    try {
+      const r = await fetch('/api/buyer/orders/search?ref=' + encodeURIComponent(q),
+        { headers: { 'x-dozie-buyer-id': currentBuyer.id } });
+      const d = await r.json().catch(() => ({}));
+      const rows = (d && d.data) || [];
+      if (!rows.length) {
+        box.innerHTML = '<div style="padding:12px;font-size:12px;color:#888;text-align:center">' +
+          (fr ? 'Aucune commande trouvée' : 'No order found') + '</div>';
+        box.style.display = 'block'; return;
+      }
+      box.innerHTML = rows.map(o => `
+        <div onclick="buyerSearchOpen('${o.id}')" style="padding:10px 12px;border-bottom:1px solid #f0ede8;cursor:pointer">
+          <div style="display:flex;justify-content:space-between;gap:8px">
+            <span style="font-weight:700;font-size:13px">${o.order_ref || ''}</span>
+            <span class="status s-${o.status}" style="font-size:10px">${o.status}</span>
+          </div>
+          <div style="font-size:11px;color:#888;margin-top:2px">${(o.total || 0).toLocaleString()} FCFA · ${fmtDate(o.created_at)}</div>
+        </div>`).join('');
+      box.style.display = 'block';
+    } catch (e) { box.style.display = 'none'; }
+  }, 300);
+}
+function buyerSearchOpen(id) {
+  const box = document.getElementById('buyer-order-search-results');
+  const inp = document.getElementById('buyer-order-search');
+  if (box) box.style.display = 'none';
+  if (inp) inp.value = '';
+  openOrderDetail(id);
+}
+document.addEventListener('mousedown', (e) => {
+  const inp = document.getElementById('buyer-order-search');
+  const box = document.getElementById('buyer-order-search-results');
+  if (!inp || !box || box.style.display === 'none') return;
+  if (e.target !== inp && !box.contains(e.target)) box.style.display = 'none';
+});
 
 function openOrderDetail(id) {
   const o = allOrders.find(x=>x.id===id);
