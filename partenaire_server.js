@@ -543,6 +543,62 @@ http.createServer((req, res) => {
     return;
   }
 
+  // ── ORDER SEARCH — scoped seller / buyer lookups ─────────────────────
+  //
+  // GET /api/seller/orders/search?ref=   (header x-dozie-seller-id)
+  // GET /api/buyer/orders/search?ref=    (header x-dozie-buyer-id)
+  //
+  // Read-only, scoped server-side so a portal can only ever see its
+  // own orders. Must run before the generic /api/ proxy.
+  {
+    const sm = /^\/api\/(seller|buyer)\/orders\/search$/i.exec(req.url.split('?')[0]);
+    if (sm && req.method === 'GET') {
+      const role = sm[1].toLowerCase();
+      (async () => {
+        const send = (code, obj) => {
+          res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify(obj));
+        };
+        try {
+          const u = new URL(req.url, 'http://x');
+          const q = (u.searchParams.get('ref') || '').trim();
+          const scopeId = role === 'seller'
+            ? req.headers['x-dozie-seller-id']
+            : req.headers['x-dozie-buyer-id'];
+          if (!scopeId) return send(401, { success: false,
+            message: 'Missing ' + (role === 'seller' ? 'x-dozie-seller-id' : 'x-dozie-buyer-id') + ' header' });
+          if (!q) return send(200, { success: true, data: [] });
+
+          const col = role === 'seller' ? 'seller_id' : 'buyer_id';
+          const params =
+            col + '=eq.' + encodeURIComponent(scopeId) +
+            '&order_ref=ilike.' + encodeURIComponent('*' + q + '*') +
+            '&select=id,order_ref,status,payment_status,total,buyer_id,created_at' +
+            '&order=created_at.desc&limit=20';
+          const orders = await supaRequest('GET', 'ptn_orders', params);
+          const list = Array.isArray(orders) ? orders : [];
+
+          let buyerMap = {};
+          const bids = [...new Set(list.map(o => o.buyer_id).filter(Boolean))];
+          if (bids.length) {
+            const bs = await supaRequest('GET', 'ptn_users',
+              'id=in.(' + bids.join(',') + ')&select=id,name');
+            (Array.isArray(bs) ? bs : []).forEach(b => { buyerMap[b.id] = b.name; });
+          }
+          const data = list.map(o => ({
+            id: o.id, order_ref: o.order_ref, status: o.status,
+            payment_status: o.payment_status, total: Number(o.total || 0),
+            buyer_name: buyerMap[o.buyer_id] || null, created_at: o.created_at
+          }));
+          send(200, { success: true, data });
+        } catch (e) {
+          send(500, { success: false, message: e.message || 'Search error' });
+        }
+      })();
+      return;
+    }
+  }
+
   // ── SPRINT D-1 — SELLER-TRIGGERED HANDOFF TO MP ──────────────────────
   //
   // POST /api/orders/<id>/complete-at-shop   body { payment_mode }
