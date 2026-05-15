@@ -576,8 +576,22 @@ http.createServer((req, res) => {
             'id=eq.' + encodeURIComponent(orderId) + '&select=*');
           const order = Array.isArray(orderRows) && orderRows[0];
           if (!order) return send(404, { success: false, message: 'Order not found' });
-          if (!['confirmed', 'agreed'].includes(order.status))
-            return send(409, { success: false, message: 'Order must be confirmed/agreed (is: ' + order.status + ')' });
+          // Accept any live post-confirmation status. Delivered is in
+          // fact the most natural time to record the sale in MP
+          // (buyer has the goods, escrow released). Reject only the
+          // not-yet-actionable / dead states.
+          if (!['confirmed', 'agreed', 'shipped', 'delivered'].includes(order.status))
+            return send(409, { success: false, message: 'Order must be confirmed, shipped or delivered (is: ' + order.status + ')' });
+
+          // Prevent double-handoff: a non-voided pa_online_cart row
+          // for this order means it's already in the MP Online Cart.
+          const existingHandoff = await supaRequest('GET', 'pa_online_cart',
+            'dozie_order_id=eq.' + encodeURIComponent(orderId) +
+            '&status=in.(pending,completed)&select=id,status');
+          if (Array.isArray(existingHandoff) && existingHandoff[0])
+            return send(409, { success: false, code: 'already_handed_off',
+              message: 'Order already sent to MP Cart',
+              mp_cart_entry_id: existingHandoff[0].id });
 
           const sellerRows = await supaRequest('GET', 'ptn_users',
             'id=eq.' + encodeURIComponent(order.seller_id) + '&select=id,name,phone,linked_mp_org_id');
