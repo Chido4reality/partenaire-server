@@ -543,6 +543,128 @@ http.createServer((req, res) => {
     return;
   }
 
+  // ── SPRINT D-1 — SELLER-TRIGGERED HANDOFF TO MP ──────────────────────
+  //
+  // POST /api/orders/<id>/complete-at-shop   body { payment_mode }
+  // POST /api/orders/<id>/send-to-mp-cart    body { payment_mode, deposit_paid? }
+  //
+  // MP-linked seller → write a pa_online_cart row (same Supabase
+  // project, so a direct supaRequest insert; no cross-service HTTP).
+  // Standalone seller → complete locally: mark order delivered +
+  // best-effort decrement ptn_products.stock by item NAME (items
+  // carry no product_id — the QOF shape). Must run before the generic
+  // /api/ proxy so these paths aren't forwarded to Supabase REST.
+  {
+    const handoffMatch = /^\/api\/orders\/([0-9a-f-]{36})\/(complete-at-shop|send-to-mp-cart)$/i.exec(req.url.split('?')[0]);
+    if (handoffMatch && req.method === 'POST') {
+      const orderId = handoffMatch[1];
+      const kind    = handoffMatch[2]; // complete-at-shop | send-to-mp-cart
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', async () => {
+        const send = (code, obj) => {
+          res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify(obj));
+        };
+        try {
+          let parsed = {};
+          try { parsed = body ? JSON.parse(body) : {}; } catch (_) { parsed = {}; }
+          const paymentMode  = parsed.payment_mode;
+          const depositPaid  = Number(parsed.deposit_paid || 0);
+
+          const orderRows = await supaRequest('GET', 'ptn_orders',
+            'id=eq.' + encodeURIComponent(orderId) + '&select=*');
+          const order = Array.isArray(orderRows) && orderRows[0];
+          if (!order) return send(404, { success: false, message: 'Order not found' });
+          if (!['confirmed', 'agreed'].includes(order.status))
+            return send(409, { success: false, message: 'Order must be confirmed/agreed (is: ' + order.status + ')' });
+
+          const sellerRows = await supaRequest('GET', 'ptn_users',
+            'id=eq.' + encodeURIComponent(order.seller_id) + '&select=id,name,phone,linked_mp_org_id');
+          const seller = Array.isArray(sellerRows) && sellerRows[0];
+          if (!seller) return send(404, { success: false, message: 'Seller not found' });
+
+          // Denormalise buyer for cashier display.
+          let buyerName = null, buyerPhone = null;
+          if (order.buyer_id) {
+            const b = await supaRequest('GET', 'ptn_users',
+              'id=eq.' + encodeURIComponent(order.buyer_id) + '&select=name,phone');
+            if (Array.isArray(b) && b[0]) { buyerName = b[0].name; buyerPhone = b[0].phone; }
+          }
+
+          const isStandalone = !seller.linked_mp_org_id;
+
+          // send-to-mp-cart requires MP linkage (credit/partial has no
+          // Dozie-side equivalent).
+          if (kind === 'send-to-mp-cart' && isStandalone) {
+            return send(400, { success: false, code: 'requires_mp',
+              message: 'Credit / partial payments require a Mon Partenaire account. Standalone sellers can only complete fully-paid or pay-at-shop orders.' });
+          }
+
+          if (isStandalone) {
+            // Local completion. ptn_orders → delivered; decrement
+            // ptn_products.stock by name match (items have no product_id).
+            await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + encodeURIComponent(orderId),
+              { status: 'delivered' });
+            for (const it of (order.items || [])) {
+              const nm = (it.name || '').trim();
+              const qty = Number(it.qty || it.quantity || 0);
+              if (!nm || qty <= 0) continue;
+              const prodRows = await supaRequest('GET', 'ptn_products',
+                'seller_id=eq.' + encodeURIComponent(seller.id) +
+                '&name=ilike.' + encodeURIComponent(nm) + '&select=id,stock');
+              const prod = Array.isArray(prodRows) && prodRows[0];
+              if (prod) {
+                const newStock = Math.max(0, Number(prod.stock || 0) - qty);
+                await supaRequest('PATCH', 'ptn_products', 'id=eq.' + prod.id, { stock: newStock });
+              }
+            }
+            await supaRequest('POST', 'ptn_audit_log', null, {
+              admin_email: 'dozie-seller:' + (seller.phone || seller.id),
+              action: 'dozie_standalone_sale_completed',
+              target_type: 'ptn_orders', target_id: orderId,
+              details: { order_ref: order.order_ref, payment_mode: paymentMode || 'pay_at_shop' }
+            }).catch(() => {});
+            return send(200, { success: true, handed_off: false, completed_locally: true });
+          }
+
+          // MP-linked → create the pa_online_cart entry. The unique
+          // partial index (dozie_order_id WHERE status<>'voided')
+          // prevents duplicate handoffs; surface a clean message on 409.
+          const insert = {
+            org_id: seller.linked_mp_org_id,
+            dozie_order_id: orderId,
+            dozie_order_ref: order.order_ref || orderId,
+            payment_mode: paymentMode || (kind === 'complete-at-shop' ? 'pay_at_shop' : 'partial'),
+            status: 'pending',
+            buyer_name: buyerName,
+            buyer_phone: buyerPhone,
+            items: order.items || [],
+            total_amount: order.total || 0,
+            deposit_paid: depositPaid || order.deposit_paid || 0,
+            campay_reference: order.campay_reference || null
+          };
+          const created = await supaRequest('POST', 'pa_online_cart', null, insert);
+          if (!Array.isArray(created) || !created[0]) {
+            // supaRequest returns the raw error object on failure.
+            const msg = (created && (created.message || created.hint)) || 'Handoff insert failed';
+            return send(500, { success: false, message: msg, detail: created });
+          }
+          await supaRequest('POST', 'ptn_audit_log', null, {
+            admin_email: 'dozie-seller:' + (seller.phone || seller.id),
+            action: kind === 'complete-at-shop' ? 'dozie_handoff_to_mp_cart' : 'dozie_handoff_to_mp_cart_credit',
+            target_type: 'pa_online_cart', target_id: created[0].id,
+            details: { order_ref: order.order_ref, payment_mode: insert.payment_mode, mp_org_id: seller.linked_mp_org_id }
+          }).catch(() => {});
+          return send(200, { success: true, handed_off: true, mp_cart_entry_id: created[0].id });
+        } catch (e) {
+          send(500, { success: false, message: e.message || 'Handoff error' });
+        }
+      });
+      return;
+    }
+  }
+
   // ── SUPABASE API PROXY ────────────────────────────────────────────────
   //
   // Phase D — MP-subscription gating for sellers. Before forwarding to
