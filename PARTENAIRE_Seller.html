@@ -1847,7 +1847,18 @@ async function loadOrders() {
       const buyers = await GET('ptn_users', `id=in.(${buyerIds.join(',')})&select=id,name,phone,company`);
       buyers.forEach(b => buyerMap[b.id] = b);
     }
-    allOrders = orders.map(o => ({...o, buyer: buyerMap[o.buyer_id]}));
+    // D-1 handoff state: a non-voided pa_online_cart row means the
+    // order was already sent to the MP Online Cart. Anon-readable.
+    let handoffMap = {};
+    const orderIds = orders.map(o => o.id).filter(Boolean);
+    if (orderIds.length) {
+      try {
+        const hs = await GET('pa_online_cart',
+          `dozie_order_id=in.(${orderIds.join(',')})&status=neq.voided&select=id,dozie_order_id,status`);
+        (hs || []).forEach(h => { handoffMap[h.dozie_order_id] = h; });
+      } catch(_) { /* handoff badge is best-effort; never block orders */ }
+    }
+    allOrders = orders.map(o => ({...o, buyer: buyerMap[o.buyer_id], _mpHandoff: handoffMap[o.id] || null}));
     renderOrders();
     renderRecentOrders();
     updateOrderBadge();
@@ -1938,8 +1949,34 @@ function doziePaymentMode(o) {
   return 'pay_at_shop'; // pay_option 'full' but not yet paid
 }
 
+// Rendered BELOW the normal Dozie flow buttons (Mark as Shipped /
+// Confirm Delivered). Visible at confirmed | shipped | delivered so
+// the seller can either walk the normal flow OR jump straight to
+// recording the sale in Mon Partenaire. Hidden on pending / ready /
+// cancelled / rejected (nothing to hand off, or order is dead).
 function dozieHandoffButtons(o) {
+  if (!o || !['confirmed','shipped','delivered'].includes(o.status)) return '';
   const fr = (currentLang === 'fr');
+
+  const sep = `<div style="display:flex;align-items:center;gap:10px;margin:16px 0 10px">
+      <div style="flex:1;height:1px;background:#dcd7cf"></div>
+      <div style="font-size:11px;font-weight:800;color:var(--grey);letter-spacing:0.4px">${fr ? 'OU — ENREGISTRER DANS MON PARTENAIRE' : 'OR — RECORD IN MON PARTENAIRE'}</div>
+      <div style="flex:1;height:1px;background:#dcd7cf"></div>
+    </div>`;
+
+  // Already handed off — a non-voided pa_online_cart row exists for
+  // this order (attached by loadOrders() as o._mpHandoff). Show a
+  // disabled confirmation + a link to the MP Online Cart.
+  if (o._mpHandoff) {
+    const mpUrl = 'https://mon-partenaire-app.vercel.app/online-cart';
+    return sep + `<button class="btn btn-block" disabled style="margin-bottom:6px;padding:13px;font-size:14px;opacity:0.7;cursor:not-allowed;background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7">
+        ✅ ${fr ? 'Déjà envoyé au Panier MP' : 'Already sent to MP Cart'}
+      </button>
+      <a href="${mpUrl}" target="_blank" rel="noopener" style="display:block;text-align:center;font-size:12px;color:var(--navy);text-decoration:underline">
+        ${fr ? 'Voir dans le Panier en ligne MP →' : 'View in MP Online Cart →'}
+      </a>`;
+  }
+
   const mode = doziePaymentMode(o);
   const isMpLinked = currentSeller._dozieAccess && currentSeller._dozieAccess.source === 'mp_linked';
   const fullPay = (mode === 'paid_online_full' || mode === 'pay_at_shop');
@@ -1947,24 +1984,24 @@ function dozieHandoffButtons(o) {
   if (!isMpLinked) {
     // Standalone: only full/paid can complete locally.
     if (fullPay) {
-      return `<button class="btn btn-green btn-block" style="margin-bottom:8px;padding:13px;font-size:14px"
+      return sep + `<button class="btn btn-green btn-block" style="margin-bottom:8px;padding:13px;font-size:14px"
         onclick="dozieHandoff('${o.id}','mark-complete','${mode}')">
         ✓ ${fr ? 'Marquer la commande terminée' : 'Mark Order Complete'}
       </button>`;
     }
-    return `<button class="btn btn-block" disabled style="margin-bottom:8px;padding:13px;font-size:13px;opacity:0.55;cursor:not-allowed"
+    return sep + `<button class="btn btn-block" disabled style="margin-bottom:8px;padding:13px;font-size:13px;opacity:0.55;cursor:not-allowed"
       title="${fr ? 'Nécessite un compte Mon Partenaire pour crédit/acompte' : 'Requires Mon Partenaire account for credit/partial payments'}">
       🔒 ${fr ? 'Crédit/acompte — compte MP requis' : 'Credit/Partial — MP account required'}
     </button>`;
   }
   // MP-linked.
   if (fullPay) {
-    return `<button class="btn btn-green btn-block" style="margin-bottom:8px;padding:13px;font-size:14px"
+    return sep + `<button class="btn btn-green btn-block" style="margin-bottom:8px;padding:13px;font-size:14px"
       onclick="dozieHandoff('${o.id}','complete-at-shop','${mode}')">
       ✓ ${fr ? 'Finaliser la vente en boutique' : 'Complete Sale at Shop'}
     </button>`;
   }
-  return `<button class="btn btn-block" style="margin-bottom:8px;padding:13px;font-size:14px;color:var(--navy);border-color:var(--navy);font-weight:700"
+  return sep + `<button class="btn btn-block" style="margin-bottom:8px;padding:13px;font-size:14px;color:var(--navy);border-color:var(--navy);font-weight:700"
     onclick="dozieHandoff('${o.id}','send-to-mp-cart','${mode}')">
     → ${fr ? 'Envoyer au Panier MP' : 'Send to MP Cart'}
   </button>`;
@@ -2048,7 +2085,11 @@ function openOrderDetail(id) {
   const items = Array.isArray(o.items) ? o.items : [];
 
   // Action buttons — pickup uses "Ready for Pickup" instead of "Mark as Shipped"
-  const actionBtns = o.status==='pending'
+  // Normal Dozie flow buttons first; the D-1 MP handoff section
+  // (self-guarded to confirmed/shipped/delivered) is appended BELOW
+  // so the seller can walk the flow OR jump straight to recording
+  // the sale in Mon Partenaire.
+  const flowBtns = o.status==='pending'
     ? `
       <!-- Confirm & Request Payment -->
       <button class="btn btn-green btn-block" style="margin-bottom:8px;padding:13px;font-size:14px"
@@ -2066,7 +2107,7 @@ function openOrderDetail(id) {
         ✕ Reject Order
       </button>`
     : o.status==='confirmed'
-    ? dozieHandoffButtons(o) + (isPickup
+    ? (isPickup
       ? `<button class="btn btn-primary btn-block" onclick="updateOrderStatus('${o.id}','ready')" style="background:#E67E22;border-color:#E67E22">📦 Mark as Ready for Pickup</button>`
       : `<button class="btn btn-primary btn-block" onclick="updateOrderStatus('${o.id}','shipped')">🚚 Mark as Shipped</button>`)
     : o.status==='shipped'
@@ -2076,6 +2117,8 @@ function openOrderDetail(id) {
     : o.status==='delivered'
     ? `<div class="alert alert-success">✅ ${isPickup?'Order picked up':'Order delivered'}. Escrow funds released to your account.</div>`
     : `<div class="alert" style="background:#FEECEC;border:1px solid var(--red);color:var(--red)">✕ Order rejected.</div>`;
+
+  const actionBtns = flowBtns + dozieHandoffButtons(o);
 
   document.getElementById('detail-body').innerHTML = `
     <div class="card" style="margin-top:0">
