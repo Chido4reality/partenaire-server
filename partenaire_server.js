@@ -39,6 +39,24 @@ function resolveDozieIdentity(req, role) {
   return { uid: j.uid, role: j.role, via: 'jwt' };
 }
 
+// ── M-2.1-A: admin JWT (separate claim role='admin' + admin_role) ───
+// ptn_admin_roles is now sealed; admin auth goes admin_pin_login RPC →
+// backend signs this token. admin_role carries the DB role
+// (master|finance|…) used for the RPC permission checks.
+function issueAdminJwt(uid, adminRole) {
+  return jwt.sign({ uid, role: 'admin', admin_role: adminRole },
+    DOZIE_JWT_SECRET, { expiresIn: DOZIE_JWT_TTL_HOURS * 3600 });
+}
+function readAdminJwt(req) {
+  const h = req.headers['authorization'] || '';
+  if (!h.startsWith('Bearer ') || !DOZIE_JWT_SECRET) return null;
+  try {
+    const p = jwt.verify(h.slice(7), DOZIE_JWT_SECRET);
+    if (!p || !p.uid || p.role !== 'admin') return null;
+    return { uid: p.uid, admin_role: p.admin_role || null };
+  } catch { return null; }
+}
+
 // M-1.5: naive in-memory PIN-login rate limit — max 5 failed
 // attempts per phone per 15 min, then 429. Sufficient at current
 // scale; swap for a shared store if the server is ever multi-instance.
@@ -216,6 +234,12 @@ function supaRequest(method, table, params, body) {
   });
 }
 
+// Call a Postgres function via PostgREST (/rest/v1/rpc/<fn>). Returns
+// the parsed jsonb the SECURITY DEFINER admin_* functions produce.
+function supaRpc(fn, args) {
+  return supaRequest('POST', 'rpc/' + fn, '', args || {});
+}
+
 // â”€â”€ MONETBIL PAYMENT INITIATOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function initiateMonetbilPayment(amount, phone, paymentRef, returnUrl) {
   return new Promise((resolve, reject) => {
@@ -336,6 +360,129 @@ http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,apikey,Prefer,Accept');
   if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+
+  // ── M-2.1-A — HARDENED ADMIN API ───────────────────────────────────
+  // ptn_admin_roles is sealed (no anon table access). The admin portal
+  // talks to these endpoints; data flows only through the SECURITY
+  // DEFINER admin_* RPCs. JWT is signed here (DOZIE_JWT_SECRET lives in
+  // Node). Declared BEFORE the Phase E legacy block so the new
+  // /admin/* surface isn't swallowed by its 410.
+  {
+    const sendJ = (code, obj) => {
+      res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(obj));
+    };
+    const rawPath = req.url.split('?')[0].replace(/\/+$/, '') || '/';
+    const readBody = () => new Promise(r => { let b=''; req.on('data',c=>b+=c); req.on('end',()=>{ try{r(JSON.parse(b||'{}'));}catch{r({});} }); });
+    const requireAdmin = () => readAdminJwt(req);
+
+    // POST /admin/pin-login { email, pin }
+    if (rawPath === '/admin/pin-login' && req.method === 'POST') {
+      (async () => {
+        try {
+          const { email, pin } = await readBody();
+          if (!DOZIE_JWT_SECRET) return sendJ(500, { ok:false, error:'server_misconfig' });
+          const r = await supaRpc('admin_pin_login', { p_email: email, p_pin: pin });
+          if (!r || r.ok !== true) {
+            const err = (r && r.error) || 'invalid_credentials';
+            // Uniform 401 for bad creds; 429 only for rate limit. Never
+            // reveal whether email or PIN was wrong (no enumeration).
+            return sendJ(err === 'rate_limited' ? 429 : 401,
+              { ok:false, error: err === 'rate_limited' ? 'rate_limited' : 'invalid_credentials',
+                message: err === 'rate_limited'
+                  ? 'Too many attempts. Try again in 15 minutes.'
+                  : 'Invalid email or PIN' });
+          }
+          const a = r.admin;
+          return sendJ(200, { ok:true, jwt: issueAdminJwt(a.id, a.role), admin: a });
+        } catch (e) { sendJ(500, { ok:false, error:'server_error', message:e.message }); }
+      })();
+      return;
+    }
+
+    // Everything below requires a valid admin JWT.
+    if (rawPath === '/admin/users' && req.method === 'GET') {
+      const j = requireAdmin();
+      if (!j) return sendJ(401, { ok:false, error:'auth_required' });
+      (async () => {
+        try {
+          const r = await supaRpc('admin_list', { p_caller: j.uid });
+          if (!r || r.ok !== true) return sendJ(403, { ok:false, error:(r&&r.error)||'forbidden' });
+          sendJ(200, r);
+        } catch (e) { sendJ(500, { ok:false, error:'server_error', message:e.message }); }
+      })();
+      return;
+    }
+    if (rawPath === '/admin/users' && req.method === 'POST') {
+      const j = requireAdmin();
+      if (!j) return sendJ(401, { ok:false, error:'auth_required' });
+      (async () => {
+        try {
+          const { email, name, role, pin } = await readBody();
+          const r = await supaRpc('admin_create',
+            { p_caller: j.uid, p_email: email, p_name: name, p_role: role, p_pin: pin });
+          if (!r || r.ok !== true) {
+            const e = (r&&r.error)||'forbidden';
+            return sendJ(e==='forbidden'?403:400, { ok:false, error:e });
+          }
+          sendJ(200, r);
+        } catch (e) { sendJ(500, { ok:false, error:'server_error', message:e.message }); }
+      })();
+      return;
+    }
+    const mToggle = rawPath.match(/^\/admin\/users\/([^/]+)\/toggle$/);
+    if (mToggle && req.method === 'PATCH') {
+      const j = requireAdmin();
+      if (!j) return sendJ(401, { ok:false, error:'auth_required' });
+      (async () => {
+        try {
+          const { active } = await readBody();
+          const r = await supaRpc('admin_toggle',
+            { p_caller: j.uid, p_target: mToggle[1], p_active: !!active });
+          if (!r || r.ok !== true) {
+            const e=(r&&r.error)||'forbidden';
+            return sendJ(e==='forbidden'?403:400, { ok:false, error:e });
+          }
+          sendJ(200, r);
+        } catch (e) { sendJ(500, { ok:false, error:'server_error', message:e.message }); }
+      })();
+      return;
+    }
+    const mPin = rawPath.match(/^\/admin\/users\/([^/]+)\/pin$/);
+    if (mPin && req.method === 'PATCH') {
+      const j = requireAdmin();
+      if (!j) return sendJ(401, { ok:false, error:'auth_required' });
+      (async () => {
+        try {
+          const { new_pin } = await readBody();
+          const r = await supaRpc('admin_change_pin',
+            { p_caller: j.uid, p_target: mPin[1], p_new_pin: new_pin });
+          if (!r || r.ok !== true) {
+            const e=(r&&r.error)||'forbidden';
+            return sendJ(e==='forbidden'?403:400, { ok:false, error:e });
+          }
+          sendJ(200, r);
+        } catch (e) { sendJ(500, { ok:false, error:'server_error', message:e.message }); }
+      })();
+      return;
+    }
+    const mDel = rawPath.match(/^\/admin\/users\/([^/]+)$/);
+    if (mDel && req.method === 'DELETE') {
+      const j = requireAdmin();
+      if (!j) return sendJ(401, { ok:false, error:'auth_required' });
+      (async () => {
+        try {
+          const r = await supaRpc('admin_delete', { p_caller: j.uid, p_target: mDel[1] });
+          if (!r || r.ok !== true) {
+            const e=(r&&r.error)||'forbidden';
+            return sendJ(e==='forbidden'?403:400, { ok:false, error:e });
+          }
+          sendJ(200, r);
+        } catch (e) { sendJ(500, { ok:false, error:'server_error', message:e.message }); }
+      })();
+      return;
+    }
+  }
 
   // ── PHASE E — LEGACY ADMIN RETIRED ──────────────────────────────────
   // The real admin is mon-partenaire-app.vercel.app/admin.html (served
