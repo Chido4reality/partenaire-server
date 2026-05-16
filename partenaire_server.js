@@ -1,5 +1,53 @@
 ﻿require('dotenv').config();
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+
+// ── M-1 SECURITY: PIN hashing + Dozie JWT sessions ──────────────────
+// DOZIE_JWT_SECRET is a SEPARATE secret from the MP backend's
+// ADMIN_JWT_SECRET / ADMIN_IMPERSONATE_SECRET (different audience,
+// independent revocation). Set it in Render env. See .env.example.
+const DOZIE_JWT_SECRET = process.env.DOZIE_JWT_SECRET || '';
+const DOZIE_JWT_TTL_HOURS = parseInt(process.env.DOZIE_JWT_TTL_HOURS || '24', 10);
+
+async function hashPin(pin) { return bcrypt.hash(String(pin), 10); }
+async function verifyPin(pin, hash) {
+  if (!hash) return false;
+  try { return await bcrypt.compare(String(pin), hash); } catch { return false; }
+}
+
+function issueDozieJwt(uid, role) {
+  return jwt.sign({ uid, role }, DOZIE_JWT_SECRET,
+    { expiresIn: DOZIE_JWT_TTL_HOURS * 3600 });
+}
+// Returns { uid, role } from a valid Bearer token, else null.
+function readDozieJwt(req) {
+  const h = req.headers['authorization'] || '';
+  if (!h.startsWith('Bearer ') || !DOZIE_JWT_SECRET) return null;
+  try {
+    const p = jwt.verify(h.slice(7), DOZIE_JWT_SECRET);
+    if (!p || !p.uid) return null;
+    return { uid: p.uid, role: p.role };
+  } catch { return null; }
+}
+// Dual-auth during the grace period: prefer a valid JWT; fall back to
+// the legacy x-dozie-{seller,buyer}-id header (with a console.warn so
+// stale frontends are visible). The header fallback MUST be removed
+// in a follow-up commit once Peter confirms the JWT flow.
+function resolveDozieIdentity(req, role) {
+  const j = readDozieJwt(req);
+  if (j) {
+    if (role && j.role !== role) return { error: 'role' };
+    return { uid: j.uid, role: j.role, via: 'jwt' };
+  }
+  const legacy = role === 'buyer'
+    ? req.headers['x-dozie-buyer-id']
+    : req.headers['x-dozie-seller-id'];
+  if (legacy) {
+    console.warn('legacy header auth used for', req.url, '— frontend likely stale');
+    return { uid: legacy, role, via: 'legacy-header' };
+  }
+  return { error: 'auth_required' };
+}
 
 // â”€â”€â”€ CAMPAY CONFIGURATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const CAMPAY_BASE_URL = process.env.CAMPAY_ENV === 'production'
@@ -83,10 +131,12 @@ const ROUTES = {
   '/buyer':  'PARTENAIRE_Buyer.html',
 };
 
-// â”€â”€ BACKDOOR CONFIG (for testing) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const BACKDOOR_PHONE = '675995524';
-const BACKDOOR_EMAIL = 'chido4reality@yahoo.com';
-const BACKDOOR_CODE  = '2468';
+// M-1.3: the old hardcoded OTP test backdoor has been removed.
+// A dev-only bypass is available ONLY when both NODE_ENV=development
+// AND ALLOW_DEV_OTP_BYPASS=1 are set (never in production); it
+// accepts the literal code "000000" for any number.
+const DEV_OTP_BYPASS =
+  process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_OTP_BYPASS === '1';
 
 // â”€â”€ OTP STORE (in-memory) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const otpStore = {}; // { phone: { code, expiresAt } }
@@ -109,13 +159,12 @@ async function sendOTP(phone) {
 }
 
 function verifyOTP(phone, code, email) {
-  // â”€â”€ BACKDOOR: always let the test account through â”€â”€
-  const cleanPhone = phone ? phone.replace(/^\+237/, '') : '';
-  const isBackdoorPhone = cleanPhone === BACKDOOR_PHONE || phone === '+237' + BACKDOOR_PHONE;
-  const isBackdoorEmail = email && email.toLowerCase() === BACKDOOR_EMAIL.toLowerCase();
-  if ((isBackdoorPhone || isBackdoorEmail) && code === BACKDOOR_CODE) {
-    console.log('[OTP] Backdoor access granted for', phone || email);
-    return { ok: true, backdoor: true };
+  // Dev-only bypass — gated behind NODE_ENV=development AND
+  // ALLOW_DEV_OTP_BYPASS=1. Never active in production. No hardcoded
+  // phone/code constants.
+  if (DEV_OTP_BYPASS && code === '000000') {
+    console.warn('[OTP] DEV bypass used (NODE_ENV=development, ALLOW_DEV_OTP_BYPASS=1)');
+    return { ok: true, dev_bypass: true };
   }
 
   // â”€â”€ Normal OTP verification â”€â”€
@@ -289,8 +338,7 @@ http.createServer((req, res) => {
   //   • GET /admin            → 301 to the new portal
   //   • /admin/* | /api/admin* → 410 Gone (discoverable for API callers)
   // NOT touched: /mp-admin/* (MP svc proxy), /api/auth/impersonate-*
-  // (used by the real admin), /campay/* (financial, separate concern),
-  // and the OTP backdoor (used by current Dozie seller/buyer login).
+  // (used by the real admin), /campay/* (financial, separate concern).
   {
     const NEW_ADMIN = 'https://mon-partenaire-app.vercel.app/admin.html';
     const p = req.url.split('?')[0].replace(/\/+$/, '') || '/';
@@ -320,13 +368,6 @@ http.createServer((req, res) => {
       try {
         const { phone } = JSON.parse(body);
         if (!phone) throw new Error('Phone required');
-        // Skip sending SMS for backdoor number
-        const cleanPhone = phone.replace(/^\+237/, '');
-        if (cleanPhone === BACKDOOR_PHONE) {
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify({ success: true, message: 'OTP sent' }));
-          return;
-        }
         await sendOTP(phone);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ success: true, message: 'OTP sent' }));
@@ -344,10 +385,30 @@ http.createServer((req, res) => {
     req.on('data', c => body += c);
     req.on('end', async () => {
       try {
-        const { phone, code, email } = JSON.parse(body);
+        const { phone, code, email, role } = JSON.parse(body);
         const result = verifyOTP(phone, code, email);
-        res.writeHead(result.ok ? 200 : 400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify(result));
+        if (!result.ok) {
+          res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ ok: false, code: 'invalid_otp', reason: result.reason || 'Invalid OTP' }));
+          return;
+        }
+        // M-1.2: issue a Dozie JWT bound to the verified user so the
+        // frontend can drop header-trust. Look the user up by phone
+        // (role disambiguates buyer vs seller when both exist).
+        let jwtToken = null, uid = null, urole = role || null;
+        try {
+          const clean = String(phone || '').replace(/^\+?237/, '').replace(/\D/g, '');
+          let q = 'phone=eq.' + encodeURIComponent(clean) + '&select=id,role&limit=1';
+          if (role === 'buyer' || role === 'seller') q += '&role=eq.' + role;
+          const rows = await supaRequest('GET', 'ptn_users', q);
+          const u = Array.isArray(rows) && rows[0];
+          if (u) {
+            uid = u.id; urole = u.role || urole;
+            if (DOZIE_JWT_SECRET) jwtToken = issueDozieJwt(u.id, urole);
+          }
+        } catch (_) { /* JWT is best-effort; legacy header still works during grace */ }
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ...result, jwt: jwtToken, uid, role: urole }));
       } catch(e) {
         res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ success: false, error: e.message }));
@@ -594,11 +655,17 @@ http.createServer((req, res) => {
         try {
           const u = new URL(req.url, 'http://x');
           const q = (u.searchParams.get('ref') || '').trim();
-          const scopeId = role === 'seller'
-            ? req.headers['x-dozie-seller-id']
-            : req.headers['x-dozie-buyer-id'];
-          if (!scopeId) return send(401, { success: false,
-            message: 'Missing ' + (role === 'seller' ? 'x-dozie-seller-id' : 'x-dozie-buyer-id') + ' header' });
+          // M-1.2 dual-auth: prefer the signed Dozie JWT; fall back
+          // to the legacy x-dozie-{seller,buyer}-id header during the
+          // grace period (resolveDozieIdentity console.warns on it).
+          const idn = resolveDozieIdentity(req, role);
+          if (idn.error === 'role')
+            return send(403, { success: false, code: 'wrong_role',
+              message: 'This token is not authorised for ' + role + ' data' });
+          if (idn.error || !idn.uid)
+            return send(401, { success: false, code: 'auth_required',
+              message: 'Authentication required' });
+          const scopeId = idn.uid;
           if (!q) return send(200, { success: true, data: [] });
 
           const col = role === 'seller' ? 'seller_id' : 'buyer_id';
@@ -1019,7 +1086,7 @@ http.createServer((req, res) => {
     req.on('end', async () => {
       try {
         const { order_id, admin_pin } = JSON.parse(body);
-        if (admin_pin !== (process.env.ADMIN_PIN || '2468')) {
+        if (!process.env.ADMIN_PIN || admin_pin !== process.env.ADMIN_PIN) {
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           return res.end(JSON.stringify({ success: false, message: 'Non autorise' }));
         }
@@ -1188,7 +1255,7 @@ http.createServer((req, res) => {
     req.on('end', async () => {
       try {
         const { phone, amount, description, admin_pin } = JSON.parse(body);
-        if (admin_pin !== (process.env.ADMIN_PIN || '2468')) {
+        if (!process.env.ADMIN_PIN || admin_pin !== process.env.ADMIN_PIN) {
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           return res.end(JSON.stringify({ success: false, message: 'Non autorise' }));
         }
@@ -1324,7 +1391,6 @@ http.createServer((req, res) => {
   console.log('â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤');
   console.log('â”‚  OTP send:    POST /otp/send                  â”‚');
   console.log('â”‚  OTP verify:  POST /otp/verify                â”‚');
-  console.log('â”‚  Backdoor:    675995524 / code 2468           â”‚');
   console.log('â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜');
   console.log('');
 });
