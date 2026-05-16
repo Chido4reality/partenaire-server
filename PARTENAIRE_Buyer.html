@@ -767,6 +767,29 @@ async function PATCH(table, col, val, body) {
 // ══════════════════════════════════════════════════════════════
 let currentBuyer = null;
 let allShops = [], allOrders = [];
+
+// M-1.5 SECURITY: a valid Dozie JWT is REQUIRED to render any
+// authenticated content. Decodes the payload and checks exp + uid
+// (signature is enforced server-side on every API call). No valid
+// token ⇒ no app, no data fetches — the login screen stays.
+function dozieSession() {
+  try {
+    const t = localStorage.getItem('dozie_jwt');
+    if (!t) return null;
+    const p = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (!p || !p.uid) return null;
+    if (p.exp && Date.now() / 1000 >= p.exp) return null;
+    return p;
+  } catch (_) { return null; }
+}
+function dozieLogout() {
+  try {
+    localStorage.removeItem('dozie_jwt');
+    sessionStorage.clear();
+  } catch (_) {}
+  currentBuyer = null;
+  if (typeof showScreen === 'function') showScreen('screen-phone');
+}
 let cart = [];
 let currentShop = null;
 let loginPhone = '';
@@ -879,6 +902,13 @@ async function registerBuyer() {
 //  APP
 // ══════════════════════════════════════════════════════════════
 function enterApp() {
+  // Single chokepoint: NEVER render authenticated content / fire
+  // data fetches without a valid Dozie JWT. Blocks stale-identity,
+  // impersonation-without-token and register-without-token paths.
+  if (!dozieSession() || !currentBuyer) {
+    dozieLogout();
+    return;
+  }
   setLang('fr');
   showScreen('app-screen');
   document.getElementById('hdr-name').textContent = currentBuyer.name || 'Buyer';
@@ -1382,11 +1412,11 @@ function buyerOrderSearch(v) {
       const r = await fetch('/api/buyer/orders/search?ref=' + encodeURIComponent(q),
         { headers: _h });
       if (r.status === 401) {
-        localStorage.removeItem('dozie_jwt');
         box.innerHTML = '<div style="padding:12px;font-size:12px;color:#c0392b;text-align:center">' +
           (fr ? 'Session expirée — reconnectez-vous' : 'Session expired — please sign in again') + '</div>';
         box.style.display = 'block';
-        setTimeout(() => location.reload(), 1500);
+        dozieLogout();
+        setTimeout(() => location.reload(), 1200);
         return;
       }
       const d = await r.json().catch(() => ({}));

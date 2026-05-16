@@ -1002,6 +1002,28 @@ const EMOJIS = {
 // ══════════════════════════════════════════════════════════════
 let currentSeller = null;
 let allProducts = [], allOrders = [], allNotifs = [];
+
+// M-1.5 SECURITY: a valid Dozie JWT is REQUIRED to render any
+// authenticated content. Decodes the payload and checks exp + uid
+// (signature is enforced server-side on every API call).
+function dozieSession() {
+  try {
+    const t = localStorage.getItem('dozie_jwt');
+    if (!t) return null;
+    const p = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (!p || !p.uid) return null;
+    if (p.exp && Date.now() / 1000 >= p.exp) return null;
+    return p;
+  } catch (_) { return null; }
+}
+function dozieLogout() {
+  try {
+    localStorage.removeItem('dozie_jwt');
+    sessionStorage.clear();
+  } catch (_) {}
+  currentSeller = null;
+  if (typeof showScreen === 'function') showScreen('screen-phone');
+}
 let currentOrderFilter = 'all';
 
 // ══════════════════════════════════════════════════════════════
@@ -1194,6 +1216,12 @@ function selectPlan(el) {
 //  APP ENTRY
 // ══════════════════════════════════════════════════════════════
 function enterApp() {
+  // Single chokepoint: NEVER render authenticated content / fire
+  // data fetches without a valid Dozie JWT.
+  if (!dozieSession() || !currentSeller) {
+    dozieLogout();
+    return;
+  }
   // Set French as default for Cameroon
   setLang('fr');
   showScreen('app-screen');
@@ -1922,10 +1950,11 @@ function sellerOrderSearch(v) {
       const r = await fetch('/api/seller/orders/search?ref=' + encodeURIComponent(q),
         { headers: _h });
       if (r.status === 401) {
-        localStorage.removeItem('dozie_jwt');
         box.innerHTML = '<div style="padding:12px;font-size:12px;color:#c0392b;text-align:center">' +
           (fr ? 'Session expirée — reconnectez-vous' : 'Session expired — sign in again') + '</div>';
         box.style.display = 'block';
+        dozieLogout();
+        setTimeout(() => location.reload(), 1200);
         return;
       }
       const d = await r.json().catch(() => ({}));
