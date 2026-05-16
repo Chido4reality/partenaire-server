@@ -798,6 +798,36 @@ async function sbDelete(table, col, val) {
 }
 
 // ══════════════════════════════════════════════════════════════
+//  M-2.1-A — HARDENED ADMIN API
+// ptn_admin_roles is sealed at the DB. Admin auth + management now
+// go through the Dozie backend (same origin as this page) which
+// fronts SECURITY DEFINER RPCs. No anon Supabase calls to that
+// table remain. JWT stored separately from buyer/seller tokens.
+// ══════════════════════════════════════════════════════════════
+const ADMIN_JWT_KEY = 'dozie_admin_jwt';
+function adminToken() { try { return localStorage.getItem(ADMIN_JWT_KEY) || ''; } catch { return ''; } }
+async function adminApi(method, path, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  const t = adminToken();
+  if (t) headers['Authorization'] = 'Bearer ' + t;
+  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : null });
+  let json = {};
+  try { json = await res.json(); } catch { /* non-JSON */ }
+  if (res.status === 401) {
+    try { localStorage.removeItem(ADMIN_JWT_KEY); } catch {}
+    toast('Session expired — please log in again', 'error');
+    setTimeout(() => location.reload(), 1200);
+    throw new Error('auth_required');
+  }
+  if (!res.ok || json.ok === false) {
+    const err = new Error(json.error || ('http_' + res.status));
+    err.code = json.error; err.status = res.status;
+    throw err;
+  }
+  return json;
+}
+
+// ══════════════════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════════════════
 let lang = 'en';
@@ -853,15 +883,17 @@ async function handleLogin() {
   }
 
   try {
-    const rows = await xhr('GET',
-      apiUrl('ptn_admin_roles', 'email=eq.' + encodeURIComponent(email) + '&pin=eq.' + pin + '&select=*')
-    );
-    const data = rows[0];
-    if (!data) { showError('❌ Email or PIN incorrect'); return; }
-    if (!data.active) { showError('❌ Account disabled — contact CEO'); return; }
-    currentAdmin = data;
+    const r = await fetch('/admin/pin-login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, pin })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 429) { showError('⏳ Too many attempts. Try again in 15 minutes.'); return; }
+    if (!r.ok || j.ok !== true) { showError('❌ Email or PIN incorrect'); return; }
+    try { localStorage.setItem(ADMIN_JWT_KEY, j.jwt); } catch {}
+    currentAdmin = j.admin;          // { id, email, name, role }
     isDemoMode = false;
-    enterDashboard(data);
+    enterDashboard(j.admin);
   } catch(e) {
     showError('Login failed: ' + e.message + '. Make sure you have internet access.');
   }
@@ -966,7 +998,8 @@ async function loadAdmins() {
     return;
   }
   try {
-    allAdmins = await xhr('GET', apiUrl('ptn_admin_roles', 'select=*&order=created_at.asc'));
+    const j = await adminApi('GET', '/admin/users');
+    allAdmins = j.admins || [];
     renderAdmins();
   } catch(e) { console.error('loadAdmins:', e); }
 }
@@ -1364,7 +1397,7 @@ function renderAdmins() {
       </div></td>
       <td style="font-size:12px;color:var(--grey)">${a.email}</td>
       <td><span class="badge ${a.role==='master'?'badge-gold':a.active?'badge-blue':'badge-grey'}">${roleLabel(a.role)}</span></td>
-      <td style="font-family:monospace;font-size:13px;letter-spacing:2px">${a.role==='master'?'••••':a.pin||'••••'}</td>
+      <td style="font-family:monospace;font-size:13px;letter-spacing:2px">••••</td>
       <td><span class="badge ${a.active?'badge-green':'badge-grey'}">${a.active?'Active':'Disabled'}</span></td>
       <td>
         ${a.role !== 'master' && currentAdmin?.role === 'master' ? `
@@ -1377,7 +1410,10 @@ function renderAdmins() {
 }
 
 async function toggleAdmin(id, active) {
-  if (!isDemoMode) await restPatch('ptn_admin_roles', 'id', id, { active });
+  if (!isDemoMode) {
+    try { await adminApi('PATCH', `/admin/users/${id}/toggle`, { active }); }
+    catch(e) { toast('Could not update admin: ' + (e.code || e.message), 'error'); return; }
+  }
   allAdmins = allAdmins.map(a => a.id===id ? {...a, active} : a);
   renderAdmins();
   toast(active ? '✓ Admin enabled' : '⚠ Admin disabled', active?'success':'');
@@ -1385,7 +1421,16 @@ async function toggleAdmin(id, active) {
 
 async function removeAdmin(id) {
   if (!confirm('Remove this admin? They will lose all access immediately.')) return;
-  if (!isDemoMode) await restDelete('ptn_admin_roles', 'id', id);
+  if (!isDemoMode) {
+    try { await adminApi('DELETE', `/admin/users/${id}`); }
+    catch(e) {
+      const m = { last_master:'Cannot remove the last master admin',
+                  cannot_delete_self:'You cannot remove your own account',
+                  forbidden:'Only the master admin can remove admins' };
+      toast(m[e.code] || ('Could not remove admin: ' + (e.code || e.message)), 'error');
+      return;
+    }
+  }
   allAdmins = allAdmins.filter(a => a.id !== id);
   renderAdmins();
   toast('Admin removed', 'error');
@@ -1419,12 +1464,13 @@ async function addAdmin() {
   const newAdmin = { id: Date.now().toString(), name, email, role, pin, active: true, created_by: currentAdmin?.email };
   if (!isDemoMode) {
     try {
-      const saved = await restPost('ptn_admin_roles', { name, email, role, pin, active: true, created_by: currentAdmin?.email });
-      newAdmin.id = saved.id;
-      await logAction('add_admin', 'admin_role', newAdmin.id, { role });
+      const saved = await adminApi('POST', '/admin/users', { email, name, role, pin });
+      newAdmin.id = saved.id;   // RPC writes the audit-log entry itself
     } catch(e) {
-      const msg = e.message.includes('duplicate') ? 'This email is already registered' : e.message;
-      toast('Error: ' + msg, 'error'); return;
+      const m = { email_exists:'This email is already registered',
+                  forbidden:'Only the master admin can add admins',
+                  bad_request:'All fields required. PIN must be 4–12 digits.' };
+      toast('Error: ' + (m[e.code] || e.code || e.message), 'error'); return;
     }
   }
   allAdmins.push(newAdmin);
@@ -1948,26 +1994,26 @@ async function changePIN() {
   const weak = ['1234','0000','1111','2222','3333','4444','5555','6666','7777','8888','9999','0123','4321'];
   if (weak.includes(newPin)) { toast('PIN too weak — choose something more unique', 'error'); return; }
 
-  // Verify current PIN matches
-  if (current !== currentAdmin?.pin && !isDemoMode) {
-    // Double check against DB
-    try {
-      const rows = await restGet('ptn_admin_roles', `email=eq.${encodeURIComponent(currentAdmin.email)}&pin=eq.${current}&select=id`);
-      if (!rows || !rows.length) { toast('Current PIN is incorrect', 'error'); return; }
-    } catch(e) { toast('Error verifying PIN', 'error'); return; }
-  }
-
   try {
     if (!isDemoMode) {
-      await restPatch('ptn_admin_roles', 'email', currentAdmin.email, { pin: newPin });
-      await logAction('change_pin', 'admin_role', currentAdmin.email, { changed_at: new Date().toISOString() });
+      // Re-verify the current PIN via the login RPC (the table is
+      // sealed — no client-side check possible). A success also
+      // refreshes the admin JWT.
+      const vr = await fetch('/admin/pin-login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: currentAdmin.email, pin: current })
+      });
+      const vj = await vr.json().catch(() => ({}));
+      if (vr.status === 429) { toast('Too many attempts. Try again in 15 minutes.', 'error'); return; }
+      if (!vr.ok || vj.ok !== true) { toast('Current PIN is incorrect', 'error'); return; }
+      try { localStorage.setItem(ADMIN_JWT_KEY, vj.jwt); } catch {}
+      // RPC writes its own audit-log entry on success.
+      await adminApi('PATCH', `/admin/users/${currentAdmin.id}/pin`, { new_pin: newPin });
     }
-    // Update local state
-    if (currentAdmin) currentAdmin.pin = newPin;
     closeModal('modal-change-pin');
     toast('✓ PIN updated successfully. Use your new PIN next time you log in.', 'success');
   } catch(e) {
-    toast('Error updating PIN: ' + e.message, 'error');
+    toast('Error updating PIN: ' + (e.code || e.message), 'error');
   }
 }
 
