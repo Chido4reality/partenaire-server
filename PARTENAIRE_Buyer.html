@@ -719,6 +719,28 @@ async function dzImpBootstrapB() {
 
 window.addEventListener('load', dzImpBootstrapB);
 
+// M-1.5 follow-up: restore the session on refresh / re-open. The JWT
+// persists in localStorage for its full TTL, but nothing read it on
+// load (dozieSession was only used as the enterApp gate), so every
+// refresh dropped the user back to login. If the token is still
+// valid, rehydrate the user from its uid and re-enter the app.
+async function restoreBuyerSession() {
+  if (currentBuyer) return;            // impersonation/login already handled it
+  const s = dozieSession();
+  if (!s) return;                      // no token or expired → stay on login
+  try {
+    const rows = await GET('ptn_users', `id=eq.${s.uid}&role=eq.buyer&select=*`);
+    if (!rows || !rows.length) { dozieLogout(); return; }
+    currentBuyer = rows[0];
+    try {
+      const sellers = await GET('ptn_users', `phone=eq.${currentBuyer.phone}&role=eq.seller&select=id`);
+      currentBuyer._hasSeller = sellers && sellers.length > 0;
+    } catch (_) {}
+    enterApp();
+  } catch (_) { /* leave on login screen */ }
+}
+window.addEventListener('load', restoreBuyerSession);
+
 function apiUrl(table, params) {
   const base = (window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')
     ? '/api/' : SUPABASE_URL+'/rest/v1/';

@@ -944,6 +944,50 @@ async function dzImpBootstrap() {
 
 window.addEventListener('load', dzImpBootstrap);
 
+// M-1.5 follow-up: restore the session on refresh / re-open. The JWT
+// persists for its full TTL but nothing read it on load, so every
+// refresh dropped the seller back to login. Rehydrate from the token
+// uid and rebuild the unified access state (plan card / caps) from
+// the canonical dozie_seller_access view, same as loginWithPIN.
+async function restoreSellerSession() {
+  if (currentSeller) return;
+  const s = dozieSession();
+  if (!s) return;
+  try {
+    const rows = await GET('ptn_users', `id=eq.${s.uid}&role=eq.seller&select=*`);
+    if (!rows || !rows.length) { dozieLogout(); return; }
+    currentSeller = rows[0];
+    try {
+      const accRows = await GET('dozie_seller_access',
+        `seller_id=eq.${currentSeller.id}&select=source,access_state,listing_cap,city_cap,orders_cap,orders_used,can_accept_orders,mp_plan,mp_id,is_grace,sub_tier,sub_status,paid_expires_at,active_listings_count,seller_city`);
+      if (accRows && accRows[0]) {
+        const r = accRows[0];
+        currentSeller._dozieAccess = {
+          source: r.source, access: r.access_state,
+          listing_cap: r.listing_cap, city_cap: r.city_cap,
+          orders_cap: r.orders_cap, orders_used: r.orders_used,
+          can_accept_orders: r.can_accept_orders,
+          mp_plan: r.mp_plan, mp_id: r.mp_id, is_grace: r.is_grace,
+          sub_tier: r.sub_tier, sub_status: r.sub_status,
+          paid_expires_at: r.paid_expires_at,
+          active_listings_count: r.active_listings_count,
+          seller_city: r.seller_city
+        };
+        currentSeller._mpId = r.mp_id || null;
+        currentSeller._mpSubscriptionStatus = r.sub_status || 'no_mp_account';
+        currentSeller._mpSubscriptionActive = (r.sub_status === 'active' || r.sub_status === 'trial');
+      }
+    } catch (_) {}
+    try {
+      const buyers = await GET('ptn_users', `phone=eq.${currentSeller.phone}&role=eq.buyer&select=id`);
+      currentSeller._hasBuyerAccount = buyers && buyers.length > 0;
+    } catch (_) {}
+    if (currentSeller.status === 'suspended') { showSuspendedScreen(); return; }
+    enterApp();
+  } catch (_) { /* leave on login screen */ }
+}
+window.addEventListener('load', restoreSellerSession);
+
 // Proxy helper — routes through local server when on localhost to avoid CORS
 function apiUrl(table, params='') {
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
