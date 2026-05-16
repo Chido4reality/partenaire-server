@@ -280,6 +280,38 @@ http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,apikey,Prefer,Accept');
   if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
 
+  // ── PHASE E — LEGACY ADMIN RETIRED ──────────────────────────────────
+  // The real admin is mon-partenaire-app.vercel.app/admin.html (served
+  // by the MP frontend, talking to the MP backend /api/admin/*). This
+  // Dozie server's old PIN page (PARTENAIRE_Admin.html, still in git
+  // history, just no longer served) and any /admin/* | /api/admin/*
+  // API surface here are gone.
+  //   • GET /admin            → 301 to the new portal
+  //   • /admin/* | /api/admin* → 410 Gone (discoverable for API callers)
+  // NOT touched: /mp-admin/* (MP svc proxy), /api/auth/impersonate-*
+  // (used by the real admin), /campay/* (financial, separate concern),
+  // and the OTP backdoor (used by current Dozie seller/buyer login).
+  {
+    const NEW_ADMIN = 'https://mon-partenaire-app.vercel.app/admin.html';
+    const p = req.url.split('?')[0].replace(/\/+$/, '') || '/';
+    if (p === '/admin') {
+      res.writeHead(301, { Location: NEW_ADMIN });
+      res.end();
+      return;
+    }
+    if (p.startsWith('/admin/') || p.startsWith('/api/admin')) {
+      const ip = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim()
+                 || (req.socket && req.socket.remoteAddress) || 'unknown';
+      console.warn('Legacy admin route hit:', req.url, 'from', ip);
+      res.writeHead(410, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({
+        error: 'gone',
+        message: 'Legacy admin API retired. Use https://partenaire-account-api.onrender.com/api/admin/* instead.'
+      }));
+      return;
+    }
+  }
+
   // â”€â”€ SEND OTP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (req.url === '/otp/send' && req.method === 'POST') {
     let body = '';
@@ -1286,7 +1318,7 @@ http.createServer((req, res) => {
   console.log('â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”');
   console.log('â”‚   PARTENAIRE âœ¦ Server + OTP + Monetbil Ready â”‚');
   console.log('â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤');
-  console.log('â”‚  Admin:   http://localhost:8080/admin         â”‚');
+  console.log('â”‚  Admin:   RETIRED → mon-partenaire-app/admin â”‚');
   console.log('â”‚  Seller:  http://localhost:8080/seller        â”‚');
   console.log('â”‚  Buyer:   http://localhost:8080/buyer         â”‚');
   console.log('â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤');
