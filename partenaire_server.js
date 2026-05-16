@@ -29,25 +29,33 @@ function readDozieJwt(req) {
     return { uid: p.uid, role: p.role };
   } catch { return null; }
 }
-// Dual-auth during the grace period: prefer a valid JWT; fall back to
-// the legacy x-dozie-{seller,buyer}-id header (with a console.warn so
-// stale frontends are visible). The header fallback MUST be removed
-// in a follow-up commit once Peter confirms the JWT flow.
+// M-1.5.3: JWT-only. The M-1 dual-auth grace period (legacy
+// x-dozie-{seller,buyer}-id header fallback) is removed — those
+// headers are now ignored and grant no authentication.
 function resolveDozieIdentity(req, role) {
   const j = readDozieJwt(req);
-  if (j) {
-    if (role && j.role !== role) return { error: 'role' };
-    return { uid: j.uid, role: j.role, via: 'jwt' };
-  }
-  const legacy = role === 'buyer'
-    ? req.headers['x-dozie-buyer-id']
-    : req.headers['x-dozie-seller-id'];
-  if (legacy) {
-    console.warn('legacy header auth used for', req.url, '— frontend likely stale');
-    return { uid: legacy, role, via: 'legacy-header' };
-  }
-  return { error: 'auth_required' };
+  if (!j) return { error: 'auth_required' };
+  if (role && j.role !== role) return { error: 'role' };
+  return { uid: j.uid, role: j.role, via: 'jwt' };
 }
+
+// M-1.5: naive in-memory PIN-login rate limit — max 5 failed
+// attempts per phone per 15 min, then 429. Sufficient at current
+// scale; swap for a shared store if the server is ever multi-instance.
+const PIN_FAILS = new Map(); // phone -> [tsMs, ...]
+const PIN_MAX_FAILS = 5;
+const PIN_WINDOW_MS = 15 * 60 * 1000;
+function pinRateBlocked(phone) {
+  const arr = (PIN_FAILS.get(phone) || []).filter(t => Date.now() - t < PIN_WINDOW_MS);
+  PIN_FAILS.set(phone, arr);
+  return arr.length >= PIN_MAX_FAILS;
+}
+function pinNoteFail(phone) {
+  const arr = (PIN_FAILS.get(phone) || []).filter(t => Date.now() - t < PIN_WINDOW_MS);
+  arr.push(Date.now());
+  PIN_FAILS.set(phone, arr);
+}
+function pinClear(phone) { PIN_FAILS.delete(phone); }
 
 // â”€â”€â”€ CAMPAY CONFIGURATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const CAMPAY_BASE_URL = process.env.CAMPAY_ENV === 'production'
@@ -412,6 +420,80 @@ http.createServer((req, res) => {
       } catch(e) {
         res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ── M-1.5 UNIFIED PIN LOGIN ────────────────────────────────────────────────
+  // POST /auth/pin-login { phone, pin, role:'seller'|'buyer' }
+  // Verifies pin (bcrypt) against ptn_users.dozie_pin_hash locally and
+  // issues a Dozie JWT. No SMS/OTP. Replaces the buyer OTP login and
+  // the MP backend's /auth/dozie-login for sellers.
+  if (req.url === '/auth/pin-login' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => {
+        res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(obj));
+      };
+      try {
+        const { phone, pin, role } = JSON.parse(body || '{}');
+        const cleanPhone = String(phone || '').replace(/^\+?237/, '').replace(/\D/g, '');
+        if (!cleanPhone || !pin || (role !== 'seller' && role !== 'buyer')) {
+          return send(400, { success: false, code: 'bad_request',
+            message: 'phone, pin and role (seller|buyer) are required' });
+        }
+        if (pinRateBlocked(cleanPhone)) {
+          return send(429, { success: false, code: 'rate_limited',
+            message: 'Too many attempts. Try again in 15 minutes.' });
+        }
+        const rows = await supaRequest('GET', 'ptn_users',
+          'phone=eq.' + encodeURIComponent(cleanPhone) + '&role=eq.' + role +
+          '&select=id,name,phone,role,company,city,category,status,dozie_pin_hash&limit=1');
+        const user = Array.isArray(rows) && rows[0];
+
+        // Uniform 401 — never reveal whether the phone or the PIN was
+        // wrong (no account enumeration).
+        if (!user) {
+          pinNoteFail(cleanPhone);
+          return send(401, { success: false, code: 'invalid_credentials',
+            message: 'Invalid phone or PIN' });
+        }
+        if (!user.dozie_pin_hash) {
+          console.warn('[pin-login] user has no dozie_pin_hash:', user.id, cleanPhone, role);
+          pinNoteFail(cleanPhone);
+          return send(401, { success: false, code: 'invalid_credentials',
+            message: 'Invalid phone or PIN' });
+        }
+        const ok = await verifyPin(pin, user.dozie_pin_hash);
+        if (!ok) {
+          pinNoteFail(cleanPhone);
+          return send(401, { success: false, code: 'invalid_credentials',
+            message: 'Invalid phone or PIN' });
+        }
+        if (user.status === 'suspended') {
+          return send(403, { success: false, code: 'suspended',
+            message: 'This account is suspended — contact support.' });
+        }
+        if (!DOZIE_JWT_SECRET) {
+          return send(500, { success: false, code: 'server_misconfig',
+            message: 'Auth not configured (DOZIE_JWT_SECRET missing)' });
+        }
+        pinClear(cleanPhone);
+        const jwtToken = issueDozieJwt(user.id, role);
+        return send(200, {
+          success: true,
+          jwt: jwtToken,
+          user: {
+            id: user.id, name: user.name, phone: user.phone, role: user.role,
+            company: user.company, city: user.city, category: user.category,
+            status: user.status
+          }
+        });
+      } catch (e) {
+        send(500, { success: false, code: 'server_error', message: e.message });
       }
     });
     return;
