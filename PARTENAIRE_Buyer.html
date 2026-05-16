@@ -789,32 +789,30 @@ async function loginWithPIN() {
   if (phone.length < 8) { authErr('phone-error', 'Entrez votre numero de telephone'); return; }
   if (!pin || pin.length < 4) { authErr('phone-error', 'Entrez votre code PIN a 4 chiffres'); return; }
   loginPhone = phone;
+  // M-1.5: PIN verified server-side (bcrypt vs dozie_pin_hash) — no
+  // more client-side plaintext pin query. Issues a Dozie JWT.
   try {
-    // Query Supabase directly to avoid proxy stripping pin filter
-    const res = await fetch(SUPABASE_URL + '/rest/v1/ptn_users?phone=eq.' + phone + '&role=eq.buyer&pin=eq.' + pin + '&select=*', {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    const resp = await fetch('/auth/pin-login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, pin, role: 'buyer' })
     });
-    const buyers = await res.json();
-    if (!buyers || !buyers.length) {
-      const res2 = await fetch(SUPABASE_URL + '/rest/v1/ptn_users?phone=eq.' + phone + '&role=eq.buyer&select=id', {
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
-      });
-      const phoneCheck = await res2.json();
-      if (phoneCheck && phoneCheck.length) {
-        authErr('phone-error', 'Code PIN incorrect. Reessayez.');
+    const result = await resp.json().catch(() => ({}));
+    if (!resp.ok || !result.success) {
+      if (resp.status === 429) {
+        authErr('phone-error', 'Trop de tentatives. Réessayez dans 15 minutes. / Too many attempts. Try again in 15 minutes.');
+      } else if (resp.status === 403) {
+        authErr('phone-error', 'Compte suspendu — contactez le support. / Account suspended — contact support.');
       } else {
-        authErr('phone-error', 'Aucun compte trouve. Creez un compte.');
+        authErr('phone-error', 'Téléphone ou PIN invalide / Invalid phone or PIN');
       }
       return;
     }
-    currentBuyer = buyers[0];
-    const res3 = await fetch(SUPABASE_URL + '/rest/v1/ptn_users?phone=eq.' + phone + '&role=eq.seller&select=id', {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
-    });
-    const sellers = await res3.json();
+    localStorage.setItem('dozie_jwt', result.jwt);
+    currentBuyer = result.user;
+    const sellers = await GET('ptn_users', `phone=eq.${phone}&role=eq.seller&select=id`);
     currentBuyer._hasSeller = sellers && sellers.length > 0;
     enterApp();
-  } catch(e) { authErr('phone-error', e.message); }
+  } catch(e) { authErr('phone-error', e.message || 'Erreur réseau / Network error'); }
 }
 
 function otpNext(idx, el) {
