@@ -838,13 +838,16 @@ async function verifyOTP() {
   const otp = [0,1,2,3].map(i=>document.getElementById('o'+i).value).join('');
   if (otp.length!==4) { authErr('otp-error','Enter all 4 digits'); return; }
   try {
-    // Verify via server (handles backdoor 2468 + real Africa's Talking OTP)
+    // Verify via server (real Africa's Talking OTP). On success the
+    // server returns a signed Dozie JWT (M-1.2) — store it so
+    // scoped API calls use Authorization instead of header-trust.
     const res = await fetch('/otp/verify', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: '+237' + loginPhone, code: otp })
+      body: JSON.stringify({ phone: '+237' + loginPhone, code: otp, role: 'buyer' })
     });
     const result = await res.json();
     if (!result.ok) { authErr('otp-error', result.reason || 'Wrong code'); return; }
+    if (result.jwt) localStorage.setItem('dozie_jwt', result.jwt);
     const buyers = await GET('ptn_users', `phone=eq.${loginPhone}&role=eq.buyer&select=*`);
     currentBuyer = buyers[0];
     const sellers = await GET('ptn_users', `phone=eq.${loginPhone}&role=eq.seller&select=id`);
@@ -1373,8 +1376,21 @@ function buyerOrderSearch(v) {
   _buyerSearchTimer = setTimeout(async () => {
     const fr = (currentLang === 'fr');
     try {
+      // M-1.2: prefer the signed JWT; keep the legacy header during
+      // the grace period so a stale cache still works.
+      const _jwt = localStorage.getItem('dozie_jwt');
+      const _h = { 'x-dozie-buyer-id': currentBuyer.id };
+      if (_jwt) _h['Authorization'] = 'Bearer ' + _jwt;
       const r = await fetch('/api/buyer/orders/search?ref=' + encodeURIComponent(q),
-        { headers: { 'x-dozie-buyer-id': currentBuyer.id } });
+        { headers: _h });
+      if (r.status === 401) {
+        localStorage.removeItem('dozie_jwt');
+        box.innerHTML = '<div style="padding:12px;font-size:12px;color:#c0392b;text-align:center">' +
+          (fr ? 'Session expirée — reconnectez-vous' : 'Session expired — please sign in again') + '</div>';
+        box.style.display = 'block';
+        setTimeout(() => location.reload(), 1500);
+        return;
+      }
       const d = await r.json().catch(() => ({}));
       const rows = (d && d.data) || [];
       if (!rows.length) {

@@ -1064,46 +1064,9 @@ async function loginWithPIN() {
   if (!pin || pin.length < 4) { showAuthError('phone-error', 'Entrez votre code PIN a 4 chiffres'); return; }
   loginPhone = phone;
 
-  // Backdoor for admin/testing — bypasses /auth/dozie-login. Sprint B-bis
-  // regression-fix: the normal login path sets currentSeller._dozieAccess
-  // from the backend's response. The backdoor was reading ptn_users
-  // directly and skipping that population, so renderProfileHero +
-  // renderDozieAccessBanner fell through to their { source: 'free' }
-  // default and rendered the Free tier card even for MP-linked sellers.
-  // We now fetch dozie_seller_access through the Supabase proxy here too.
-  if ((phone === '675995524' || phone === '675995524') && pin === '2468') {
-    try {
-      const sellers = await GET('ptn_users', `phone=eq.${phone}&role=eq.seller&select=*`);
-      if (sellers && sellers.length) {
-        currentSeller = sellers[0];
-        const buyers = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&select=id`);
-        currentSeller._hasBuyerAccount = buyers.length > 0;
-        // Populate dozie_access for the backdoor flow. Falls back to a
-        // free-tier shape if the view can't be read (so the UI still
-        // renders something sane instead of a JS error).
-        try {
-          const accRows = await GET('dozie_seller_access',
-            `seller_id=eq.${currentSeller.id}&select=source,access_state,listing_cap,city_cap,orders_cap,orders_used,can_accept_orders,mp_plan,mp_id,is_grace,sub_tier,sub_status,paid_expires_at,active_listings_count,seller_city`);
-          if (accRows && accRows[0]) {
-            const r = accRows[0];
-            currentSeller._dozieAccess = {
-              source: r.source, access: r.access_state,
-              listing_cap: r.listing_cap, city_cap: r.city_cap,
-              orders_cap: r.orders_cap, orders_used: r.orders_used,
-              can_accept_orders: r.can_accept_orders,
-              mp_plan: r.mp_plan, mp_id: r.mp_id, is_grace: r.is_grace,
-              sub_tier: r.sub_tier, sub_status: r.sub_status,
-              paid_expires_at: r.paid_expires_at,
-              active_listings_count: r.active_listings_count,
-              seller_city: r.seller_city
-            };
-          }
-        } catch (_) { /* leave _dozieAccess null — render path defaults to free */ }
-        if (currentSeller.status === 'suspended') { showSuspendedScreen(); return; }
-        enterApp(); return;
-      }
-    } catch(e) {}
-  }
+  // M-1.3: the hardcoded test backdoor that bypassed /auth/dozie-login
+  // has been removed. All seller logins go through the real
+  // /auth/dozie-login path below.
 
   try {
     // Normalise to 9-digit local format — backend dozie-login strips +237
@@ -1946,8 +1909,21 @@ function sellerOrderSearch(v) {
   _sellerSearchTimer = setTimeout(async () => {
     const fr = (currentLang === 'fr');
     try {
+      // M-1.2 dual-auth: send the signed JWT when present; the legacy
+      // x-dozie-seller-id header stays during the grace period (seller
+      // login is MP-side, so a Dozie JWT may not be minted yet).
+      const _jwt = localStorage.getItem('dozie_jwt');
+      const _h = { 'x-dozie-seller-id': currentSeller.id };
+      if (_jwt) _h['Authorization'] = 'Bearer ' + _jwt;
       const r = await fetch('/api/seller/orders/search?ref=' + encodeURIComponent(q),
-        { headers: { 'x-dozie-seller-id': currentSeller.id } });
+        { headers: _h });
+      if (r.status === 401) {
+        localStorage.removeItem('dozie_jwt');
+        box.innerHTML = '<div style="padding:12px;font-size:12px;color:#c0392b;text-align:center">' +
+          (fr ? 'Session expirée — reconnectez-vous' : 'Session expired — sign in again') + '</div>';
+        box.style.display = 'block';
+        return;
+      }
       const d = await r.json().catch(() => ({}));
       const rows = (d && d.data) || [];
       if (!rows.length) {
