@@ -38,9 +38,6 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .auth-hint{background:#f8f6f0;border-radius:10px;padding:12px;font-size:12px;color:var(--grey);text-align:center;line-height:1.6;margin-top:8px}
 .auth-link{text-align:center;font-size:13px;color:var(--grey);margin-top:12px;cursor:pointer}
 .auth-link span{color:var(--gold);font-weight:700}
-.otp-row{display:flex;gap:10px;justify-content:center;margin-bottom:20px}
-.otp-box{width:60px;height:60px;border:2px solid var(--lgrey);border-radius:12px;font-size:24px;font-weight:700;color:var(--navy);text-align:center;outline:none;background:#fff;transition:border .2s}
-.otp-box:focus{border-color:var(--gold)}
 .phone-row{display:flex;gap:8px;margin-bottom:16px}
 .cc{background:#f8f6f0;border:1.5px solid var(--lgrey);border-radius:10px;padding:13px 14px;font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap}
 .app-header{background:var(--navy);padding:0 20px;height:58px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100}
@@ -308,26 +305,6 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
       </div>
       <div class="auth-link">Nouveau? / New buyer? <span onclick="goRegister()">Créer un compte →</span></div>
       <div class="auth-link" style="margin-top:4px">Vendeur? / Seller? <span onclick="window.location='/seller'">Portail vendeur →</span></div>
-    </div>
-  </div>
-</div>
-
-<!-- ══ OTP ══════════════════════════════════════════════════════ -->
-<div class="screen" id="screen-otp">
-  <div class="auth-wrap">
-    <div class="auth-box">
-      <div class="auth-logo">PARTENAIRE <span>✦</span></div>
-      <div class="auth-sub" id="otp-sub">Enter your 4-digit code</div>
-      <div class="otp-row">
-        <input class="otp-box" id="o0" maxlength="1" type="tel" oninput="otpNext(0,this)" onkeydown="otpBack(0,event,'o')">
-        <input class="otp-box" id="o1" maxlength="1" type="tel" oninput="otpNext(1,this)" onkeydown="otpBack(1,event,'o')">
-        <input class="otp-box" id="o2" maxlength="1" type="tel" oninput="otpNext(2,this)" onkeydown="otpBack(2,event,'o')">
-        <input class="otp-box" id="o3" maxlength="1" type="tel" oninput="otpNext(3,this)" onkeydown="otpBack(3,event,'o')">
-      </div>
-      <div class="auth-error" id="otp-error"></div>
-      <button class="auth-btn gold" onclick="verifyOTP()">Vérifier / Verify →</button>
-      <button class="auth-btn" onclick="showScreen('screen-phone')" style="background:#f8f6f0;color:var(--navy)">← Change Number</button>
-      <div class="auth-hint">Enter the 4-digit code sent to your phone.</div>
     </div>
   </div>
 </div>
@@ -821,15 +798,13 @@ let loginPhone = '';
 let selectedCat = '';
 
 // ══════════════════════════════════════════════════════════════
-//  AUTH — PATCHED: uses /otp/send and /otp/verify on server
+//  AUTH — PIN login (OTP retired B.4.1)
 // ══════════════════════════════════════════════════════════════
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
 function goRegister() { showScreen('screen-register'); }
-
-async function sendOTP() { loginWithPIN(); }
 
 async function loginWithPIN() {
   const phone = document.getElementById('phone-input').value.trim().replace(/\s/g,'');
@@ -861,48 +836,6 @@ async function loginWithPIN() {
     currentBuyer._hasSeller = false;
     enterApp();
   } catch(e) { authErr('phone-error', e.message || 'Erreur réseau / Network error'); }
-}
-
-function otpNext(idx, el) {
-  if (el.value.length > 1) el.value = el.value.slice(-1);
-  if (el.value && idx < 3) document.getElementById('o'+(idx+1)).focus();
-  if (idx===3 && el.value) {
-    const code = [0,1,2,3].map(i=>document.getElementById('o'+i).value).join('');
-    if (code.length===4) setTimeout(verifyOTP, 100);
-  }
-}
-
-function otpBack(idx, e, prefix='o') {
-  if (e.key === 'Backspace' && !e.target.value && idx > 0) {
-    const prev = document.getElementById(prefix + (idx - 1));
-    prev.value = '';
-    prev.focus();
-  }
-}
-
-async function verifyOTP() {
-  const otp = [0,1,2,3].map(i=>document.getElementById('o'+i).value).join('');
-  if (otp.length!==4) { authErr('otp-error','Enter all 4 digits'); return; }
-  try {
-    // Verify via server (real Africa's Talking OTP). On success the
-    // server returns a signed Dozie JWT (M-1.2) — store it so
-    // scoped API calls use Authorization instead of header-trust.
-    const res = await fetch('/otp/verify', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: '+237' + loginPhone, code: otp, role: 'buyer' })
-    });
-    const result = await res.json();
-    if (!result.ok) { authErr('otp-error', result.reason || 'Wrong code'); return; }
-    if (result.jwt) localStorage.setItem('dozie_jwt', result.jwt);
-    const _s = dozieSession();
-    if (!_s || !_s.uid) { authErr('otp-error', 'Session invalide / Invalid session'); return; }
-    const prof = await RPC('get_my_profile', { p_caller: _s.uid });
-    if (!prof || !prof.ok) { authErr('otp-error', (prof && prof.error) || 'Profil introuvable / Profile not found'); return; }
-    currentBuyer = prof.user;
-    // B.4: dual-role probe dropped — no RPC; see migration note
-    currentBuyer._hasSeller = false;
-    enterApp();
-  } catch(e) { authErr('otp-error', e.message); }
 }
 
 async function registerBuyer() {
@@ -1597,14 +1530,24 @@ async function saveProfile() {
 async function becomeSeller() {
   if (currentBuyer._hasSeller) { goToSeller(); return; }
   try {
-    await POST('ptn_users', { phone: currentBuyer.phone, name: currentBuyer.name, company: currentBuyer.company, city: currentBuyer.city, role: 'seller', status: 'active', badge_tier: 'silver', badge_status: 'pending' });
+    const r = await RPC('add_role', { p_caller: currentBuyer.id, p_new_role: 'seller', p_company: currentBuyer.company || null, p_city: currentBuyer.city || null, p_category: null, p_shop_desc: null });
+    if (!r || !r.ok) {
+      const code = r && r.error;
+      let msg;
+      if (code === 'duplicate_phone_role') { msg = 'You already have a seller account.'; currentBuyer._hasSeller = true; goToSeller(); return; }
+      else if (code === 'same_role') msg = "You're already a seller.";
+      else if (code === 'caller_no_pin_hash') msg = 'Please set up your PIN first.';
+      else msg = 'Could not create seller profile. Please try again.';
+      console.error('add_role failed:', code);
+      toast(msg, 'error');
+      return;
+    }
     currentBuyer._hasSeller = true;
     document.getElementById('seller-switch-badge').style.display = 'block';
     document.getElementById('become-seller-btn').textContent = '🏪 Switch to Seller Portal';
     toast('✓ Seller account created!', 'success');
   } catch(e) {
-    if (e.message.includes('duplicate')) { currentBuyer._hasSeller = true; goToSeller(); }
-    else { toast('Error: '+e.message, 'error'); }
+    toast('Error: '+e.message, 'error');
   }
 }
 

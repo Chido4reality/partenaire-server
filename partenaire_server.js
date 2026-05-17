@@ -132,13 +132,21 @@ const http  = require('http');
 const fs    = require('fs');
 const path  = require('path');
 const https = require('https');
-const AfricasTalking = require('africastalking');
-
-const AT  = AfricasTalking({ apiKey: process.env.AT_API_KEY, username: process.env.AT_USERNAME });
-const SMS = AT.SMS;
+// B.4.1: OTP login retired — AfricasTalking/SMS client removed (it was
+// used solely by the deleted sendOTP path; no notification path used it).
 
 const SUPA = 'ftxttdagpioieyzaijdc.supabase.co';
 const KEY  = process.env.SUPABASE_KEY;
+// M-2.1 Phase B.4.1: service_role key for server-context privileged reads
+// that must bypass RLS (post-B.5 anon lockdown). NEVER expose its results
+// to unauthenticated callers. Missing key = warn + the privileged sites
+// degrade to a clean error, app keeps running.
+const DOZIE_SERVICE_KEY = process.env.DOZIE_SERVICE_KEY || '';
+if (!DOZIE_SERVICE_KEY) {
+  console.warn('[startup] DOZIE_SERVICE_KEY not set — privileged server reads ' +
+    '(order handoff, Campay payout seller lookup) will return a clean error ' +
+    'until it is configured in the Render environment.');
+}
 const PORT = 8080;
 const DIR=__dirname;
 
@@ -157,53 +165,10 @@ const ROUTES = {
   '/buyer':  'PARTENAIRE_Buyer.html',
 };
 
-// M-1.3: the old hardcoded OTP test backdoor has been removed.
-// A dev-only bypass is available ONLY when both NODE_ENV=development
-// AND ALLOW_DEV_OTP_BYPASS=1 are set (never in production); it
-// accepts the literal code "000000" for any number.
-const DEV_OTP_BYPASS =
-  process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_OTP_BYPASS === '1';
-
-// â”€â”€ OTP STORE (in-memory) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const otpStore = {}; // { phone: { code, expiresAt } }
-
-function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-async function sendOTP(phone) {
-  const code = generateOTP();
-  const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
-  otpStore[phone] = { code, expiresAt };
-  await SMS.send({
-    to: [phone.startsWith('+') ? phone : '+' + phone],
-    message: `Your PARTENAIRE verification code is: ${code}. Valid for 5 minutes.`,
-    from: 'PARTENAIRE'
-  });
-  console.log(`[OTP] Sent to ${phone}: ${code}`);
-  return true;
-}
-
-function verifyOTP(phone, code, email) {
-  // Dev-only bypass — gated behind NODE_ENV=development AND
-  // ALLOW_DEV_OTP_BYPASS=1. Never active in production. No hardcoded
-  // phone/code constants.
-  if (DEV_OTP_BYPASS && code === '000000') {
-    console.warn('[OTP] DEV bypass used (NODE_ENV=development, ALLOW_DEV_OTP_BYPASS=1)');
-    return { ok: true, dev_bypass: true };
-  }
-
-  // â”€â”€ Normal OTP verification â”€â”€
-  const entry = otpStore[phone];
-  if (!entry) return { ok: false, reason: 'No OTP requested for this number' };
-  if (Date.now() > entry.expiresAt) {
-    delete otpStore[phone];
-    return { ok: false, reason: 'OTP expired' };
-  }
-  if (entry.code !== code) return { ok: false, reason: 'Invalid OTP' };
-  delete otpStore[phone];
-  return { ok: true };
-}
+// B.4.1: OTP login fully retired. otpStore / generateOTP / sendOTP /
+// verifyOTP / DEV_OTP_BYPASS and the /otp/* routes were removed. Auth is
+// PIN-only via /auth/pin-login → auth_pin_login RPC. ptn_otp_sessions
+// table is left in the DB (separate future cleanup).
 
 // â”€â”€ SUPABASE HELPER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function supaRequest(method, table, params, body) {
@@ -226,6 +191,45 @@ function supaRequest(method, table, params, body) {
       res.on('data', d => data += d);
       res.on('end', () => {
         try { resolve(JSON.parse(data)); } catch(e) { resolve(data); }
+      });
+    });
+    req.on('error', reject);
+    if (postBody) req.write(postBody);
+    req.end();
+  });
+}
+
+// M-2.1 Phase B.4.1: same as supaRequest but with the service_role key, so
+// it bypasses RLS. Use ONLY for server-context reads (order handoff, payout
+// seller phone) — NEVER return its results to unauthenticated callers. If
+// DOZIE_SERVICE_KEY is unset it resolves to [] (no throw): callers already
+// guard on an empty/missing row and emit a clean error, so the app keeps
+// running rather than crashing the request.
+function supaRequestPrivileged(method, table, params, body) {
+  if (!DOZIE_SERVICE_KEY) {
+    console.warn('[supaRequestPrivileged] DOZIE_SERVICE_KEY missing — skipping ' +
+      method + ' ' + table + ' (returning [])');
+    return Promise.resolve([]);
+  }
+  return new Promise((resolve, reject) => {
+    const supaPath = '/rest/v1/' + table + (params ? '?' + params : '');
+    const postBody = body ? JSON.stringify(body) : null;
+    const options = {
+      hostname: SUPA,
+      path: supaPath, method,
+      headers: {
+        'apikey': DOZIE_SERVICE_KEY,
+        'Authorization': 'Bearer ' + DOZIE_SERVICE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+        ...(postBody ? { 'Content-Length': Buffer.byteLength(postBody) } : {})
+      }
+    };
+    const req = https.request(options, res => {
+      let data = '';
+      res.on('data', d => data += d);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch (e) { resolve(data); }
       });
     });
     req.on('error', reject);
@@ -510,62 +514,8 @@ http.createServer((req, res) => {
     }
   }
 
-  // â”€â”€ SEND OTP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  if (req.url === '/otp/send' && req.method === 'POST') {
-    let body = '';
-    req.on('data', c => body += c);
-    req.on('end', async () => {
-      try {
-        const { phone } = JSON.parse(body);
-        if (!phone) throw new Error('Phone required');
-        await sendOTP(phone);
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ success: true, message: 'OTP sent' }));
-      } catch(e) {
-        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ success: false, error: e.message }));
-      }
-    });
-    return;
-  }
-
-  // â”€â”€ VERIFY OTP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  if (req.url === '/otp/verify' && req.method === 'POST') {
-    let body = '';
-    req.on('data', c => body += c);
-    req.on('end', async () => {
-      try {
-        const { phone, code, email, role } = JSON.parse(body);
-        const result = verifyOTP(phone, code, email);
-        if (!result.ok) {
-          res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify({ ok: false, code: 'invalid_otp', reason: result.reason || 'Invalid OTP' }));
-          return;
-        }
-        // M-1.2: issue a Dozie JWT bound to the verified user so the
-        // frontend can drop header-trust. Look the user up by phone
-        // (role disambiguates buyer vs seller when both exist).
-        let jwtToken = null, uid = null, urole = role || null;
-        try {
-          const clean = String(phone || '').replace(/^\+?237/, '').replace(/\D/g, '');
-          let q = 'phone=eq.' + encodeURIComponent(clean) + '&select=id,role&limit=1';
-          if (role === 'buyer' || role === 'seller') q += '&role=eq.' + role;
-          const rows = await supaRequest('GET', 'ptn_users', q);
-          const u = Array.isArray(rows) && rows[0];
-          if (u) {
-            uid = u.id; urole = u.role || urole;
-            if (DOZIE_JWT_SECRET) jwtToken = issueDozieJwt(u.id, urole);
-          }
-        } catch (_) { /* JWT is best-effort; legacy header still works during grace */ }
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ ...result, jwt: jwtToken, uid, role: urole }));
-      } catch(e) {
-        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ success: false, error: e.message }));
-      }
-    });
-    return;
-  }
+  // B.4.1: /otp/send and /otp/verify routes removed — OTP login retired.
+  // Authentication is PIN-only via the /auth/pin-login route below.
 
   // ── M-1.5 UNIFIED PIN LOGIN ────────────────────────────────────────────────
   // POST /auth/pin-login { phone, pin, role:'seller'|'buyer' }
@@ -975,7 +925,7 @@ http.createServer((req, res) => {
               message: 'Order already sent to MP Cart',
               mp_cart_entry_id: existingHandoff[0].id });
 
-          const sellerRows = await supaRequest('GET', 'ptn_users',
+          const sellerRows = await supaRequestPrivileged('GET', 'ptn_users',
             'id=eq.' + encodeURIComponent(order.seller_id) + '&select=id,name,phone,linked_mp_org_id');
           const seller = Array.isArray(sellerRows) && sellerRows[0];
           if (!seller) return send(404, { success: false, message: 'Seller not found' });
@@ -983,7 +933,7 @@ http.createServer((req, res) => {
           // Denormalise buyer for cashier display.
           let buyerName = null, buyerPhone = null;
           if (order.buyer_id) {
-            const b = await supaRequest('GET', 'ptn_users',
+            const b = await supaRequestPrivileged('GET', 'ptn_users',
               'id=eq.' + encodeURIComponent(order.buyer_id) + '&select=name,phone');
             if (Array.isArray(b) && b[0]) { buyerName = b[0].name; buyerPhone = b[0].phone; }
           }
@@ -1323,7 +1273,7 @@ http.createServer((req, res) => {
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           return res.end(JSON.stringify({ success: false, message: 'Invalid order' }));
         }
-        const sellers = await supaRequest('GET', 'ptn_users', 'id=eq.' + order.seller_id + '&select=phone,name');
+        const sellers = await supaRequestPrivileged('GET', 'ptn_users', 'id=eq.' + order.seller_id + '&select=phone,name');
         const sellerPhone = sellers && sellers[0] && sellers[0].phone || '';
         const ref = 'PAYOUT-' + order.order_ref + '-' + Date.now();
         const token = await getCampayToken();
@@ -1409,7 +1359,7 @@ http.createServer((req, res) => {
         }
 
         // Get seller phone
-        const sellers = await supaRequest('GET', 'ptn_users',
+        const sellers = await supaRequestPrivileged('GET', 'ptn_users',
           'id=eq.' + order.seller_id + '&select=phone,name');
         const seller = sellers && sellers[0];
 
@@ -1610,14 +1560,13 @@ http.createServer((req, res) => {
 }).listen(PORT, () => {
   console.log('');
   console.log('â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”');
-  console.log('â”‚   PARTENAIRE âœ¦ Server + OTP + Monetbil Ready â”‚');
+  console.log('â”‚   PARTENAIRE âœ¦ Server + Monetbil Ready       â”‚');
   console.log('â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤');
   console.log('â”‚  Admin:   RETIRED → mon-partenaire-app/admin â”‚');
   console.log('â”‚  Seller:  http://localhost:8080/seller        â”‚');
   console.log('â”‚  Buyer:   http://localhost:8080/buyer         â”‚');
   console.log('â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤');
-  console.log('â”‚  OTP send:    POST /otp/send                  â”‚');
-  console.log('â”‚  OTP verify:  POST /otp/verify                â”‚');
+  console.log('â”‚  PIN login:   POST /auth/pin-login            â”‚');
   console.log('â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜');
   console.log('');
 });

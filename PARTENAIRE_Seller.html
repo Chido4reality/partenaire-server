@@ -44,9 +44,6 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .auth-hint{background:#f8f6f0;border-radius:10px;padding:12px;font-size:12px;color:var(--grey);margin-top:8px;text-align:center;line-height:1.6}
 .auth-link{text-align:center;font-size:13px;color:var(--grey);margin-top:12px;cursor:pointer}
 .auth-link span{color:var(--gold);font-weight:700;cursor:pointer}
-.otp-row{display:flex;gap:10px;justify-content:center;margin-bottom:20px}
-.otp-box{width:60px;height:60px;border:2px solid var(--lgrey);border-radius:12px;font-size:24px;font-weight:700;color:var(--navy);text-align:center;outline:none;background:#fff;transition:border .2s}
-.otp-box:focus{border-color:var(--gold)}
 .phone-row{display:flex;gap:8px;margin-bottom:16px}
 .country-code{background:#f8f6f0;border:1.5px solid var(--lgrey);border-radius:10px;padding:13px 14px;font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap}
 .step-dots{display:flex;gap:6px;justify-content:center;margin-bottom:24px}
@@ -350,31 +347,6 @@ window.addEventListener('DOMContentLoaded', function() {
         💡 Use your <strong>Mon Partenaire phone number</strong> and the <strong>4-digit Dozie PIN</strong> you set when activating Partenaire Dozie in Mon Partenaire Settings.
       </div>
       <div class="auth-link">Nouveau vendeur? / New seller? <span onclick="goToRegister()">Créer votre boutique →</span></div>
-    </div>
-  </div>
-</div>
-
-<!-- ══ SCREEN 2: OTP ══════════════════════════════════════════ -->
-<div class="screen" id="screen-otp">
-  <div class="auth-wrap">
-    <div class="auth-box">
-      <div class="auth-logo">PARTENAIRE <span>✦</span></div>
-      <div class="auth-sub" id="otp-sub">Code sent to +237 —</div>
-      <div class="step-dots">
-        <div class="step-dot"></div>
-        <div class="step-dot active"></div>
-        <div class="step-dot"></div>
-      </div>
-      <div class="otp-row">
-        <input class="otp-box" id="otp0" maxlength="1" type="tel" oninput="otpNext(0,this)" onkeydown="otpBack(0,event)">
-        <input class="otp-box" id="otp1" maxlength="1" type="tel" oninput="otpNext(1,this)" onkeydown="otpBack(1,event)">
-        <input class="otp-box" id="otp2" maxlength="1" type="tel" oninput="otpNext(2,this)" onkeydown="otpBack(2,event)">
-        <input class="otp-box" id="otp3" maxlength="1" type="tel" oninput="otpNext(3,this)" onkeydown="otpBack(3,event)">
-      </div>
-      <div class="auth-error" id="otp-error"></div>
-      <button class="auth-btn gold" onclick="verifyOTP()">Vérifier / Verify Code →</button>
-      <button class="auth-btn" onclick="showScreen('screen-phone')" style="background:#f8f6f0;color:var(--navy)">← Changer le numéro / Change Number</button>
-      <div class="auth-hint">Enter the 4-digit code sent to your phone.</div>
     </div>
   </div>
 </div>
@@ -1100,30 +1072,9 @@ function showScreen(id) {
 function goToRegister() { showScreen('screen-register'); }
 
 // ══════════════════════════════════════════════════════════════
-//  AUTH — PHONE + OTP
+//  AUTH — PIN login (OTP retired B.4.1)
 // ══════════════════════════════════════════════════════════════
 let loginPhone = '';
-
-function otpNext(idx, el) {
-  if (el.value.length > 1) el.value = el.value.slice(-1);
-  if (el.value && idx < 3) {
-    document.getElementById('otp' + (idx + 1)).focus();
-  }
-  if (idx === 3 && el.value) {
-    const full = [0,1,2,3].map(i => document.getElementById('otp'+i).value).join('');
-    if (full.length === 4) setTimeout(verifyOTP, 100);
-  }
-}
-
-function otpBack(idx, e) {
-  if (e.key === 'Backspace' && !e.target.value && idx > 0) {
-    const prev = document.getElementById('otp' + (idx - 1));
-    prev.value = '';
-    prev.focus();
-  }
-}
-
-async function sendOTP() { loginWithPIN(); }
 
 async function loginWithPIN() {
   const phone = document.getElementById('phone-input').value.trim().replace(/\s/g,'');
@@ -1184,8 +1135,6 @@ async function loginWithPIN() {
     enterApp();
   } catch(e) { showAuthError('phone-error', e.message || (fr ? 'Erreur réseau — réessayez' : 'Network error — please try again')); }
 }
-
-async function verifyOTP() { loginWithPIN(); }
 
 // ══════════════════════════════════════════════════════════════
 //  REGISTER
@@ -2725,29 +2674,26 @@ async function registerAsBuyer() {
   if (currentSeller._hasBuyerAccount) {
     switchToBuyer(); return;
   }
-  // Create a buyer account with the same phone
+  // Create a buyer role via add_role RPC (server copies PIN hash + name + phone).
   try {
-    const buyer = await POST('ptn_users', {
-      phone: currentSeller.phone,
-      name: currentSeller.name,
-      company: currentSeller.company,
-      city: currentSeller.city,
-      category: currentSeller.category,
-      role: 'buyer',
-      status: 'active',
-      profile_photo: currentSeller.profile_photo || null
-    });
+    const r = await RPC('add_role', { p_caller: currentSeller.id, p_new_role: 'buyer' });
+    if (!r || !r.ok) {
+      console.log('add_role failed:', r && r.error);
+      let msg;
+      switch (r && r.error) {
+        case 'duplicate_phone_role': msg = 'You already have a buyer account.'; break;
+        case 'same_role':            msg = "You're already a buyer."; break;
+        case 'caller_no_pin_hash':   msg = 'Please set up your PIN first.'; break;
+        default:                     msg = 'Could not create buyer profile. Please try again.';
+      }
+      toast(msg, 'error');
+      return;
+    }
     currentSeller._hasBuyerAccount = true;
     renderProfileHero();
     toast('✓ Buyer account created — same phone number', 'success');
   } catch(e) {
-    if (e.message.includes('duplicate')) {
-      currentSeller._hasBuyerAccount = true;
-      renderProfileHero();
-      toast('Buyer account already exists for this number', 'success');
-    } else {
-      toast('Error: ' + e.message, 'error');
-    }
+    toast('Error: ' + e.message, 'error');
   }
 }
 
@@ -3734,7 +3680,6 @@ function copyShopLink() {
 
 function signOut() {
   currentSeller = null; allProducts = []; allOrders = []; allNotifs = [];
-  [0,1,2,3].forEach(i => { const el=document.getElementById('otp'+i); if(el) el.value=''; });
   document.getElementById('phone-input').value = '';
   showScreen('screen-phone');
   toast('Signed out successfully','');
@@ -3808,11 +3753,10 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 });
 
-// Keyboard nav for OTP
+// Keyboard nav — Enter on the phone/PIN login screen submits.
 document.addEventListener('keydown', e => {
   if (e.key==='Enter') {
-    if (document.getElementById('screen-phone').classList.contains('active')) sendOTP();
-    else if (document.getElementById('screen-otp').classList.contains('active')) verifyOTP();
+    if (document.getElementById('screen-phone').classList.contains('active')) loginWithPIN();
   }
 });
 </script>
