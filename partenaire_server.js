@@ -376,28 +376,21 @@ http.createServer((req, res) => {
     const readBody = () => new Promise(r => { let b=''; req.on('data',c=>b+=c); req.on('end',()=>{ try{r(JSON.parse(b||'{}'));}catch{r({});} }); });
     const requireAdmin = () => readAdminJwt(req);
 
-    // POST /admin/pin-login { email, pin }
+    // POST /admin/pin-login — RETIRED (Phase E). Replaced by the unified
+    // admin at https://mon-partenaire-app.vercel.app/admin.html (MP frontend
+    // → MP backend /api/admin/*). ptn_admin_roles is also deactivated at the
+    // DB layer (active=false), so admin_pin_login would fail anyway; this 410
+    // is the explicit contract signal for any old client still POSTing here.
+    // Route registration kept intentionally (method/path) — only the body
+    // changed — for a clean, discoverable retirement. ptn_admin_roles /
+    // ptn_audit_log / Phase A RPCs are NOT dropped (sealed for audit history).
     if (rawPath === '/admin/pin-login' && req.method === 'POST') {
-      (async () => {
-        try {
-          const { email, pin } = await readBody();
-          if (!DOZIE_JWT_SECRET) return sendJ(500, { ok:false, error:'server_misconfig' });
-          const r = await supaRpc('admin_pin_login', { p_email: email, p_pin: pin });
-          if (!r || r.ok !== true) {
-            const err = (r && r.error) || 'invalid_credentials';
-            // Uniform 401 for bad creds; 429 only for rate limit. Never
-            // reveal whether email or PIN was wrong (no enumeration).
-            return sendJ(err === 'rate_limited' ? 429 : 401,
-              { ok:false, error: err === 'rate_limited' ? 'rate_limited' : 'invalid_credentials',
-                message: err === 'rate_limited'
-                  ? 'Too many attempts. Try again in 15 minutes.'
-                  : 'Invalid email or PIN' });
-          }
-          const a = r.admin;
-          return sendJ(200, { ok:true, jwt: issueAdminJwt(a.id, a.role), admin: a });
-        } catch (e) { sendJ(500, { ok:false, error:'server_error', message:e.message }); }
-      })();
-      return;
+      return sendJ(410, {
+        success: false,
+        code: 'LEGACY_ADMIN_RETIRED',
+        message: 'The legacy Dozie admin has been retired. Use the unified admin at https://mon-partenaire-app.vercel.app/admin.html',
+        retired_at: '2026-05-17'
+      });
     }
 
     // Everything below requires a valid admin JWT.
@@ -490,15 +483,17 @@ http.createServer((req, res) => {
   // Dozie server's old PIN page (PARTENAIRE_Admin.html, still in git
   // history, just no longer served) and any /admin/* | /api/admin/*
   // API surface here are gone.
-  //   • GET /admin            → 301 to the new portal
+  //   • GET / and GET /admin  → 302 to the new portal (302 not 301: keeps
+  //     flexibility to revisit; root was still mapped to the legacy
+  //     PARTENAIRE_Admin.html via ROUTES, so it must be covered too)
   //   • /admin/* | /api/admin* → 410 Gone (discoverable for API callers)
   // NOT touched: /mp-admin/* (MP svc proxy), /api/auth/impersonate-*
   // (used by the real admin), /campay/* (financial, separate concern).
   {
     const NEW_ADMIN = 'https://mon-partenaire-app.vercel.app/admin.html';
     const p = req.url.split('?')[0].replace(/\/+$/, '') || '/';
-    if (p === '/admin') {
-      res.writeHead(301, { Location: NEW_ADMIN });
+    if (p === '/' || p === '/admin') {
+      res.writeHead(302, { Location: NEW_ADMIN });
       res.end();
       return;
     }
