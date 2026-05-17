@@ -300,16 +300,40 @@ window.addEventListener('DOMContentLoaded', function() {
       </div>
       <div style="background:var(--amberl);border:1px solid #F0C050;border-radius:12px;padding:14px;margin-bottom:20px">
         <div style="font-size:13px;font-weight:700;color:var(--amber)">📞 Contact Admin</div>
-        <div style="font-size:13px;color:var(--amber);margin-top:4px">WhatsApp: +237 6XX XXX XXX<br>Email: admin@partenaire.cm</div>
+        <div style="font-size:13px;color:var(--amber);margin-top:4px">WhatsApp: +237 621 840 952<br>Email: admin@partenaire.cm</div>
       </div>
       <div id="suspended-sub-info" style="margin-bottom:20px"></div>
       
+<script>
+// ADMIN-CONTACT-UPDATE: open the WhatsApp APP (not the in-webview wa.me
+// page). Try the whatsapp:// scheme; if the app takes over the page goes
+// hidden/blurred and we stop. Otherwise fall back to wa.me in a new
+// window (the Electron wrapper's window-open handler hands that to the
+// OS browser). href stays wa.me so no-JS / blocked-popup still works.
+function openWhatsApp(e, phone, text){
+  if (e && e.preventDefault) e.preventDefault();
+  var app = 'whatsapp://send?phone=' + phone + (text ? ('&text=' + text) : '');
+  var web = 'https://wa.me/' + phone + (text ? ('?text=' + text) : '');
+  var took = false;
+  var mark = function(){ took = true; };
+  document.addEventListener('visibilitychange', mark, { once: true });
+  window.addEventListener('blur', mark, { once: true });
+  try { window.location.href = app; } catch (_) {}
+  setTimeout(function(){
+    document.removeEventListener('visibilitychange', mark);
+    window.removeEventListener('blur', mark);
+    if (!took) { try { window.open(web, '_blank', 'noopener'); } catch (_) { window.location.href = web; } }
+  }, 1500);
+  return false;
+}
+</script>
 <!-- ══ CONTACT ADMIN WHATSAPP BUTTON ══════════════════════ -->
 <div style="margin:16px 0;padding:16px;background:#E8F5E9;border:1.5px solid #2E7D32;border-radius:14px;text-align:center">
   <div style="font-size:13px;font-weight:700;color:#1A2B4A;margin-bottom:4px">Need help? Contact Admin</div>
   <div style="font-size:12px;color:#8A8A8A;margin-bottom:12px">Available Mon–Sat · Response within 2h</div>
   <a href="https://wa.me/237621840952?text=Hello%20PARTENAIRE%20Admin%2C%20I%20need%20help%20with%20my%20account."
-     target="_blank"
+     target="_blank" rel="noopener"
+     onclick="return openWhatsApp(event,'237621840952','Hello%20PARTENAIRE%20Admin%2C%20I%20need%20help%20with%20my%20account.')"
      style="display:inline-flex;align-items:center;gap:8px;background:#25D366;color:#fff;padding:12px 24px;border-radius:10px;font-weight:800;font-size:14px;text-decoration:none">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.556 4.118 1.528 5.845L0 24l6.335-1.502A11.956 11.956 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.885 0-3.65-.488-5.19-1.345l-.37-.22-3.762.892.944-3.653-.242-.378A9.96 9.96 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>
     Chat on WhatsApp
@@ -681,8 +705,9 @@ window.addEventListener('DOMContentLoaded', function() {
       <div class="card-title" style="color:#1A2B4A">🆘 Need Help?</div>
       <div class="card-sub">Contact PARTENAIRE Admin directly on WhatsApp</div>
       <div style="font-size:12px;color:#2E7D32;font-weight:600;margin:8px 0">Available Mon–Sat · Response within 2h</div>
-      <a href="https://wa.me/237621840952seller?text=Hello%20PARTENAIRE%20Admin%2C%20I%20need%20help%20with%20my%20seller%20account."
-         target="_blank"
+      <a href="https://wa.me/237621840952?text=Hello%20PARTENAIRE%20Admin%2C%20I%20need%20help%20with%20my%20seller%20account."
+         target="_blank" rel="noopener"
+         onclick="return openWhatsApp(event,'237621840952','Hello%20PARTENAIRE%20Admin%2C%20I%20need%20help%20with%20my%20seller%20account.')"
          style="display:flex;align-items:center;justify-content:center;gap:8px;background:#25D366;color:#fff;padding:13px;border-radius:10px;font-weight:800;font-size:14px;text-decoration:none;margin-top:4px">
         💬 Chat on WhatsApp
       </a>
