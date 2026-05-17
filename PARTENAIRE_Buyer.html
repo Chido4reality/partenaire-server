@@ -729,13 +729,11 @@ async function restoreBuyerSession() {
   const s = dozieSession();
   if (!s) return;                      // no token or expired → stay on login
   try {
-    const rows = await GET('ptn_users', `id=eq.${s.uid}&role=eq.buyer&select=*`);
-    if (!rows || !rows.length) { dozieLogout(); return; }
-    currentBuyer = rows[0];
-    try {
-      const sellers = await GET('ptn_users', `phone=eq.${currentBuyer.phone}&role=eq.seller&select=id`);
-      currentBuyer._hasSeller = sellers && sellers.length > 0;
-    } catch (_) {}
+    const res = await RPC('get_my_profile', { p_caller: s.uid });
+    if (!res || !res.ok) { dozieLogout(); return; }
+    currentBuyer = res.user;
+    // B.4: dual-role probe dropped — no RPC; see migration note
+    currentBuyer._hasSeller = false;
     enterApp();
   } catch (_) { /* leave on login screen */ }
 }
@@ -783,6 +781,11 @@ async function POST(table, body) {
 async function PATCH(table, col, val, body) {
   return xhr('PATCH', apiUrl(table) + '?' + col + '=eq.' + encodeURIComponent(val), body);
 }
+
+// M-2.1 Phase B.4: SECURITY DEFINER RPC calls. xhr() attaches the anon key
+// for supabase.co URLs; the function bypasses RLS. Returns the function's
+// jsonb result verbatim (NOT array-unwrapped, unlike POST()).
+async function RPC(fn, args) { return xhr('POST', apiUrl('rpc/' + fn), args || {}); }
 
 // ══════════════════════════════════════════════════════════════
 //  STATE
@@ -854,8 +857,8 @@ async function loginWithPIN() {
     }
     localStorage.setItem('dozie_jwt', result.jwt);
     currentBuyer = result.user;
-    const sellers = await GET('ptn_users', `phone=eq.${phone}&role=eq.seller&select=id`);
-    currentBuyer._hasSeller = sellers && sellers.length > 0;
+    // B.4: dual-role probe dropped — no RPC; see migration note
+    currentBuyer._hasSeller = false;
     enterApp();
   } catch(e) { authErr('phone-error', e.message || 'Erreur réseau / Network error'); }
 }
@@ -891,10 +894,13 @@ async function verifyOTP() {
     const result = await res.json();
     if (!result.ok) { authErr('otp-error', result.reason || 'Wrong code'); return; }
     if (result.jwt) localStorage.setItem('dozie_jwt', result.jwt);
-    const buyers = await GET('ptn_users', `phone=eq.${loginPhone}&role=eq.buyer&select=*`);
-    currentBuyer = buyers[0];
-    const sellers = await GET('ptn_users', `phone=eq.${loginPhone}&role=eq.seller&select=id`);
-    currentBuyer._hasSeller = sellers && sellers.length > 0;
+    const _s = dozieSession();
+    if (!_s || !_s.uid) { authErr('otp-error', 'Session invalide / Invalid session'); return; }
+    const prof = await RPC('get_my_profile', { p_caller: _s.uid });
+    if (!prof || !prof.ok) { authErr('otp-error', (prof && prof.error) || 'Profil introuvable / Profile not found'); return; }
+    currentBuyer = prof.user;
+    // B.4: dual-role probe dropped — no RPC; see migration note
+    currentBuyer._hasSeller = false;
     enterApp();
   } catch(e) { authErr('otp-error', e.message); }
 }
@@ -906,12 +912,20 @@ async function registerBuyer() {
   const city    = document.getElementById('reg-city').value;
   if (!name || phone.length < 8) { authErr('reg-error','Name and phone are required'); return; }
   try {
-    const existing = await GET('ptn_users', `phone=eq.${phone}&role=eq.buyer&select=id`);
-    if (existing && existing.length) { authErr('reg-error','This phone is already registered. Sign in instead.'); return; }
     const pin = document.getElementById('reg-pin') ? document.getElementById('reg-pin').value.trim() : '0000';
     if (!pin || pin.length < 4) { authErr('reg-error','Choisissez un PIN a 4 chiffres'); return; }
-    const buyer = await POST('ptn_users', { phone, name, company, city, role:'buyer', status:'active', pin });
-    currentBuyer = buyer;
+    const reg = await RPC('register_user', {
+      p_phone: String(phone).replace(/^\+?237/,'').replace(/\D/g,''),
+      p_name: name, p_role: 'buyer', p_pin: pin,
+      p_company: company||null, p_city: city||null
+    });
+    if (!reg || !reg.ok) {
+      if (reg && reg.error === 'duplicate_phone_role') { authErr('reg-error','This phone is already registered. Sign in instead.'); }
+      else { authErr('reg-error', (reg && reg.error) || 'Registration failed'); }
+      return;
+    }
+    const prof = await RPC('get_my_profile', { p_caller: reg.user_id });
+    currentBuyer = (prof && prof.ok && prof.user) ? prof.user : { id: reg.user_id, phone, name, company, city, role:'buyer' };
     currentBuyer._hasSeller = false;
     toast('✓ Account created! Welcome to PARTENAIRE', 'success');
     enterApp();
@@ -971,8 +985,8 @@ async function loadShops() {
     // dozie_seller_access view; we lookup that flag in a parallel
     // request and use it to reorder client-side.
     const [sellers, accessRows, products] = await Promise.all([
-      GET('ptn_users','role=eq.seller&status=eq.active&select=*'),
-      GET('dozie_seller_access','select=seller_id,has_premium_perks,access_state'),
+      RPC('list_public_sellers'),
+      GET('dozie_seller_access','select=seller_id,access_state'),
       GET('dozie_marketplace_products','select=seller_id&published=eq.true')
     ]);
     const accessMap = {};
@@ -997,8 +1011,8 @@ async function loadShops() {
         productCount: pCount[s.id] || 0,
         avgRating: avgRating ? parseFloat(avgRating) : null,
         reviewCount: ratings.length,
-        // Sprint C: perks rollup drives sort + the "Premium perks" pill.
-        has_premium_perks: !!acc.has_premium_perks,
+        // B.4: perks rollup now comes from list_public_sellers() RPC row.
+        has_premium_perks: !!s.has_premium_perks,
         access_state: acc.access_state || 'limited'
       };
     });
@@ -1369,8 +1383,8 @@ async function loadOrders() {
     const sIds = [...new Set((orders||[]).map(o=>o.seller_id).filter(Boolean))];
     let sMap = {};
     if (sIds.length) {
-      const sellers = await GET('ptn_users', `id=in.(${sIds.join(',')})&select=id,company,name`);
-      if (sellers) sellers.forEach(s => sMap[s.id] = s.company||s.name);
+      const mr = await RPC('get_users_minimal', { p_caller: (dozieSession()||{}).uid, p_ids: sIds });
+      if (mr && mr.ok && mr.users) mr.users.forEach(s => sMap[s.id] = s.company||s.name);
     }
     allOrders = (orders||[]).map(o => ({...o, shopName: sMap[o.seller_id]||'Shop'}));
     const pending = allOrders.filter(o=>o.status==='pending').length;
@@ -1559,7 +1573,7 @@ function handleAvatar(input) {
     const url = e.target.result;
     currentBuyer.profile_photo = url;
     document.getElementById('p-avatar-text').innerHTML = `<img src="${url}" style="width:64px;height:64px;object-fit:cover;border-radius:16px">`;
-    try { await PATCH('ptn_users','id',currentBuyer.id,{profile_photo:url}); } catch(e2){}
+    try { await RPC('update_my_profile', { p_caller: currentBuyer.id, p_updates: { profile_photo: url } }); } catch(e2){}
     toast('✓ Profile photo updated', 'success');
   };
   reader.readAsDataURL(file);
@@ -1571,8 +1585,8 @@ async function saveProfile() {
   const city = document.getElementById('edit-city').value;
   if (!name) { toast('Name is required', 'error'); return; }
   try {
-    await PATCH('ptn_users','id',currentBuyer.id,{name,company,city});
-    currentBuyer = {...currentBuyer,name,company,city};
+    const upd = await RPC('update_my_profile', { p_caller: currentBuyer.id, p_updates: { name, company, city } });
+    currentBuyer = (upd && upd.ok && upd.user) ? upd.user : {...currentBuyer,name,company,city};
     document.getElementById('p-name').textContent = name;
     document.getElementById('p-sub').textContent = company+' · 📍 '+city;
     document.getElementById('hdr-name').textContent = name;
@@ -1811,7 +1825,7 @@ async function openCounterOffer(orderId) {
     if (!o) return;
     activeCounterOrderId = orderId;
     let shopName = 'Seller';
-    try { const sellers = await GET('ptn_users', `id=eq.${o.seller_id}&select=company,name`); if(sellers&&sellers[0]) shopName=sellers[0].company||sellers[0].name; } catch(e) {}
+    try { const seller = await RPC('get_public_seller', { p_seller_id: o.seller_id }); if(seller) shopName=seller.company||seller.name; } catch(e) {}
     document.getElementById('counter-shop-name').textContent = '🏪 ' + shopName + ' · Order ' + o.order_ref;
     const origItems = Array.isArray(o.items) ? o.items : [];
     const countItems = Array.isArray(o.counter_items) ? o.counter_items : origItems;
@@ -2058,9 +2072,9 @@ async function handleDeepLink() {
     window.history.replaceState({}, '', window.location.pathname);
     // Find and open the shop
     try {
-      const sellers = await GET('ptn_users', 'id=eq.' + shopId + '&role=eq.seller&select=*');
-      if (sellers && sellers[0]) {
-        toast('🏪 Ouverture de ' + (sellers[0].company || sellers[0].name) + '...', 'success');
+      const seller = await RPC('get_public_seller', { p_seller_id: shopId });
+      if (seller) {
+        toast('🏪 Ouverture de ' + (seller.company || seller.name) + '...', 'success');
         setTimeout(() => openShop(shopId), 500);
       }
     } catch(e) {

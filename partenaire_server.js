@@ -591,37 +591,36 @@ http.createServer((req, res) => {
           return send(429, { success: false, code: 'rate_limited',
             message: 'Too many attempts. Try again in 15 minutes.' });
         }
-        const rows = await supaRequest('GET', 'ptn_users',
-          'phone=eq.' + encodeURIComponent(cleanPhone) + '&role=eq.' + role +
-          '&select=id,name,phone,role,company,city,category,status,dozie_pin_hash&limit=1');
-        const user = Array.isArray(rows) && rows[0];
-
-        // Uniform 401 — never reveal whether the phone or the PIN was
-        // wrong (no account enumeration).
-        if (!user) {
-          pinNoteFail(cleanPhone);
-          return send(401, { success: false, code: 'invalid_credentials',
-            message: 'Invalid phone or PIN' });
-        }
-        if (!user.dozie_pin_hash) {
-          console.warn('[pin-login] user has no dozie_pin_hash:', user.id, cleanPhone, role);
-          pinNoteFail(cleanPhone);
-          return send(401, { success: false, code: 'invalid_credentials',
-            message: 'Invalid phone or PIN' });
-        }
-        const ok = await verifyPin(pin, user.dozie_pin_hash);
-        if (!ok) {
-          pinNoteFail(cleanPhone);
-          return send(401, { success: false, code: 'invalid_credentials',
-            message: 'Invalid phone or PIN' });
-        }
-        if (user.status === 'suspended') {
-          return send(403, { success: false, code: 'suspended',
-            message: 'This account is suspended — contact support.' });
-        }
         if (!DOZIE_JWT_SECRET) {
           return send(500, { success: false, code: 'server_misconfig',
             message: 'Auth not configured (DOZIE_JWT_SECRET missing)' });
+        }
+
+        // M-2.1 Phase B.4: bcrypt verification now happens inside the
+        // auth_pin_login SECURITY DEFINER RPC — no direct ptn_users read,
+        // dozie_pin_hash never leaves the DB. cleanPhone is already digits-
+        // only with the +?237 country code stripped (the same canonical
+        // form the old direct lookup used, so the 88 existing rows still
+        // match; the RPC also strips non-digits internally for matching).
+        const rpc = await supaRpc('auth_pin_login',
+          { p_phone: cleanPhone, p_pin: String(pin), p_role: role });
+
+        if (!rpc || rpc.ok !== true) {
+          if (rpc && rpc.error === 'suspended') {
+            return send(403, { success: false, code: 'suspended',
+              message: 'This account is suspended — contact support.' });
+          }
+          // Uniform 401 for every other failure — never reveal whether the
+          // phone or the PIN was wrong (no account enumeration).
+          pinNoteFail(cleanPhone);
+          return send(401, { success: false, code: 'invalid_credentials',
+            message: 'Invalid phone or PIN' });
+        }
+
+        const user = rpc.user || {};
+        if (user.status === 'suspended') {
+          return send(403, { success: false, code: 'suspended',
+            message: 'This account is suspended — contact support.' });
         }
         pinClear(cleanPhone);
         const jwtToken = issueDozieJwt(user.id, role);
@@ -904,9 +903,13 @@ http.createServer((req, res) => {
           let buyerMap = {};
           const bids = [...new Set(list.map(o => o.buyer_id).filter(Boolean))];
           if (bids.length) {
-            const bs = await supaRequest('GET', 'ptn_users',
-              'id=in.(' + bids.join(',') + ')&select=id,name');
-            (Array.isArray(bs) ? bs : []).forEach(b => { buyerMap[b.id] = b.name; });
+            // M-2.1 Phase B.4: batch buyer-name lookup via RPC. Caller is
+            // the authenticated seller/buyer running the order search
+            // (scopeId = idn.uid from resolveDozieIdentity above).
+            const mr = await supaRpc('get_users_minimal',
+              { p_caller: scopeId, p_ids: bids });
+            const us = (mr && mr.ok && Array.isArray(mr.users)) ? mr.users : [];
+            us.forEach(b => { buyerMap[b.id] = b.name; });
           }
           const data = list.map(o => ({
             id: o.id, order_ref: o.order_ref, status: o.status,
