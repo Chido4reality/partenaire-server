@@ -1129,8 +1129,16 @@ http.createServer((req, res) => {
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           return res.end(JSON.stringify({ success: false, message: 'Invalid order' }));
         }
-        const sellers = await supaRequestPrivileged('GET', 'ptn_users', 'id=eq.' + order.seller_id + '&select=phone,name');
-        const sellerPhone = sellers && sellers[0] && sellers[0].phone || '';
+        const sellers = await supaRequestPrivileged('GET', 'ptn_users', 'id=eq.' + order.seller_id + '&select=id,phone,momo_phone,name');
+        const sRow = (sellers && sellers[0]) || {};
+        // MOMO-PHONE-CAPTURE: pay out to the seller's dedicated Mobile
+        // Money number when set, else fall back to their login phone.
+        const sellerPhone = (sRow.momo_phone || sRow.phone) || '';
+        const payoutVia = sRow.momo_phone ? 'momo_phone' : 'phone';
+        await supaRequest('POST', 'ptn_audit_log', null, {
+          action: 'campay_payout_target', target_type: 'ptn_users', target_id: order.seller_id,
+          details: { endpoint: '/campay/release', order_ref: order.order_ref, payout_phone: sellerPhone, source: payoutVia }
+        }).catch(e => console.warn('[payout audit] ' + e.message));
         const ref = 'PAYOUT-' + order.order_ref + '-' + Date.now();
         const token = await getCampayToken();
         const cleanPhone = String(sellerPhone).replace(/\s/g,'').replace(/^\+/,'');
@@ -1295,18 +1303,24 @@ http.createServer((req, res) => {
           return res.end(JSON.stringify({ success: false, message: 'No escrow to release' }));
         }
 
-        // Get seller phone
+        // Get seller phone — MOMO-PHONE-CAPTURE: prefer the seller's
+        // dedicated Mobile Money number, fall back to their login phone.
         const sellers = await supaRequestPrivileged('GET', 'ptn_users',
-          'id=eq.' + order.seller_id + '&select=phone,name');
+          'id=eq.' + order.seller_id + '&select=id,phone,momo_phone,name');
         const seller = sellers && sellers[0];
+        const payoutPhone = seller && (seller.momo_phone || seller.phone);
 
-        if (!seller || !seller.phone) {
+        if (!seller || !payoutPhone) {
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           return res.end(JSON.stringify({ success: false, message: 'Seller phone not found' }));
         }
+        await supaRequest('POST', 'ptn_audit_log', null, {
+          action: 'campay_payout_target', target_type: 'ptn_users', target_id: order.seller_id,
+          details: { endpoint: '/campay/auto-release', order_ref: order.order_ref, payout_phone: payoutPhone, source: seller.momo_phone ? 'momo_phone' : 'phone' }
+        }).catch(e => console.warn('[payout audit] ' + e.message));
 
         const ref = 'AUTOPAY-' + order.order_ref + '-' + Date.now();
-        const cleanPhone = String(seller.phone).replace(/\s/g, '').replace(/^\+/, '');
+        const cleanPhone = String(payoutPhone).replace(/\s/g, '').replace(/^\+/, '');
 
         // Payout via Campay
         const token = await getCampayToken();

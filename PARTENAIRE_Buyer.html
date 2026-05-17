@@ -426,6 +426,11 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
           <option>Douala</option><option>Yaoundé</option><option>Bafoussam</option><option>Garoua</option><option>Maroua</option>
         </select>
       </div>
+      <div class="form-group">
+        <label class="form-label">Mobile Money Payout Number</label>
+        <input class="form-input" id="buyer-momo" type="tel" inputmode="numeric" placeholder="6XXXXXXXX" oninput="this.value=this.value.replace(/\D/g,'')">
+        <div class="card-sub" style="margin-top:6px">This is the MoMo number you'll use to pay for orders. Leave blank to use your login number.<br><span style="opacity:.75">Numéro Mobile Money que vous utiliserez pour payer les commandes. Laissez vide pour utiliser votre numéro de connexion.</span></div>
+      </div>
       <button class="btn btn-gold btn-block" onclick="saveProfile()">✓ Save Changes</button>
     </div>
     <div class="card">
@@ -886,6 +891,8 @@ function enterApp() {
   document.getElementById('p-avatar-text').textContent = (currentBuyer.name||'B').charAt(0).toUpperCase();
   document.getElementById('edit-name').value = currentBuyer.name || '';
   document.getElementById('edit-company').value = currentBuyer.company || '';
+  const momoEl = document.getElementById('buyer-momo');
+  if (momoEl) momoEl.value = currentBuyer.momo_phone || '';
   const ce = document.getElementById('edit-city');
   Array.from(ce.options).forEach(o => { if(o.text===currentBuyer.city) o.selected=true; });
   if (currentBuyer._hasSeller) {
@@ -1517,9 +1524,14 @@ async function saveProfile() {
   const company = document.getElementById('edit-company').value.trim();
   const city = document.getElementById('edit-city').value;
   if (!name) { toast('Name is required', 'error'); return; }
+  const momoEl = document.getElementById('buyer-momo');
+  const momo_phone = ((momoEl && momoEl.value) || '').replace(/\D/g,'');
+  if (momo_phone && (momo_phone.length < 8 || momo_phone.length > 15)) {
+    toast('MoMo number must be 8–15 digits', 'error'); return;
+  }
   try {
-    const upd = await RPC('update_my_profile', { p_caller: currentBuyer.id, p_updates: { name, company, city } });
-    currentBuyer = (upd && upd.ok && upd.user) ? upd.user : {...currentBuyer,name,company,city};
+    const upd = await RPC('update_my_profile', { p_caller: currentBuyer.id, p_updates: { name, company, city, momo_phone } });
+    currentBuyer = (upd && upd.ok && upd.user) ? upd.user : {...currentBuyer,name,company,city,momo_phone};
     document.getElementById('p-name').textContent = name;
     document.getElementById('p-sub').textContent = company+' · 📍 '+city;
     document.getElementById('hdr-name').textContent = name;

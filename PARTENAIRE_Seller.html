@@ -611,6 +611,11 @@ window.addEventListener('DOMContentLoaded', function() {
         <label class="form-label">Shop Description</label>
         <textarea class="form-textarea" id="edit-desc" placeholder="Tell buyers what you sell..."></textarea>
       </div>
+      <div class="form-group">
+        <label class="form-label">Mobile Money Payout Number</label>
+        <input class="form-input" id="seller-momo" type="tel" inputmode="numeric" placeholder="6XXXXXXXX" oninput="this.value=this.value.replace(/\D/g,'')">
+        <div class="card-sub" style="margin-top:6px">This is the MoMo number where you'll receive payments from sales. Leave blank to use your login number. Many people have a separate SIM for MoMo — enter that one here.<br><span style="opacity:.75">Numéro Mobile Money où vous recevrez les paiements des ventes. Laissez vide pour utiliser votre numéro de connexion. Beaucoup ont une SIM séparée pour le MoMo — saisissez celle-ci ici.</span></div>
+      </div>
       <button class="btn btn-gold btn-block" onclick="saveProfile()">✓ Save Changes</button>
     </div>
     <div class="card" id="reviews-card">
@@ -1235,6 +1240,8 @@ function enterApp() {
   document.getElementById('edit-company').value = currentSeller.company || '';
   document.getElementById('edit-name').value     = currentSeller.name || '';
   document.getElementById('edit-desc').value     = currentSeller.shop_desc || '';
+  const momoEl = document.getElementById('seller-momo');
+  if (momoEl) momoEl.value = currentSeller.momo_phone || '';
   const cityEl = document.getElementById('edit-city');
   if (currentSeller.city) {
     Array.from(cityEl.options).forEach(o => { if(o.value===currentSeller.city||o.text===currentSeller.city) o.selected=true; });
@@ -1434,7 +1441,7 @@ function openCapHitModal(feature) {
 
 function openDozieSubPaymentModal(mode) {
   const acc = currentSeller._dozieAccess || {};
-  const phoneDefault = (currentSeller.phone || '').replace(/^\+?237/, '');
+  const phoneDefault = ((currentSeller.momo_phone || currentSeller.phone) || '').replace(/^\+?237/, '');
   const root = document.createElement('div');
   root.className = 'cap-hit-overlay';
   root.innerHTML = `
@@ -1444,7 +1451,7 @@ function openDozieSubPaymentModal(mode) {
       <p style="font-size:12px;opacity:0.75">Vous recevrez une invite USSD sur votre numéro Mobile Money pour confirmer le paiement.</p>
       <div style="margin:14px 0">
         <label style="display:block;font-size:12px;margin-bottom:6px;opacity:0.85">Numéro Mobile Money (MTN ou Orange)</label>
-        <input id="ds-pay-phone" type="tel" value="${phoneDefault}" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.3);color:#fff;font-size:14px" />
+        <input id="ds-pay-phone" type="tel" inputmode="numeric" value="${phoneDefault}" oninput="this.value=this.value.replace(/\\D/g,'')" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.3);color:#fff;font-size:14px" />
       </div>
       <div id="ds-pay-status" class="pay-prompt" style="display:none"></div>
       <div class="cap-hit-actions">
@@ -1457,8 +1464,9 @@ function openDozieSubPaymentModal(mode) {
   root.onclick = (e) => { if (e.target === root) root.remove(); };
 
   root.querySelector('#ds-pay-submit').onclick = async () => {
-    const phone = root.querySelector('#ds-pay-phone').value.trim();
+    const phone = root.querySelector('#ds-pay-phone').value.replace(/\D/g,'');
     if (!phone) return alert('Numéro requis');
+    if (phone.length < 8 || phone.length > 15) { toast('MoMo number must be 8–15 digits','error'); return; }
     const statusEl = root.querySelector('#ds-pay-status');
     const btn = root.querySelector('#ds-pay-submit');
     btn.disabled = true; btn.textContent = '⏳ Initialisation…';
@@ -1467,7 +1475,7 @@ function openDozieSubPaymentModal(mode) {
       const r = await fetch(MP_API_BASE + '/dozie-sub/start-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-dozie-seller-id': currentSeller.id },
-        body: JSON.stringify({ seller_id: currentSeller.id, phone, months: 1 })
+        body: JSON.stringify({ seller_id: currentSeller.id, phone, months: 1, payer_phone: phone })
       });
       const data = await r.json();
       if (!r.ok || !data.success) throw new Error((data && data.message) || 'Échec de l\'initialisation');
@@ -2714,9 +2722,14 @@ async function saveProfile() {
   const city    = document.getElementById('edit-city').value;
   const desc    = document.getElementById('edit-desc').value.trim();
   if (!company) { toast('Company name required','error'); return; }
+  const momoEl  = document.getElementById('seller-momo');
+  const momo_phone = ((momoEl && momoEl.value) || '').replace(/\D/g,'');
+  if (momo_phone && (momo_phone.length < 8 || momo_phone.length > 15)) {
+    toast('MoMo number must be 8–15 digits','error'); return;
+  }
   try {
-    await RPC('update_my_profile',{ p_caller: currentSeller.id, p_updates: {company,name,city,shop_desc:desc} });
-    currentSeller = {...currentSeller,company,name,city,shop_desc:desc};
+    await RPC('update_my_profile',{ p_caller: currentSeller.id, p_updates: {company,name,city,shop_desc:desc,momo_phone} });
+    currentSeller = {...currentSeller,company,name,city,shop_desc:desc,momo_phone};
     document.getElementById('header-shop-name').textContent = company;
     renderProfileHero();
     toast('✓ Profile saved','success');
