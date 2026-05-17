@@ -80,6 +80,23 @@ const CAMPAY_BASE_URL = process.env.CAMPAY_ENV === 'production'
   ? 'https://campay.net/api'
   : 'https://demo.campay.net/api';
 
+// LAUNCH-PAYMENT-SECURITY — webhook shared secret (set on Render AND in
+// the Campay dashboard). See the /campay/webhook handler.
+const CAMPAY_WEBHOOK_SECRET = process.env.CAMPAY_WEBHOOK_SECRET || '';
+
+// Fail loud, not silent-sandbox: in production, refuse to boot unless the
+// Campay config is real. A crashed deploy is recoverable; silently
+// running against demo.campay or with an unauthenticated webhook is not.
+if (process.env.NODE_ENV === 'production') {
+  const _fail = (m) => { console.error('CRITICAL: ' + m); process.exit(1); };
+  if (process.env.CAMPAY_ENV !== 'production')
+    _fail('CAMPAY_ENV must be "production" in a production deployment');
+  if (!process.env.CAMPAY_TOKEN && !(process.env.CAMPAY_USERNAME && process.env.CAMPAY_PASSWORD))
+    _fail('Campay credentials missing (set CAMPAY_TOKEN, or CAMPAY_USERNAME + CAMPAY_PASSWORD)');
+  if (!CAMPAY_WEBHOOK_SECRET)
+    _fail('CAMPAY_WEBHOOK_SECRET missing');
+}
+
 let campayToken = null;
 let campayTokenExpiry = null;
 
@@ -150,11 +167,9 @@ if (!DOZIE_SERVICE_KEY) {
 const PORT = 8080;
 const DIR=__dirname;
 
-// â”€â”€ MONETBIL CONFIG â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Replace with real keys when going live
-const MONETBIL_SERVICE_KEY    = 'test_service_key_partenaire';
-const MONETBIL_SERVICE_SECRET = 'test_service_secret_partenaire';
-const MONETBIL_API = 'https://api.monetbil.com';
+// LAUNCH-PAYMENT-SECURITY: Monetbil fully removed — Campay is the only
+// payment processor. Its config, initiator, webhook handler and the
+// client-controlled sandbox-bypass route were deleted.
 
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.jpg':'image/jpeg' };
 
@@ -244,119 +259,11 @@ function supaRpc(fn, args) {
   return supaRequest('POST', 'rpc/' + fn, '', args || {});
 }
 
-// â”€â”€ MONETBIL PAYMENT INITIATOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function initiateMonetbilPayment(amount, phone, paymentRef, returnUrl) {
-  return new Promise((resolve, reject) => {
-    const params = new URLSearchParams({
-      service_key: MONETBIL_SERVICE_KEY,
-      amount: amount.toString(),
-      phone: '+237' + phone.replace(/^\+237/, ''),
-      item_ref: paymentRef,
-      payment_ref: paymentRef,
-      return_url: returnUrl || 'http://localhost:8080/payment-success',
-      notify_url: 'http://localhost:8080/monetbil/notify',
-      locale: 'fr',
-      country: 'CM',
-      currency: 'XAF'
-    });
-    const reqBody = params.toString();
-    const options = {
-      hostname: 'api.monetbil.com',
-      path: '/payment/v1/placePayment',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Content-Length': Buffer.byteLength(reqBody)
-      }
-    };
-    const req = https.request(options, res => {
-      let data = '';
-      res.on('data', d => data += d);
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch(e) { resolve({ error: data }); }
-      });
-    });
-    req.on('error', reject);
-    req.write(reqBody);
-    req.end();
-  });
-}
-
-// â”€â”€ WEBHOOK HANDLER: Monetbil notifies us of payment result â”€â”€
-async function handleMonetbilNotify(body) {
-  try {
-    const params = new URLSearchParams(body);
-    const status     = params.get('status');
-    const paymentRef = params.get('payment_ref');
-    const amount     = parseFloat(params.get('amount') || '0');
-    const phone      = params.get('phone') || '';
-    const operator   = params.get('operator') || '';
-
-    console.log(`[Monetbil] Payment ${paymentRef}: ${status} â€” ${amount} XAF from ${phone} via ${operator}`);
-
-    if (status !== 'SUCCESS') {
-      console.log('[Monetbil] Payment failed or pending:', status);
-      return;
-    }
-
-    if (paymentRef.startsWith('ORD-') || paymentRef.startsWith('QOF-')) {
-      const orders = await supaRequest('GET', 'ptn_orders', 'order_ref=eq.' + paymentRef + '&select=*');
-      if (orders && orders[0]) {
-        const order = orders[0];
-        await supaRequest('PATCH', 'ptn_orders', 'order_ref=eq.' + paymentRef, {
-          escrow_held: amount,
-          status: 'confirmed',
-          updated_at: new Date().toISOString()
-        });
-        await supaRequest('POST', 'ptn_notifications', null, {
-          user_id: order.seller_id,
-          type: 'payment',
-          title_en: 'ðŸ’° Payment Received!',
-          title_fr: 'ðŸ’° Paiement reÃ§u!',
-          body_en: `Payment of ${amount.toLocaleString()} XAF confirmed for order ${paymentRef} via ${operator}`,
-          body_fr: `Paiement de ${amount.toLocaleString()} XAF confirmÃ© pour la commande ${paymentRef} via ${operator}`,
-          read: false
-        });
-        await supaRequest('POST', 'ptn_notifications', null, {
-          user_id: order.buyer_id,
-          type: 'payment',
-          title_en: 'âœ… Payment Confirmed',
-          title_fr: 'âœ… Paiement confirmÃ©',
-          body_en: `Your payment of ${amount.toLocaleString()} XAF for order ${paymentRef} was received.`,
-          body_fr: `Votre paiement de ${amount.toLocaleString()} XAF pour la commande ${paymentRef} a Ã©tÃ© reÃ§u.`,
-          read: false
-        });
-        console.log('[Monetbil] Order', paymentRef, 'confirmed');
-      }
-
-    } else if (paymentRef.startsWith('SUB-')) {
-      // Sprint B-bis: legacy badge-subscription renewal via Monetbil.
-      // The badge model (ptn_subscriptions table) was archived to
-      // ptn_subscriptions_legacy_archive_2026_05 and replaced by the
-      // CamPay-driven standalone flow (DZSUB- prefix → /api/dozie-sub
-      // on the MP backend). Webhook ignores SUB-* refs now; any
-      // straggler payment would be visible in Monetbil's dashboard
-      // for manual reconciliation.
-      console.log('[Monetbil] Ignoring legacy SUB- ref (badge model retired in Sprint B-bis):', paymentRef);
-    }
-  } catch(e) {
-    console.error('[Monetbil] Webhook error:', e.message);
-  }
-}
-
-// â”€â”€ SIMULATE PAYMENT SUCCESS (sandbox/demo mode) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-async function simulatePaymentSuccess(paymentRef, amount, phone) {
-  console.log('[SANDBOX] Simulating payment success for', paymentRef);
-  const fakeBody = new URLSearchParams({
-    status: 'SUCCESS',
-    payment_ref: paymentRef,
-    amount: amount.toString(),
-    phone: phone,
-    operator: 'MTN_MOMO_CM'
-  }).toString();
-  await handleMonetbilNotify(fakeBody);
-}
+// LAUNCH-PAYMENT-SECURITY: initiateMonetbilPayment / handleMonetbilNotify
+// / simulatePaymentSuccess removed. Payments go through Campay only
+// (campayCollect / campayCheckStatus / campayPayout above), and payment
+// state is only ever set after an authenticated, re-queried Campay
+// confirmation — never a client- or webhook-asserted "SUCCESS".
 
 // â”€â”€ HTTP SERVER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 http.createServer((req, res) => {
@@ -752,62 +659,11 @@ http.createServer((req, res) => {
     return;
   }
 
-  // â”€â”€ MONETBIL WEBHOOK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  if (req.url === '/monetbil/notify' && req.method === 'POST') {
-    let body = '';
-    req.on('data', c => body += c);
-    req.on('end', async () => {
-      await handleMonetbilNotify(body);
-      res.writeHead(200);
-      res.end('OK');
-    });
-    return;
-  }
-
-  // â”€â”€ INITIATE PAYMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  if (req.url === '/monetbil/pay' && req.method === 'POST') {
-    let body = '';
-    req.on('data', c => body += c);
-    req.on('end', async () => {
-      try {
-        const data = JSON.parse(body);
-        const { amount, phone, paymentRef, type, sandbox } = data;
-        if (sandbox) {
-          setTimeout(() => simulatePaymentSuccess(paymentRef, amount, phone), 3000);
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify({
-            success: true, sandbox: true, payment_url: null,
-            message: 'SANDBOX: Payment will be confirmed in 3 seconds',
-            payment_ref: paymentRef
-          }));
-        } else {
-          const result = await initiateMonetbilPayment(amount, phone, paymentRef);
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify(result));
-        }
-      } catch(e) {
-        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ error: e.message }));
-      }
-    });
-    return;
-  }
-
-  // â”€â”€ PAYMENT SUCCESS PAGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  if (req.url.startsWith('/payment-success')) {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-      <style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#1A2B4A;color:#fff;text-align:center}
-      .box{background:rgba(255,255,255,0.1);border-radius:20px;padding:40px;max-width:400px}
-      .icon{font-size:64px;margin-bottom:16px}h1{font-size:24px;margin-bottom:8px}
-      p{opacity:0.7;margin-bottom:24px}a{background:#C9A84C;color:#1A2B4A;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:700}</style>
-    </head><body><div class="box">
-      <div class="icon">âœ…</div><h1>Payment Successful!</h1>
-      <p>Your payment has been confirmed. You can close this window.</p>
-      <a href="http://localhost:8080/buyer">Back to PARTENAIRE</a>
-    </div></body></html>`);
-    return;
-  }
+  // LAUNCH-PAYMENT-SECURITY: /monetbil/notify, /monetbil/pay (the
+  // client-supplied `sandbox:true` → fake-SUCCESS spoof) and the
+  // Monetbil /payment-success return page were removed. Campay uses
+  // /campay/pay → /campay/check (poll) and the authenticated
+  // /campay/webhook below — no redirect/return page is involved.
 
   // ── ORDER SEARCH — scoped seller / buyer lookups ─────────────────────
   //
@@ -1300,27 +1156,108 @@ http.createServer((req, res) => {
     return;
   }
 
-  // ── CAMPAY WEBHOOK ──────────────────────────────────────────
+  // ── CAMPAY WEBHOOK (LAUNCH-PAYMENT-SECURITY) ────────────────
+  // Defence in depth — a webhook NEVER directly marks money received:
+  //   1. Signature: Campay signs the payload. Per Campay's API docs the
+  //      webhook body carries a `signature` field that is a JWT signed
+  //      with the app's Webhook Key (HS256). We verify it with
+  //      CAMPAY_WEBHOOK_SECRET. ⚠️ SCHEME-TO-CONFIRM: the codebase had no
+  //      prior signature handling and Campay's exact field/algorithm must
+  //      be confirmed from Peter's Campay dashboard before launch — see
+  //      the report. This check is therefore best-effort; security does
+  //      NOT depend on it because of (3).
+  //   2. Idempotency: already-successful txn / already-paid order → 200,
+  //      no re-credit, no duplicate notifications.
+  //   3. Authoritative re-query (THE hard gate): regardless of what the
+  //      webhook claims, we call Campay's /transaction/{ref}/ with our
+  //      authenticated token and only proceed if Campay itself says
+  //      SUCCESSFUL and the amount matches what we recorded. A forged or
+  //      unsigned webhook cannot get past this — Campay's own API is the
+  //      source of truth.
+  //   4. Every outcome is written to ptn_audit_log.
   if (req.url === '/campay/webhook' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);
     req.on('end', async () => {
-      try {
-        const { reference, status, operator } = JSON.parse(body);
-        if (status === 'SUCCESSFUL' && reference) {
-          const txns = await supaRequest('GET', 'ptn_campay_transactions', 'reference=eq.' + reference + '&select=*');
-          const txn = txns && txns[0];
-          if (txn && txn.order_id) {
-            const orders = await supaRequest('GET', 'ptn_orders', 'id=eq.' + txn.order_id + '&select=total,counter_total,counter_status');
-            const order = orders && orders[0];
-            const amt = order && order.counter_status === 'accepted' ? order.counter_total : order && order.total;
-            await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + txn.order_id, { payment_status: 'paid', campay_status: 'successful', campay_operator: operator, campay_paid_at: new Date().toISOString(), escrow_held: amt, status: 'confirmed' });
-          }
-          await supaRequest('PATCH', 'ptn_campay_transactions', 'reference=eq.' + reference, { status: 'successful', operator, updated_at: new Date().toISOString() });
+      const sendJson = (code, obj) => {
+        res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(obj));
+      };
+      const audit = (action, details) =>
+        supaRequest('POST', 'ptn_audit_log', null, {
+          admin_email: 'system:campay-webhook', action,
+          target_type: 'ptn_campay_transactions',
+          target_id: (details && details.reference) || null, details: details || {}
+        }).catch(e => console.warn('[campay-webhook] audit insert failed:', e.message));
+
+      let payload;
+      try { payload = JSON.parse(body || '{}'); }
+      catch { return sendJson(400, { error: 'bad_json' }); }
+      const { reference, status, operator, signature } = payload;
+
+      // (1) Signature — JWT in the body signed with the Webhook Key.
+      // Enforced whenever the secret is configured (Task 3 makes it
+      // mandatory in production).
+      if (CAMPAY_WEBHOOK_SECRET) {
+        let ok = false;
+        try { if (signature) { jwt.verify(String(signature), CAMPAY_WEBHOOK_SECRET); ok = true; } }
+        catch (_) { ok = false; }
+        if (!ok) {
+          await audit('campay_webhook_signature_invalid', {
+            reference: reference || null,
+            ip: (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || (req.socket && req.socket.remoteAddress) || null
+          });
+          return sendJson(401, { error: 'invalid_signature' });
         }
-      } catch(e) { console.error('Webhook error:', e.message); }
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ received: true }));
+      }
+
+      if (!reference) return sendJson(400, { error: 'reference_required' });
+
+      try {
+        const txns = await supaRequest('GET', 'ptn_campay_transactions', 'reference=eq.' + encodeURIComponent(reference) + '&select=*');
+        const txn = txns && txns[0];
+        if (!txn) { await audit('campay_webhook_mismatch', { reference, reason: 'unknown_reference' }); return sendJson(200, { received: true, ignored: 'unknown_reference' }); }
+
+        // (2) Idempotency.
+        if (txn.status === 'successful') return sendJson(200, { received: true, idempotent: true });
+        if (txn.order_id) {
+          const paidChk = await supaRequest('GET', 'ptn_orders', 'id=eq.' + txn.order_id + '&select=payment_status');
+          if (paidChk && paidChk[0] && paidChk[0].payment_status === 'paid')
+            return sendJson(200, { received: true, idempotent: true });
+        }
+
+        // (3) Authoritative re-query — Campay is the source of truth.
+        const token = await getCampayToken();
+        const cr = await fetch(CAMPAY_BASE_URL + '/transaction/' + encodeURIComponent(reference) + '/', { headers: { 'Authorization': 'Token ' + token } });
+        const verified = await cr.json();
+        const expectedAmt = Number(txn.amount);
+        const gotAmt = Number(verified && verified.amount);
+        const statusOk = verified && verified.status === 'SUCCESSFUL';
+        const amountOk = !Number.isNaN(expectedAmt) && !Number.isNaN(gotAmt) && gotAmt === expectedAmt;
+        if (!statusOk || !amountOk) {
+          await audit('campay_webhook_mismatch', {
+            reference, order_id: txn.order_id || null,
+            webhook_status: status, campay_status: verified && verified.status,
+            expected_amount: expectedAmt, campay_amount: gotAmt
+          });
+          return sendJson(200, { received: true, verified: false });
+        }
+
+        // Verified — safe to mark paid (mirrors /campay/check).
+        if (txn.order_id) {
+          const orders = await supaRequest('GET', 'ptn_orders', 'id=eq.' + txn.order_id + '&select=total,counter_total,counter_status');
+          const order = orders && orders[0];
+          const amt = order && order.counter_status === 'accepted' ? order.counter_total : order && order.total;
+          await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + txn.order_id, { payment_status: 'paid', campay_status: 'successful', campay_operator: operator || null, campay_paid_at: new Date().toISOString(), escrow_held: amt, status: 'confirmed' });
+        }
+        await supaRequest('PATCH', 'ptn_campay_transactions', 'reference=eq.' + encodeURIComponent(reference), { status: 'successful', operator: operator || null, updated_at: new Date().toISOString() });
+        await audit('campay_webhook_success', { reference, order_id: txn.order_id || null, amount: expectedAmt });
+        return sendJson(200, { received: true, verified: true });
+      } catch (e) {
+        console.error('[campay-webhook] error:', e.message);
+        await audit('campay_webhook_mismatch', { reference, reason: 'exception', message: e.message });
+        return sendJson(200, { received: true, error: 'processing_error' });
+      }
     });
     return;
   }
@@ -1560,7 +1497,7 @@ http.createServer((req, res) => {
 }).listen(PORT, () => {
   console.log('');
   console.log('â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”');
-  console.log('â”‚   PARTENAIRE âœ¦ Server + Monetbil Ready       â”‚');
+  console.log('â”‚   PARTENAIRE âœ¦ Server + Campay Ready          â”‚');
   console.log('â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤');
   console.log('â”‚  Admin:   RETIRED → mon-partenaire-app/admin â”‚');
   console.log('â”‚  Seller:  http://localhost:8080/seller        â”‚');
