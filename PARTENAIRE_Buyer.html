@@ -1007,7 +1007,7 @@ async function loadShops() {
     allShops.sort((a,b) => {
       if (a.featured && !b.featured) return -1;
       if (!a.featured && b.featured) return 1;
-      if (a.featured && b.featured) return (b.featured_order||0) - (a.featured_order||0);
+      if (a.featured && b.featured) return (a.featured_order||0) - (b.featured_order||0);
       // Sprint C: paid_standalone + MP-linked Gold/Premium first.
       if (a.has_premium_perks !== b.has_premium_perks) return a.has_premium_perks ? -1 : 1;
       return 0;
