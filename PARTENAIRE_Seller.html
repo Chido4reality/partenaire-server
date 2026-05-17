@@ -977,8 +977,21 @@ async function restoreSellerSession() {
           seller_city: r.seller_city
         };
         currentSeller._mpId = r.mp_id || null;
-        currentSeller._mpSubscriptionStatus = r.sub_status || 'no_mp_account';
-        currentSeller._mpSubscriptionActive = (r.sub_status === 'active' || r.sub_status === 'trial');
+        // FIX: r.sub_status is the STANDALONE sub status, NOT MP status —
+        // for an MP-linked seller it's null, so `|| 'no_mp_account'`
+        // wrongly flagged them AND, being truthy, suppressed the
+        // dozie_seller_mp_status fallback in renderMpStatusBanner().
+        // The view's `source` already encodes MP-link precedence:
+        // source==='mp_linked' ⇒ MP active. Otherwise leave the status
+        // undefined so the banner's authoritative effective_status
+        // fallback query fires.
+        if (r.source === 'mp_linked') {
+          currentSeller._mpSubscriptionStatus = 'active';
+          currentSeller._mpSubscriptionActive = true;
+        } else {
+          currentSeller._mpSubscriptionStatus = undefined;
+          currentSeller._mpSubscriptionActive = false;
+        }
       }
     } catch (_) {}
     // B.4: dual-role probe dropped — no RPC; see migration note
@@ -1156,8 +1169,21 @@ async function loginWithPIN() {
           seller_city: r.seller_city
         };
         currentSeller._mpId = r.mp_id || null;
-        currentSeller._mpSubscriptionStatus = r.sub_status || 'no_mp_account';
-        currentSeller._mpSubscriptionActive = (r.sub_status === 'active' || r.sub_status === 'trial');
+        // FIX: r.sub_status is the STANDALONE sub status, NOT MP status —
+        // for an MP-linked seller it's null, so `|| 'no_mp_account'`
+        // wrongly flagged them AND, being truthy, suppressed the
+        // dozie_seller_mp_status fallback in renderMpStatusBanner().
+        // The view's `source` already encodes MP-link precedence:
+        // source==='mp_linked' ⇒ MP active. Otherwise leave the status
+        // undefined so the banner's authoritative effective_status
+        // fallback query fires.
+        if (r.source === 'mp_linked') {
+          currentSeller._mpSubscriptionStatus = 'active';
+          currentSeller._mpSubscriptionActive = true;
+        } else {
+          currentSeller._mpSubscriptionStatus = undefined;
+          currentSeller._mpSubscriptionActive = false;
+        }
       }
     } catch (_) { /* render path defaults to free tier if view unreadable */ }
     // B.4: dual-role probe dropped — no RPC; see migration note
