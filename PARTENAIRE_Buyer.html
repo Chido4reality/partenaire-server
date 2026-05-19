@@ -792,6 +792,39 @@ async function PATCH(table, col, val, body) {
 // jsonb result verbatim (NOT array-unwrapped, unlike POST()).
 async function RPC(fn, args) { return xhr('POST', apiUrl('rpc/' + fn), args || {}); }
 
+// STAGE-1-DOZIE-ORDER-RPC: authenticated POST to the Dozie backend
+// (NOT Supabase). Sends the PIN-JWT so the server resolves buyer_id
+// from the token. Returns parsed JSON (never throws on HTTP error —
+// caller inspects body.success / body.error_code).
+async function apiAuth(path, bodyObj) {
+  const jwt = localStorage.getItem('dozie_jwt');
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(jwt ? { 'Authorization': 'Bearer ' + jwt } : {}) },
+    body: JSON.stringify(bodyObj || {})
+  });
+  try { return await r.json(); } catch (_) { return { success: false, error_code: 'validation', message: 'Bad server response' }; }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// TODO STAGE-2 — DIRECT ANON-REST CALLS STILL TO MIGRATE TO RPC
+// Stage 1 secured ONLY order creation (placeOrder → /api/orders/
+// create-and-pay) and payment retry (→ /api/orders/:id/retry-payment).
+// The following still hit Supabase directly with the anon key and MUST
+// be migrated in Stage 2 before RLS lockdown (Stage 3):
+//   • GET ptn_orders        — loadOrders (~1381), openOrderDetail (~1844),
+//                             counter-offer (~1869/1895), notif tap (~1907)
+//   • PATCH ptn_orders      — counter accept/pay/reject (~1874/1877/1885),
+//                             notif-pay (~1919), confirm/dispute/review
+//                             (~1944/2008/2073)
+//   • POST ptn_notifications — seller notifies (~1350/1952/2032/2213/
+//                             2271/2346)
+//   • Realtime WS subscribe public:ptn_orders (~1673)
+// (Enumerated here instead of one comment per line so the whole Stage-2
+//  surface is visible in a single review hunk. DO NOT lock ptn_orders
+//  RLS until these are migrated — it would break the buyer app.)
+// ════════════════════════════════════════════════════════════════════
+
 // ══════════════════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════════════════
@@ -1294,28 +1327,50 @@ async function placeOrder(total) {
     }
   } catch (_) { /* fail open — gate enforcement still happens server-side */ }
   try {
+    const fr = (currentLang === 'fr');
+    // STAGE-1-DOZIE-ORDER-RPC: collect the Mobile Money number that
+    // will be charged (default the buyer's saved momo/phone).
+    const _defPhone = String(currentBuyer.momo_phone || currentBuyer.phone || '').replace(/\D/g, '').replace(/^237/, '');
+    const _entered = window.prompt(fr ? 'Numéro Mobile Money pour le paiement :' : 'Mobile Money number to pay with:', _defPhone);
+    if (_entered === null) { toast(fr ? 'Paiement annulé' : 'Payment cancelled', 'error'); return; }
+    const payerPhone = String(_entered).replace(/\D/g, '').replace(/^237/, '');
+    if (payerPhone.length < 8 || payerPhone.length > 12) { toast(fr ? 'Numéro MoMo invalide' : 'Invalid MoMo number', 'error'); return; }
+
     const bySeller = {};
     cart.forEach(c => {
-      if (!bySeller[c.shopId]) bySeller[c.shopId] = { shopName:c.shopName, items:[] };
-      bySeller[c.shopId].items.push({ name:c.product.name, qty:c.qty, price:c.product.price||0 });
+      if (!bySeller[c.shopId]) bySeller[c.shopId] = { shopName:c.shopName, items:[], clientTotal:0 };
+      bySeller[c.shopId].items.push({ product_id: c.product.id, qty: c.qty });
+      bySeller[c.shopId].clientTotal += (c.product.price||0) * c.qty;
     });
     const orders = [];
     for (const [sellerId, data] of Object.entries(bySeller)) {
-      const orderTotal = data.items.reduce((s,i) => s+i.price*i.qty, 0);
-      const ref = 'ORD-' + Date.now().toString().slice(-6) + Math.random().toString(36).slice(2,4).toUpperCase();
-      const order = await POST('ptn_orders', {
-        order_ref: ref, buyer_id: currentBuyer.id, seller_id: sellerId,
-        items: data.items, total: orderTotal, mode: selectedMode,
-        pay_option: 'full', deposit_paid: orderTotal, status: 'pending',
-        escrow_held: orderTotal, city: currentBuyer.city
+      const res = await apiAuth('/api/orders/create-and-pay', {
+        seller_id: sellerId, items: data.items, client_total: data.clientTotal,
+        mode: selectedMode, pay_option: 'full', city: currentBuyer.city,
+        notes: null, payer_phone: payerPhone
       });
-      orders.push({ ...order, shopName: data.shopName });
+      if (!res || res.success !== true) {
+        if (res && res.error_code === 'price_mismatch') {
+          toast(fr ? 'Les prix ont changé, vérifiez votre panier' : 'Prices changed — please review your cart', 'error');
+          return;
+        }
+        if (res && res.error_code === 'campay_failed' && res.order_id) {
+          // Order exists but the MoMo request failed — keep it so the
+          // buyer can retry from the Orders tab.
+          orders.push({ order_ref: res.order_ref || '—', order_id: res.order_id, shopName: data.shopName, failed: true });
+          continue;
+        }
+        toast((fr ? 'Erreur : ' : 'Error: ') + ((res && res.message) || 'Order failed'), 'error');
+        return;
+      }
+      orders.push({ order_ref: res.order_ref, order_id: res.order_id, shopName: data.shopName, ussd_code: res.ussd_code, campay_reference: res.campay_reference });
+      // TODO STAGE-2: migrate to RPC (direct anon REST notification).
       try {
         await POST('ptn_notifications', {
           user_id: sellerId, type: 'order',
           title_en: 'New Order Received!', title_fr: 'Nouvelle commande!',
-          body_en: `${currentBuyer.name} placed an order for ${orderTotal.toLocaleString()} FCFA`,
-          body_fr: `${currentBuyer.name} a passé une commande de ${orderTotal.toLocaleString()} FCFA`,
+          body_en: `${currentBuyer.name} placed an order for ${data.clientTotal.toLocaleString()} FCFA`,
+          body_fr: `${currentBuyer.name} a passé une commande de ${data.clientTotal.toLocaleString()} FCFA`,
           read: false
         });
       } catch(e) {}
@@ -1326,13 +1381,13 @@ async function placeOrder(total) {
     document.getElementById('cart-items').innerHTML = `
       <div class="success-screen">
         <div class="success-icon">🎉</div>
-        <div class="success-title">Order Placed!</div>
-        <div class="success-sub">Your order${orders.length>1?'s are':' is'} confirmed and in escrow.</div>
-        ${orders.map(o=>`<div class="alert alert-success" style="text-align:left;margin-bottom:8px">📦 <strong>${o.order_ref}</strong> — ${o.shopName}</div>`).join('')}
-        <button class="btn btn-primary btn-block" style="margin-top:16px" onclick="switchTab('tab-orders')">Track My Orders →</button>
+        <div class="success-title">${fr ? 'Commande passée !' : 'Order Placed!'}</div>
+        <div class="success-sub">${fr ? 'Approuvez le paiement Mobile Money sur votre téléphone.' : 'Approve the Mobile Money request on your phone.'}</div>
+        ${orders.map(o=>`<div class="alert ${o.failed?'alert-error':'alert-success'}" style="text-align:left;margin-bottom:8px">📦 <strong>${o.order_ref}</strong> — ${o.shopName}${o.ussd_code?`<br><span style="font-weight:800">${fr?'Composez':'Dial'}: ${o.ussd_code}</span>`:''}${o.failed?`<br><span style="font-size:12px">${fr?'Paiement échoué — réessayez depuis Mes commandes':'Payment failed — retry from My Orders'}</span>`:''}</div>`).join('')}
+        <button class="btn btn-primary btn-block" style="margin-top:16px" onclick="switchTab('tab-orders')">${fr ? 'Suivre mes commandes →' : 'Track My Orders →'}</button>
       </div>`;
     document.getElementById('cart-checkout').innerHTML = '';
-    toast('🎉 Order placed successfully!', 'success');
+    toast(fr ? '🎉 Commande passée !' : '🎉 Order placed!', 'success');
   } catch(e) { toast('Error placing order: ' + e.message, 'error'); }
 }
 
@@ -1750,14 +1805,21 @@ async function confirmMomoPayment() {
     const fullPhone = '237' + phone;
     const _orderId = momoContext.order_id || momoContext.orderId || null;
     console.log('Campay pay - order_id:', _orderId, 'context:', JSON.stringify(momoContext));
-    const res = await fetch('/campay/pay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: _orderId, phone: fullPhone, amount: momoContext.amount, type: momoContext.type || 'order' })
-    });
-    const data = await res.json();
+    let data;
+    if (_orderId) {
+      // STAGE-1-DOZIE-ORDER-RPC: authenticated retry (orphans + retries).
+      data = await apiAuth('/api/orders/' + _orderId + '/retry-payment', { payer_phone: fullPhone });
+    } else {
+      // TODO STAGE-2: non-order legacy path still on unauthenticated /campay/pay.
+      const res = await fetch('/campay/pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: _orderId, phone: fullPhone, amount: momoContext.amount, type: momoContext.type || 'order' })
+      });
+      data = await res.json();
+    }
     if (data.success) {
-      window._campayRef = data.reference;
+      window._campayRef = data.campay_reference || data.reference;
       status.textContent = 'Approuvez sur votre telephone.' + (data.ussd_code ? ' USSD: ' + data.ussd_code : '');
       btn.textContent = 'En attente...';
       const _simBtn = document.getElementById('sandbox-sim-btn');
