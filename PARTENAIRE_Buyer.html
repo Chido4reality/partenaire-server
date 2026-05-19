@@ -2439,7 +2439,8 @@ async function simulateCampaySuccess() {
     <button onclick="closeMomoModal()" style="position:absolute;top:16px;right:16px;background:#f0ede8;border:none;width:32px;height:32px;border-radius:16px;cursor:pointer;font-size:16px;font-weight:700;color:var(--grey)">✕</button>
     <div class="momo-icon">📱</div>
     <div class="momo-title" id="momo-title">Pay with Mobile Money</div>
-    <div class="sandbox-badge">🧪 SANDBOX MODE — Test payment</div>
+    <div class="sandbox-badge" id="campay-sandbox-badge" style="display:none">🧪 SANDBOX MODE — Test payment</div>
+    <script>/* MP-CAMPAY-ENV-INDICATOR-FIX: badge shown ONLY when the backend's real Campay URL is demo. Hidden by default → production / fetch-fail = no banner. */(function(){try{fetch('/api/config').then(function(r){return r.json();}).then(function(c){if(c&&c.is_sandbox){var b=document.getElementById('campay-sandbox-badge');if(b)b.style.display='inline-block';}}).catch(function(){});}catch(e){}})();</script>
     <div class="momo-amount" id="momo-amount">0 FCFA</div>
     <div class="momo-sub" id="momo-sub">Enter your phone number to pay</div>
     <div class="momo-phone-row">

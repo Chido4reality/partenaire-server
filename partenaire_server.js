@@ -272,6 +272,22 @@ http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,apikey,Prefer,Accept');
   if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
 
+  // ── MP-CAMPAY-ENV-INDICATOR-FIX: runtime config ────────────────────
+  // Single source of truth for the "🧪 SANDBOX" banner. Derived from the
+  // ACTUAL Campay base URL the backend uses (demo.campay.net ⇒ sandbox),
+  // so the badge can never be stale vs the deployed env. No secrets.
+  if (req.url.split('?')[0] === '/api/config' && req.method === 'GET') {
+    const isDemo = String(CAMPAY_BASE_URL).includes('demo');
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({
+      campay_env: process.env.CAMPAY_ENV || 'unknown',
+      campay_base_url: CAMPAY_BASE_URL,
+      campay_is_demo: isDemo,
+      is_sandbox: isDemo
+    }));
+    return;
+  }
+
   // ── M-2.1-A — HARDENED ADMIN API ───────────────────────────────────
   // ptn_admin_roles is sealed (no anon table access). The admin portal
   // talks to these endpoints; data flows only through the SECURITY
