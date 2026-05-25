@@ -1354,26 +1354,36 @@ async function placeOrder(total, paymentMethod = 'momo') {
     for (const [sellerId, data] of Object.entries(bySeller)) {
       let order_id, order_ref, ussd_code, campay_reference, failed = false;
       if (isCash) {
-        // MP-DOZIE-PAY-AT-SHOP-BUTTON-BROKEN: direct anon-RPC create, no
-        // Campay leg. Same anon-RPC gap momo has via the Stage-1 endpoint
-        // (p_caller body-supplied, not JWT-verified inside the function);
-        // both paths will be hardened together in M-2.1 Phase B.
-        const cr = await RPC('ptn_create_order', {
-          p_caller: currentBuyer.id, p_seller_id: sellerId,
-          p_items: data.items, p_client_total: data.clientTotal,
-          p_mode: selectedMode, p_pay_option: 'pay_at_shop',
-          p_city: currentBuyer.city, p_notes: null
-        });
-        if (!cr || cr.success !== true) {
-          if (cr && cr.error_code === 'price_mismatch') {
-            toast(fr ? 'Les prix ont changé, vérifiez votre panier' : 'Prices changed — please review your cart', 'error');
-            return;
-          }
-          toast((fr ? 'Erreur : ' : 'Error: ') + ((cr && cr.message) || 'Order failed'), 'error');
+        // MP-DOZIE-CART-HANDOFF-MISSING-PRODUCT-ID (Fix C): direct POST to
+        // ptn_orders, mirroring Quick Order's shape. ptn_create_order RPC
+        // joins p_items.product_id against ptn_products only, and the
+        // cart's product.id is a dozie_marketplace_products.listing_id —
+        // for MP-linked sellers that listing_id is a
+        // pa_dozie_seller_listings UUID, NOT a ptn_products UUID, so the
+        // RPC's join misses and returns "One or more products no longer
+        // exist". Will be fixed via union-aware lookup in M-2.1 Phase B
+        // Stage-1 activation; until then we match QO's existing pattern,
+        // which works because the seller-side intake does name-based
+        // matching when sending into the MP POS cart.
+        const ref = 'ORD-' + Date.now().toString().slice(-6);
+        const cashItems = cart
+          .filter(c => c.shopId === sellerId)
+          .map(c => ({ qty: c.qty, name: c.product.name, price: c.product.price, photo: null }));
+        try {
+          await POST('ptn_orders', {
+            order_ref: ref, buyer_id: currentBuyer.id, seller_id: sellerId,
+            items: cashItems, total: data.clientTotal,
+            mode: selectedMode, pay_option: 'pay_at_shop',
+            deposit_paid: 0, escrow_held: 0,
+            status: 'pending', payment_status: 'unpaid', payment_method: 'cash',
+            city: currentBuyer.city, notes: null
+          });
+        } catch(e) {
+          toast((fr ? 'Erreur : ' : 'Error: ') + (e.message || 'Order failed'), 'error');
           return;
         }
-        order_id  = cr.order_id;
-        order_ref = cr.order_ref;
+        order_id  = null;
+        order_ref = ref;
       } else {
         const res = await apiAuth('/api/orders/create-and-pay', {
           seller_id: sellerId, items: data.items, client_total: data.clientTotal,
@@ -2276,6 +2286,10 @@ async function submitQuickOrder() {
     // fall-through default. Deposit keeps its 30% capture; full = full.
     const deposit = pay==='pay_at_shop'?0:(pay==='deposit'?Math.round(total*0.3):total);
     const escrow  = deposit;
+    // TEMP (MP-DOZIE-QO-PAY-AT-SHOP-NOT-FIRING): one round of empirical
+    // confirmation that the dropdown value reaches the POST body after the
+    // SW cache bump. Strip in the next commit.
+    console.log('[submitQuickOrder] pay=', pay, 'deposit=', deposit, 'escrow=', escrow);
     await POST('ptn_orders',{order_ref:ref,buyer_id:currentBuyer.id,seller_id:currentShop.id,items,total,mode,pay_option:pay,deposit_paid:deposit,status:'pending',escrow_held:escrow,city:quartier||currentBuyer.city,notes:delivNote||null});
     try{await POST('ptn_notifications',{user_id:currentShop.id,type:'order',title_en:'New Quick Order!',title_fr:'Nouvelle commande rapide!',body_en:`${currentBuyer.name} sent a quick order for ${total.toLocaleString()} FCFA · Ref: ${ref}`,body_fr:`${currentBuyer.name} a envoyé une commande rapide de ${total.toLocaleString()} FCFA · Ref: ${ref}`,read:false});}catch(e){}
     const summary=items.map(i=>`• ${i.name} × ${i.qty}${i.price?' ('+i.price.toLocaleString()+' FCFA/unit)':''}`).join('\n');
