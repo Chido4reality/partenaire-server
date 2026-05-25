@@ -564,11 +564,6 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
               <option value="delivery">🚚 Delivery</option>
               <option value="pickup">🏪 Pickup</option>
             </select>
-            <select class="form-select" id="qof-pay" style="width:auto;font-size:13px">
-              <option value="full">💵 Full Payment</option>
-              <option value="deposit">💳 30% Deposit</option>
-              <option value="at_shop">📋 Pay at Shop</option>
-            </select>
           </div>
         </div>
         <button class="btn btn-gold btn-block" style="font-size:15px" onclick="submitQuickOrder()">🚀 Send Order to Seller</button>
@@ -1272,14 +1267,8 @@ function renderCart() {
         <div class="delivery-option-sub">Collect in person · Get a pickup code</div>
       </div>
     </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-      <button class="btn btn-gold btn-block" style="font-size:14px;flex:1" onclick="openMomoPayment(${total},'mtn')">📱 Pay MTN MoMo</button>
-      <button class="btn btn-block" style="font-size:14px;flex:1;background:#FF6D00;color:#fff;border-color:#FF6D00" onclick="openMomoPayment(${total},'orange')">🟠 Orange Money</button>
-    </div>
-    <button class="btn btn-block" style="font-size:13px;background:#f8f6f0;color:var(--grey);border:1.5px dashed var(--lgrey)" onclick="placeOrder(${total}, 'cash')">
-      📋 Place Order (Pay Later / Cash)
-    </button>
-    <div style="font-size:11px;color:var(--grey);text-align:center;margin-top:8px">🔒 MoMo payments held in escrow until delivery confirmed</div>`;
+    <button class="btn btn-gold btn-block" style="font-size:15px;padding:14px" onclick="placeOrder(${total})">🛒 Place Order</button>
+    <div style="font-size:11px;color:var(--grey);text-align:center;margin-top:8px">📨 Seller will review your order. You'll choose how to pay after they accept.</div>`;
 }
 
 let selectedMode = 'delivery';
@@ -1311,7 +1300,7 @@ function showSellerCappedMessage() {
   document.body.appendChild(root);
 }
 
-async function placeOrder(total, paymentMethod = 'momo') {
+async function placeOrder(total) {
   if (!cart.length) return;
   // Sprint B: pre-check every distinct seller in cart against
   // dozie_seller_access. If any can't accept orders, surface the
@@ -1329,88 +1318,40 @@ async function placeOrder(total, paymentMethod = 'momo') {
   } catch (_) { /* fail open — gate enforcement still happens server-side */ }
   try {
     const fr = (currentLang === 'fr');
-    const isCash = paymentMethod === 'cash';
-
-    // MP-DOZIE-PAY-AT-SHOP: MoMo prompt only when paying via MoMo. Cash
-    // skips it — no phone needed, payment happens in person.
-    let payerPhone = null;
-    if (!isCash) {
-      // STAGE-1-DOZIE-ORDER-RPC: collect the Mobile Money number that
-      // will be charged (default the buyer's saved momo/phone).
-      const _defPhone = String(currentBuyer.momo_phone || currentBuyer.phone || '').replace(/\D/g, '').replace(/^237/, '');
-      const _entered = window.prompt(fr ? 'Numéro Mobile Money pour le paiement :' : 'Mobile Money number to pay with:', _defPhone);
-      if (_entered === null) { toast(fr ? 'Paiement annulé' : 'Payment cancelled', 'error'); return; }
-      payerPhone = String(_entered).replace(/\D/g, '').replace(/^237/, '');
-      if (payerPhone.length < 8 || payerPhone.length > 12) { toast(fr ? 'Numéro MoMo invalide' : 'Invalid MoMo number', 'error'); return; }
-    }
-
+    // MP-DOZIE-PAYMENT-AT-REQUEST-TIME: payment method is now chosen AFTER
+    // the seller accepts (openPaymentChoice modal triggered by
+    // checkPaymentRequests). Placement is a single direct POST to
+    // ptn_orders with pay_option='pending' — no Campay leg, no MoMo
+    // prompt, no /api/orders/create-and-pay call. Items shape mirrors QO
+    // ({qty,name,price,photo:null}) so name-based matching at MP-side
+    // cashier intake works the same way. ptn_create_order RPC's product_id
+    // join is bypassed (it'd miss MP-linked listings anyway — Stage-1
+    // activation work).
     const bySeller = {};
     cart.forEach(c => {
-      if (!bySeller[c.shopId]) bySeller[c.shopId] = { shopName:c.shopName, items:[], clientTotal:0 };
-      bySeller[c.shopId].items.push({ product_id: c.product.id, qty: c.qty });
-      bySeller[c.shopId].clientTotal += (c.product.price||0) * c.qty;
+      if (!bySeller[c.shopId]) bySeller[c.shopId] = { shopName: c.shopName, items: [], clientTotal: 0 };
+      bySeller[c.shopId].items.push({ qty: c.qty, name: c.product.name, price: c.product.price, photo: null });
+      bySeller[c.shopId].clientTotal += (c.product.price || 0) * c.qty;
     });
     const orders = [];
     for (const [sellerId, data] of Object.entries(bySeller)) {
-      let order_id, order_ref, ussd_code, campay_reference, failed = false;
-      if (isCash) {
-        // MP-DOZIE-CART-HANDOFF-MISSING-PRODUCT-ID (Fix C): direct POST to
-        // ptn_orders, mirroring Quick Order's shape. ptn_create_order RPC
-        // joins p_items.product_id against ptn_products only, and the
-        // cart's product.id is a dozie_marketplace_products.listing_id —
-        // for MP-linked sellers that listing_id is a
-        // pa_dozie_seller_listings UUID, NOT a ptn_products UUID, so the
-        // RPC's join misses and returns "One or more products no longer
-        // exist". Will be fixed via union-aware lookup in M-2.1 Phase B
-        // Stage-1 activation; until then we match QO's existing pattern,
-        // which works because the seller-side intake does name-based
-        // matching when sending into the MP POS cart.
-        const ref = 'ORD-' + Date.now().toString().slice(-6);
-        const cashItems = cart
-          .filter(c => c.shopId === sellerId)
-          .map(c => ({ qty: c.qty, name: c.product.name, price: c.product.price, photo: null }));
-        try {
-          await POST('ptn_orders', {
-            order_ref: ref, buyer_id: currentBuyer.id, seller_id: sellerId,
-            items: cashItems, total: data.clientTotal,
-            mode: selectedMode, pay_option: 'at_shop',
-            deposit_paid: 0, escrow_held: 0,
-            status: 'pending', payment_status: 'unpaid', payment_method: 'cash',
-            city: currentBuyer.city, notes: null
-          });
-        } catch(e) {
-          toast((fr ? 'Erreur : ' : 'Error: ') + (e.message || 'Order failed'), 'error');
-          return;
-        }
-        order_id  = null;
-        order_ref = ref;
-      } else {
-        const res = await apiAuth('/api/orders/create-and-pay', {
-          seller_id: sellerId, items: data.items, client_total: data.clientTotal,
-          mode: selectedMode, pay_option: 'full', city: currentBuyer.city,
-          notes: null, payer_phone: payerPhone
+      const ref = 'ORD-' + Date.now().toString().slice(-6) + '-' + sellerId.slice(0, 4);
+      try {
+        await POST('ptn_orders', {
+          order_ref: ref, buyer_id: currentBuyer.id, seller_id: sellerId,
+          items: data.items, total: data.clientTotal,
+          mode: selectedMode, pay_option: 'pending',
+          deposit_paid: 0, escrow_held: 0,
+          status: 'pending', payment_status: 'unpaid', payment_method: null,
+          payment_requested: false,
+          city: currentBuyer.city, notes: null
         });
-        if (!res || res.success !== true) {
-          if (res && res.error_code === 'price_mismatch') {
-            toast(fr ? 'Les prix ont changé, vérifiez votre panier' : 'Prices changed — please review your cart', 'error');
-            return;
-          }
-          if (res && res.error_code === 'campay_failed' && res.order_id) {
-            // Order exists but the MoMo request failed — keep it so the
-            // buyer can retry from the Orders tab.
-            orders.push({ order_ref: res.order_ref || '—', order_id: res.order_id, shopName: data.shopName, failed: true });
-            continue;
-          }
-          toast((fr ? 'Erreur : ' : 'Error: ') + ((res && res.message) || 'Order failed'), 'error');
-          return;
-        }
-        order_id         = res.order_id;
-        order_ref        = res.order_ref;
-        ussd_code        = res.ussd_code;
-        campay_reference = res.campay_reference;
+      } catch(e) {
+        toast((fr ? 'Erreur : ' : 'Error: ') + (e.message || 'Order failed'), 'error');
+        return;
       }
-      orders.push({ order_ref, order_id, shopName: data.shopName, ussd_code, campay_reference, failed });
-      // TODO STAGE-2: migrate to RPC (direct anon REST notification).
+      orders.push({ order_ref: ref, shopName: data.shopName });
+      // Notify seller (existing pattern).
       try {
         await POST('ptn_notifications', {
           user_id: sellerId, type: 'order',
@@ -1424,22 +1365,16 @@ async function placeOrder(total, paymentMethod = 'momo') {
     cart = [];
     updateCartBadge();
     await loadOrders();
-    const subText = isCash
-      ? (fr ? 'Présentez la commande au commerçant et payez en espèces à l\'enlèvement.' : 'Show the order to the shop and pay cash at pickup.')
-      : (fr ? 'Approuvez le paiement Mobile Money sur votre téléphone.' : 'Approve the Mobile Money request on your phone.');
     document.getElementById('cart-items').innerHTML = `
       <div class="success-screen">
-        <div class="success-icon">${isCash ? '📋' : '🎉'}</div>
-        <div class="success-title">${fr ? 'Commande passée !' : 'Order Placed!'}</div>
-        <div class="success-sub">${subText}</div>
-        ${orders.map(o=>`<div class="alert ${o.failed?'alert-error':'alert-success'}" style="text-align:left;margin-bottom:8px">📦 <strong>${o.order_ref}</strong> — ${o.shopName}${o.ussd_code?`<br><span style="font-weight:800">${fr?'Composez':'Dial'}: ${o.ussd_code}</span>`:''}${o.failed?`<br><span style="font-size:12px">${fr?'Paiement échoué — réessayez depuis Mes commandes':'Payment failed — retry from My Orders'}</span>`:''}</div>`).join('')}
+        <div class="success-icon">📨</div>
+        <div class="success-title">${fr ? 'Commande envoyée !' : 'Order Sent!'}</div>
+        <div class="success-sub">${fr ? 'Le vendeur va examiner votre commande. Vous choisirez le mode de paiement après son acceptation.' : 'The seller will review your order. You\'ll choose how to pay after they accept.'}</div>
+        ${orders.map(o=>`<div class="alert alert-success" style="text-align:left;margin-bottom:8px">📦 <strong>${o.order_ref}</strong> — ${o.shopName}</div>`).join('')}
         <button class="btn btn-primary btn-block" style="margin-top:16px" onclick="switchTab('tab-orders')">${fr ? 'Suivre mes commandes →' : 'Track My Orders →'}</button>
       </div>`;
     document.getElementById('cart-checkout').innerHTML = '';
-    toast(isCash
-      ? (fr ? '📋 Commande envoyée — payez au magasin' : '📋 Order placed — pay at shop')
-      : (fr ? '🎉 Commande passée !' : '🎉 Order placed!'),
-      'success');
+    toast(fr ? '📨 Commande envoyée — en attente d\'acceptation' : '📨 Order sent — waiting for seller', 'success');
   } catch(e) { toast('Error placing order: ' + e.message, 'error'); }
 }
 
@@ -1906,6 +1841,80 @@ async function confirmMomoPayment() {
 }
 
 // ══════════════════════════════════════════════════════════════
+//  PAYMENT CHOICE (post seller-accept)
+//  MP-DOZIE-PAYMENT-AT-REQUEST-TIME: when checkPaymentRequests
+//  finds a confirmed order with pay_option='pending', it opens this
+//  modal instead of the Campay modal directly. Buyer picks how to
+//  pay (MoMo / Orange / cash at shop); choosePaymentMethod PATCHes
+//  the order to flip pay_option to 'full' or 'at_shop' and either
+//  hands off to the existing openMomoModal (Campay) or shows a
+//  cash-confirmation toast.
+// ══════════════════════════════════════════════════════════════
+let pcContext = null;
+function openPaymentChoice(ctx) {
+  pcContext = ctx;
+  document.getElementById('pc-title').textContent = '💳 Pay for Order ' + (ctx.ref || '');
+  document.getElementById('pc-amount').textContent = (ctx.total || 0).toLocaleString() + ' FCFA';
+  document.getElementById('payment-choice-modal').classList.add('open');
+}
+function closePaymentChoice() {
+  document.getElementById('payment-choice-modal').classList.remove('open');
+}
+async function choosePaymentMethod(method, operator) {
+  if (!pcContext || !pcContext.order_id) return;
+  const fr = (currentLang === 'fr');
+  const o = pcContext;
+  closePaymentChoice();
+  if (method === 'cash') {
+    try {
+      await PATCH('ptn_orders', 'id', o.order_id, {
+        pay_option: 'at_shop',
+        payment_method: 'cash',
+        payment_requested: false,
+        escrow_held: 0,
+        deposit_paid: 0,
+        updated_at: new Date().toISOString()
+      });
+      await loadOrders();
+      toast(fr ? '📋 Payez en espèces à l\'enlèvement' : '📋 Pay cash at pickup', 'success');
+    } catch(e) {
+      toast((fr ? 'Erreur : ' : 'Error: ') + (e.message || 'Update failed'), 'error');
+    }
+    return;
+  }
+  // MoMo / Orange: flip pay_option to 'full' then hand off to the existing
+  // Campay modal. Campay onSuccess flips payment_status to 'paid' and
+  // captures escrow — same as the legacy momo flow.
+  try {
+    await PATCH('ptn_orders', 'id', o.order_id, {
+      pay_option: 'full',
+      payment_method: 'mobile_money',
+      updated_at: new Date().toISOString()
+    });
+  } catch(e) {
+    toast((fr ? 'Erreur : ' : 'Error: ') + (e.message || 'Update failed'), 'error');
+    return;
+  }
+  selectOperator(operator || 'mtn');
+  openMomoModal({
+    type: 'order',
+    title: '💳 Pay for Order ' + (o.ref || ''),
+    subtitle: fr ? 'Confirmé — paiement requis' : 'Confirmed — please pay to proceed',
+    amount: o.total || 0, order_id: o.order_id, ref: o.ref,
+    onSuccess: async () => {
+      await PATCH('ptn_orders', 'id', o.order_id, {
+        escrow_held: o.total || 0,
+        payment_requested: false,
+        payment_status: 'paid',
+        updated_at: new Date().toISOString()
+      });
+      await loadOrders();
+      toast('✅ Payment confirmed!', 'success');
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
 //  COUNTER OFFER
 // ══════════════════════════════════════════════════════════════
 let activeCounterOrderId = null;
@@ -1975,7 +1984,7 @@ async function checkPaymentRequests() {
     if (!notifs || !notifs.length) return;
     for (const n of notifs) {
       if (!n.order_id) continue;
-      const orders = await GET('ptn_orders', `id=eq.${n.order_id}&select=id,status,counter_status,payment_requested,total,order_ref`);
+      const orders = await GET('ptn_orders', `id=eq.${n.order_id}&select=id,status,counter_status,payment_requested,total,order_ref,pay_option,seller_id`);
       const o = orders && orders[0];
       if (!o) continue;
       if (o.counter_status === 'pending') {
@@ -1984,11 +1993,20 @@ async function checkPaymentRequests() {
         try { await PATCH('ptn_notifications','id',n.id,{read:true}); } catch(e) {}
         break;
       } else if (o.payment_requested && o.status === 'confirmed') {
-        toast('💳 Payment requested for order ' + o.order_ref, '');
-        openMomoModal({ type:'order', title:'💳 Pay for Order '+o.order_ref, subtitle:'Your order is confirmed — please pay to proceed',
-          amount:o.total||0, order_id:o.id, ref:o.order_ref,
-          onSuccess: async () => { await PATCH('ptn_orders','id',o.id,{escrow_held:o.total||0,payment_requested:false,payment_status:'paid',updated_at:new Date().toISOString()}); await loadOrders(); toast('✅ Payment confirmed!', 'success'); }
-        });
+        // MP-DOZIE-PAYMENT-AT-REQUEST-TIME: pay_option='pending' means the
+        // buyer hasn't yet picked momo vs at-shop. Open the 3-button
+        // choice modal. Legacy orders with pay_option='full' (created
+        // before the redesign) still auto-open the Campay modal directly.
+        if (o.pay_option === 'pending') {
+          toast('💳 Seller accepted — choose how to pay', '');
+          openPaymentChoice({ order_id: o.id, ref: o.order_ref, total: o.total || 0 });
+        } else {
+          toast('💳 Payment requested for order ' + o.order_ref, '');
+          openMomoModal({ type:'order', title:'💳 Pay for Order '+o.order_ref, subtitle:'Your order is confirmed — please pay to proceed',
+            amount:o.total||0, order_id:o.id, ref:o.order_ref,
+            onSuccess: async () => { await PATCH('ptn_orders','id',o.id,{escrow_held:o.total||0,payment_requested:false,payment_status:'paid',updated_at:new Date().toISOString()}); await loadOrders(); toast('✅ Payment confirmed!', 'success'); }
+          });
+        }
         try { await PATCH('ptn_notifications','id',n.id,{read:true}); } catch(e) {}
         break;
       }
@@ -2272,7 +2290,8 @@ async function submitQuickOrder() {
   const landmark=document.getElementById('del-landmark')?.value.trim()||'';
   const note=document.getElementById('del-note')?.value.trim()||'';
   const mode=document.getElementById('qof-mode')?.value||'delivery';
-  const pay=document.getElementById('qof-pay')?.value||'full';
+  // MP-DOZIE-PAYMENT-AT-REQUEST-TIME: pay_option is locked to 'pending'
+  // at placement; buyer chooses MoMo/Orange/at_shop after seller accepts.
   const total=validRows.reduce((s,r)=>s+(parseFloat(r.price)||0)*(parseInt(r.qty)||1),0);
   const delivNote=[quartier,landmark,note,selectedDeliveryTime].filter(Boolean).join(' · ');
   const items=validRows.map(r=>({name:r.name.trim(),qty:parseInt(r.qty)||1,price:parseFloat(r.price)||0,photo:r.photo||null}));
@@ -2280,16 +2299,10 @@ async function submitQuickOrder() {
   if(btn){btn.textContent='Sending...';btn.disabled=true;}
   try {
     const ref='QOF-'+Date.now().toString().slice(-6);
-    // MP-DOZIE-PAY-AT-SHOP: 'at_shop' = no money up front (no deposit
-    // collected, nothing in escrow). Cash settles in person on pickup;
-    // the seller-side derivation labels unpaid 'at_shop' rows as
-    // 'pay_at_shop' (display value) via the fall-through default.
-    // Deposit keeps its 30% capture; full = full. Storage canon is
-    // 'at_shop' (ptn_orders_pay_option_check); display canon is
-    // 'pay_at_shop' (seller-side label).
-    const deposit = pay==='at_shop'?0:(pay==='deposit'?Math.round(total*0.3):total);
-    const escrow  = deposit;
-    await POST('ptn_orders',{order_ref:ref,buyer_id:currentBuyer.id,seller_id:currentShop.id,items,total,mode,pay_option:pay,deposit_paid:deposit,status:'pending',escrow_held:escrow,city:quartier||currentBuyer.city,notes:delivNote||null});
+    // MP-DOZIE-PAYMENT-AT-REQUEST-TIME: place as 'pending' — buyer picks
+    // payment method (momo/orange/at_shop) via openPaymentChoice modal
+    // once the seller accepts.
+    await POST('ptn_orders',{order_ref:ref,buyer_id:currentBuyer.id,seller_id:currentShop.id,items,total,mode,pay_option:'pending',deposit_paid:0,status:'pending',payment_status:'unpaid',payment_method:null,payment_requested:false,escrow_held:0,city:quartier||currentBuyer.city,notes:delivNote||null});
     try{await POST('ptn_notifications',{user_id:currentShop.id,type:'order',title_en:'New Quick Order!',title_fr:'Nouvelle commande rapide!',body_en:`${currentBuyer.name} sent a quick order for ${total.toLocaleString()} FCFA · Ref: ${ref}`,body_fr:`${currentBuyer.name} a envoyé une commande rapide de ${total.toLocaleString()} FCFA · Ref: ${ref}`,read:false});}catch(e){}
     const summary=items.map(i=>`• ${i.name} × ${i.qty}${i.price?' ('+i.price.toLocaleString()+' FCFA/unit)':''}`).join('\n');
     addChatMsg(`📋 QUICK ORDER ${ref}\n\n${summary}\n\nTotal: ${total.toLocaleString()} FCFA\nMode: ${mode==='pickup'?'Pickup':'Delivery'}${delivNote?'\nDelivery note: '+delivNote:''}`, 'sent', 'text');
@@ -2522,6 +2535,22 @@ async function simulateCampaySuccess() {
       </button>
     </div>
     <div style="font-size:11px;color:var(--grey);margin-top:12px">🔒 Securise par Campay · Your PIN stays on your phone</div>
+  </div>
+</div>
+
+<!-- ══ PAYMENT CHOICE MODAL (post seller-accept) ═══════════════ -->
+<div class="momo-overlay" id="payment-choice-modal">
+  <div class="momo-box">
+    <div class="momo-close" onclick="closePaymentChoice()">×</div>
+    <div class="momo-title" id="pc-title">Choose How to Pay</div>
+    <div class="momo-amount" id="pc-amount">0 FCFA</div>
+    <div class="momo-sub">Your order is confirmed by the seller</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+      <button class="btn btn-gold btn-block" style="padding:14px;font-size:14px" onclick="choosePaymentMethod('momo','mtn')">📱 MTN MoMo</button>
+      <button class="btn btn-block" style="padding:14px;font-size:14px;background:#FF6D00;color:#fff;border-color:#FF6D00" onclick="choosePaymentMethod('momo','orange')">🟠 Orange Money</button>
+      <button class="btn btn-block" style="padding:14px;font-size:14px;background:#f8f6f0;color:var(--grey);border:1.5px dashed var(--lgrey)" onclick="choosePaymentMethod('cash')">📋 Pay at Shop (cash on pickup)</button>
+    </div>
+    <div style="font-size:11px;color:var(--grey);text-align:center;margin-top:14px">🔒 MoMo payments held in escrow until delivery</div>
   </div>
 </div>
 

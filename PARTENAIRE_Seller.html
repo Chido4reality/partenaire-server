@@ -2242,6 +2242,17 @@ function openOrderDetail(id) {
         onclick="updateOrderStatus('${o.id}','rejected')">
         ✕ Reject Order
       </button>`
+    : (o.status==='confirmed' && o.pay_option==='at_shop')
+    ? `
+      <!-- MP-DOZIE-PAYMENT-AT-REQUEST-TIME: buyer chose pay-at-shop after
+           accept. Single primary action: cashier collects cash + hands
+           the order off to the MP cart for ring-through. Reuses the
+           existing dozieHandoff('complete-at-shop') path, which creates
+           the pa_online_cart row the MP cashier picks up. -->
+      <button class="btn btn-green btn-block" style="padding:13px;font-size:14px"
+        onclick="dozieHandoff('${o.id}','complete-at-shop','pay_at_shop')">
+        ✓ Confirm & Finish at Shop (cash collected)
+      </button>`
     : o.status==='confirmed'
     ? (isPickup
       ? `<button class="btn btn-primary btn-block" onclick="updateOrderStatus('${o.id}','ready')" style="background:#E67E22;border-color:#E67E22">📦 Mark as Ready for Pickup</button>`
