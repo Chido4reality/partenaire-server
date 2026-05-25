@@ -567,6 +567,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
             <select class="form-select" id="qof-pay" style="width:auto;font-size:13px">
               <option value="full">💵 Full Payment</option>
               <option value="deposit">💳 30% Deposit</option>
+              <option value="pay_at_shop">📋 Pay at Shop</option>
             </select>
           </div>
         </div>
@@ -1275,7 +1276,7 @@ function renderCart() {
       <button class="btn btn-gold btn-block" style="font-size:14px;flex:1" onclick="openMomoPayment(${total},'mtn')">📱 Pay MTN MoMo</button>
       <button class="btn btn-block" style="font-size:14px;flex:1;background:#FF6D00;color:#fff;border-color:#FF6D00" onclick="openMomoPayment(${total},'orange')">🟠 Orange Money</button>
     </div>
-    <button class="btn btn-block" style="font-size:13px;background:#f8f6f0;color:var(--grey);border:1.5px dashed var(--lgrey)" onclick="placeOrder(${total})">
+    <button class="btn btn-block" style="font-size:13px;background:#f8f6f0;color:var(--grey);border:1.5px dashed var(--lgrey)" onclick="placeOrder(${total}, 'cash')">
       📋 Place Order (Pay Later / Cash)
     </button>
     <div style="font-size:11px;color:var(--grey);text-align:center;margin-top:8px">🔒 MoMo payments held in escrow until delivery confirmed</div>`;
@@ -1310,7 +1311,7 @@ function showSellerCappedMessage() {
   document.body.appendChild(root);
 }
 
-async function placeOrder(total) {
+async function placeOrder(total, paymentMethod = 'momo') {
   if (!cart.length) return;
   // Sprint B: pre-check every distinct seller in cart against
   // dozie_seller_access. If any can't accept orders, surface the
@@ -1328,13 +1329,20 @@ async function placeOrder(total) {
   } catch (_) { /* fail open — gate enforcement still happens server-side */ }
   try {
     const fr = (currentLang === 'fr');
-    // STAGE-1-DOZIE-ORDER-RPC: collect the Mobile Money number that
-    // will be charged (default the buyer's saved momo/phone).
-    const _defPhone = String(currentBuyer.momo_phone || currentBuyer.phone || '').replace(/\D/g, '').replace(/^237/, '');
-    const _entered = window.prompt(fr ? 'Numéro Mobile Money pour le paiement :' : 'Mobile Money number to pay with:', _defPhone);
-    if (_entered === null) { toast(fr ? 'Paiement annulé' : 'Payment cancelled', 'error'); return; }
-    const payerPhone = String(_entered).replace(/\D/g, '').replace(/^237/, '');
-    if (payerPhone.length < 8 || payerPhone.length > 12) { toast(fr ? 'Numéro MoMo invalide' : 'Invalid MoMo number', 'error'); return; }
+    const isCash = paymentMethod === 'cash';
+
+    // MP-DOZIE-PAY-AT-SHOP: MoMo prompt only when paying via MoMo. Cash
+    // skips it — no phone needed, payment happens in person.
+    let payerPhone = null;
+    if (!isCash) {
+      // STAGE-1-DOZIE-ORDER-RPC: collect the Mobile Money number that
+      // will be charged (default the buyer's saved momo/phone).
+      const _defPhone = String(currentBuyer.momo_phone || currentBuyer.phone || '').replace(/\D/g, '').replace(/^237/, '');
+      const _entered = window.prompt(fr ? 'Numéro Mobile Money pour le paiement :' : 'Mobile Money number to pay with:', _defPhone);
+      if (_entered === null) { toast(fr ? 'Paiement annulé' : 'Payment cancelled', 'error'); return; }
+      payerPhone = String(_entered).replace(/\D/g, '').replace(/^237/, '');
+      if (payerPhone.length < 8 || payerPhone.length > 12) { toast(fr ? 'Numéro MoMo invalide' : 'Invalid MoMo number', 'error'); return; }
+    }
 
     const bySeller = {};
     cart.forEach(c => {
@@ -1344,26 +1352,54 @@ async function placeOrder(total) {
     });
     const orders = [];
     for (const [sellerId, data] of Object.entries(bySeller)) {
-      const res = await apiAuth('/api/orders/create-and-pay', {
-        seller_id: sellerId, items: data.items, client_total: data.clientTotal,
-        mode: selectedMode, pay_option: 'full', city: currentBuyer.city,
-        notes: null, payer_phone: payerPhone
-      });
-      if (!res || res.success !== true) {
-        if (res && res.error_code === 'price_mismatch') {
-          toast(fr ? 'Les prix ont changé, vérifiez votre panier' : 'Prices changed — please review your cart', 'error');
+      let order_id, order_ref, ussd_code, campay_reference, failed = false;
+      if (isCash) {
+        // MP-DOZIE-PAY-AT-SHOP-BUTTON-BROKEN: direct anon-RPC create, no
+        // Campay leg. Same anon-RPC gap momo has via the Stage-1 endpoint
+        // (p_caller body-supplied, not JWT-verified inside the function);
+        // both paths will be hardened together in M-2.1 Phase B.
+        const cr = await RPC('ptn_create_order', {
+          p_caller: currentBuyer.id, p_seller_id: sellerId,
+          p_items: data.items, p_client_total: data.clientTotal,
+          p_mode: selectedMode, p_pay_option: 'pay_at_shop',
+          p_city: currentBuyer.city, p_notes: null
+        });
+        if (!cr || cr.success !== true) {
+          if (cr && cr.error_code === 'price_mismatch') {
+            toast(fr ? 'Les prix ont changé, vérifiez votre panier' : 'Prices changed — please review your cart', 'error');
+            return;
+          }
+          toast((fr ? 'Erreur : ' : 'Error: ') + ((cr && cr.message) || 'Order failed'), 'error');
           return;
         }
-        if (res && res.error_code === 'campay_failed' && res.order_id) {
-          // Order exists but the MoMo request failed — keep it so the
-          // buyer can retry from the Orders tab.
-          orders.push({ order_ref: res.order_ref || '—', order_id: res.order_id, shopName: data.shopName, failed: true });
-          continue;
+        order_id  = cr.order_id;
+        order_ref = cr.order_ref;
+      } else {
+        const res = await apiAuth('/api/orders/create-and-pay', {
+          seller_id: sellerId, items: data.items, client_total: data.clientTotal,
+          mode: selectedMode, pay_option: 'full', city: currentBuyer.city,
+          notes: null, payer_phone: payerPhone
+        });
+        if (!res || res.success !== true) {
+          if (res && res.error_code === 'price_mismatch') {
+            toast(fr ? 'Les prix ont changé, vérifiez votre panier' : 'Prices changed — please review your cart', 'error');
+            return;
+          }
+          if (res && res.error_code === 'campay_failed' && res.order_id) {
+            // Order exists but the MoMo request failed — keep it so the
+            // buyer can retry from the Orders tab.
+            orders.push({ order_ref: res.order_ref || '—', order_id: res.order_id, shopName: data.shopName, failed: true });
+            continue;
+          }
+          toast((fr ? 'Erreur : ' : 'Error: ') + ((res && res.message) || 'Order failed'), 'error');
+          return;
         }
-        toast((fr ? 'Erreur : ' : 'Error: ') + ((res && res.message) || 'Order failed'), 'error');
-        return;
+        order_id         = res.order_id;
+        order_ref        = res.order_ref;
+        ussd_code        = res.ussd_code;
+        campay_reference = res.campay_reference;
       }
-      orders.push({ order_ref: res.order_ref, order_id: res.order_id, shopName: data.shopName, ussd_code: res.ussd_code, campay_reference: res.campay_reference });
+      orders.push({ order_ref, order_id, shopName: data.shopName, ussd_code, campay_reference, failed });
       // TODO STAGE-2: migrate to RPC (direct anon REST notification).
       try {
         await POST('ptn_notifications', {
@@ -1378,16 +1414,22 @@ async function placeOrder(total) {
     cart = [];
     updateCartBadge();
     await loadOrders();
+    const subText = isCash
+      ? (fr ? 'Présentez la commande au commerçant et payez en espèces à l\'enlèvement.' : 'Show the order to the shop and pay cash at pickup.')
+      : (fr ? 'Approuvez le paiement Mobile Money sur votre téléphone.' : 'Approve the Mobile Money request on your phone.');
     document.getElementById('cart-items').innerHTML = `
       <div class="success-screen">
-        <div class="success-icon">🎉</div>
+        <div class="success-icon">${isCash ? '📋' : '🎉'}</div>
         <div class="success-title">${fr ? 'Commande passée !' : 'Order Placed!'}</div>
-        <div class="success-sub">${fr ? 'Approuvez le paiement Mobile Money sur votre téléphone.' : 'Approve the Mobile Money request on your phone.'}</div>
+        <div class="success-sub">${subText}</div>
         ${orders.map(o=>`<div class="alert ${o.failed?'alert-error':'alert-success'}" style="text-align:left;margin-bottom:8px">📦 <strong>${o.order_ref}</strong> — ${o.shopName}${o.ussd_code?`<br><span style="font-weight:800">${fr?'Composez':'Dial'}: ${o.ussd_code}</span>`:''}${o.failed?`<br><span style="font-size:12px">${fr?'Paiement échoué — réessayez depuis Mes commandes':'Payment failed — retry from My Orders'}</span>`:''}</div>`).join('')}
         <button class="btn btn-primary btn-block" style="margin-top:16px" onclick="switchTab('tab-orders')">${fr ? 'Suivre mes commandes →' : 'Track My Orders →'}</button>
       </div>`;
     document.getElementById('cart-checkout').innerHTML = '';
-    toast(fr ? '🎉 Commande passée !' : '🎉 Order placed!', 'success');
+    toast(isCash
+      ? (fr ? '📋 Commande envoyée — payez au magasin' : '📋 Order placed — pay at shop')
+      : (fr ? '🎉 Commande passée !' : '🎉 Order placed!'),
+      'success');
   } catch(e) { toast('Error placing order: ' + e.message, 'error'); }
 }
 
@@ -1761,7 +1803,7 @@ function openMomoPayment(total, operator, orderId, orderRef) {
     type: 'order', title: '💳 Pay for Order ' + (orderRef || ''),
     subtitle: 'Paiement securise - Fonds en escrow jusqu a livraison',
     amount: total, order_id: orderId || null, ref: orderRef || ('ORD-' + Date.now().toString().slice(-6)),
-    onSuccess: async () => { await placeOrder(total, true); await loadOrders(); }
+    onSuccess: async () => { await placeOrder(total, 'momo'); await loadOrders(); }
   });
 }
 
@@ -2228,7 +2270,13 @@ async function submitQuickOrder() {
   if(btn){btn.textContent='Sending...';btn.disabled=true;}
   try {
     const ref='QOF-'+Date.now().toString().slice(-6);
-    await POST('ptn_orders',{order_ref:ref,buyer_id:currentBuyer.id,seller_id:currentShop.id,items,total,mode,pay_option:pay,deposit_paid:pay==='deposit'?Math.round(total*0.3):total,status:'pending',escrow_held:pay==='deposit'?Math.round(total*0.3):total,city:quartier||currentBuyer.city,notes:delivNote||null});
+    // MP-DOZIE-PAY-AT-SHOP: pay_at_shop = no money up front (no deposit
+    // collected, nothing in escrow). Cash settles in person on pickup,
+    // seller-side derivation already labels this 'pay_at_shop' via the
+    // fall-through default. Deposit keeps its 30% capture; full = full.
+    const deposit = pay==='pay_at_shop'?0:(pay==='deposit'?Math.round(total*0.3):total);
+    const escrow  = deposit;
+    await POST('ptn_orders',{order_ref:ref,buyer_id:currentBuyer.id,seller_id:currentShop.id,items,total,mode,pay_option:pay,deposit_paid:deposit,status:'pending',escrow_held:escrow,city:quartier||currentBuyer.city,notes:delivNote||null});
     try{await POST('ptn_notifications',{user_id:currentShop.id,type:'order',title_en:'New Quick Order!',title_fr:'Nouvelle commande rapide!',body_en:`${currentBuyer.name} sent a quick order for ${total.toLocaleString()} FCFA · Ref: ${ref}`,body_fr:`${currentBuyer.name} a envoyé une commande rapide de ${total.toLocaleString()} FCFA · Ref: ${ref}`,read:false});}catch(e){}
     const summary=items.map(i=>`• ${i.name} × ${i.qty}${i.price?' ('+i.price.toLocaleString()+' FCFA/unit)':''}`).join('\n');
     addChatMsg(`📋 QUICK ORDER ${ref}\n\n${summary}\n\nTotal: ${total.toLocaleString()} FCFA\nMode: ${mode==='pickup'?'Pickup':'Delivery'}${delivNote?'\nDelivery note: '+delivNote:''}`, 'sent', 'text');
