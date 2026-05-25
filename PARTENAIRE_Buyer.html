@@ -788,6 +788,25 @@ async function PATCH(table, col, val, body) {
 // jsonb result verbatim (NOT array-unwrapped, unlike POST()).
 async function RPC(fn, args) { return xhr('POST', apiUrl('rpc/' + fn), args || {}); }
 
+// M-2.1 Phase B.4 follow-up: single chokepoint for get_users_minimal.
+// Three call sites previously inlined `(dozieSession()||{}).uid`, which
+// silently sent p_caller=undefined whenever the JWT had crossed its
+// expiry boundary mid-session — currentBuyer stayed populated, polling
+// guards passed, but PostgREST then 404'd (PGRST202: no single-arg
+// signature exists), the surrounding try/catch swallowed it, and the
+// user saw a half-rendered dashboard with no diagnostic.
+async function getUsersMinimal(ids) {
+  const uid = (dozieSession() || {}).uid;
+  if (!uid || !Array.isArray(ids) || !ids.length) return [];
+  try {
+    const r = await RPC('get_users_minimal', { p_caller: uid, p_ids: ids });
+    return (r && r.ok && Array.isArray(r.users)) ? r.users : [];
+  } catch (e) {
+    console.warn('[get_users_minimal]', (e && e.message) || e);
+    return [];
+  }
+}
+
 // STAGE-1-DOZIE-ORDER-RPC: authenticated POST to the Dozie backend
 // (NOT Supabase). Sends the PIN-JWT so the server resolves buyer_id
 // from the token. Returns parsed JSON (never throws on HTTP error —
@@ -1388,8 +1407,8 @@ async function loadOrders() {
     const sIds = [...new Set((orders||[]).map(o=>o.seller_id).filter(Boolean))];
     let sMap = {};
     if (sIds.length) {
-      const mr = await RPC('get_users_minimal', { p_caller: (dozieSession()||{}).uid, p_ids: sIds });
-      if (mr && mr.ok && mr.users) mr.users.forEach(s => sMap[s.id] = s.company||s.name);
+      const us = await getUsersMinimal(sIds);
+      us.forEach(s => sMap[s.id] = s.company || s.name);
     }
     allOrders = (orders||[]).map(o => ({...o, shopName: sMap[o.seller_id]||'Shop'}));
     const pending = allOrders.filter(o=>o.status==='pending').length;

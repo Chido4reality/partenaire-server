@@ -1101,6 +1101,26 @@ async function PATCH(table, col, val, body) {
 // for supabase.co URLs; the function bypasses RLS. Returns the function's
 // jsonb result verbatim (NOT array-unwrapped, unlike POST()).
 async function RPC(fn, args) { return xhr('POST', apiUrl('rpc/' + fn), args || {}); }
+
+// M-2.1 Phase B.4 follow-up: single chokepoint for get_users_minimal.
+// Two call sites previously inlined `(dozieSession()||{}).uid`, which
+// silently sent p_caller=undefined whenever the JWT had crossed its
+// expiry boundary mid-session — currentSeller stayed populated, polling
+// guards passed, but PostgREST then 404'd (PGRST202: no single-arg
+// signature exists), the surrounding try/catch swallowed it, and the
+// dashboard rendered with stale or missing buyer names with no diagnostic.
+async function getUsersMinimal(ids) {
+  const uid = (dozieSession() || {}).uid;
+  if (!uid || !Array.isArray(ids) || !ids.length) return [];
+  try {
+    const r = await RPC('get_users_minimal', { p_caller: uid, p_ids: ids });
+    return (r && r.ok && Array.isArray(r.users)) ? r.users : [];
+  } catch (e) {
+    console.warn('[get_users_minimal]', (e && e.message) || e);
+    return [];
+  }
+}
+
 async function DELETE(table, col, val) {
   return xhr('DELETE', apiUrl(table) + '?' + col + '=eq.' + encodeURIComponent(val));
 }
@@ -1912,8 +1932,8 @@ async function loadOrders() {
     const buyerIds = [...new Set(orders.map(o=>o.buyer_id).filter(Boolean))];
     let buyerMap = {};
     if (buyerIds.length) {
-      const bm = await RPC('get_users_minimal', { p_caller: (dozieSession()||{}).uid, p_ids: buyerIds });
-      ((bm && bm.ok && bm.users) || []).forEach(b => buyerMap[b.id] = b);
+      const us = await getUsersMinimal(buyerIds);
+      us.forEach(b => buyerMap[b.id] = b);
     }
     // D-1 handoff state: a non-voided pa_online_cart row means the
     // order was already sent to the MP Online Cart. Anon-readable.
@@ -3074,15 +3094,13 @@ async function openSellerChat(buyerId, buyerName) {
 
   document.getElementById('sc-buyer-name').textContent = scBuyerName;
 
-  // Load buyer phone
-  try {
-    const bm = await RPC('get_users_minimal', { p_caller: (dozieSession()||{}).uid, p_ids: [buyerId] });
-    if (bm && bm.ok && bm.users && bm.users[0]) {
-      const b = bm.users[0];
-      document.getElementById('sc-buyer-name').textContent = b.name || b.company || scBuyerName;
-      document.getElementById('sc-buyer-phone').textContent = '+237 ' + b.phone;
-    }
-  } catch(e) {}
+  // Load buyer phone. Wrapper swallows errors + handles missing uid.
+  const us = await getUsersMinimal([buyerId]);
+  if (us[0]) {
+    const b = us[0];
+    document.getElementById('sc-buyer-name').textContent = b.name || b.company || scBuyerName;
+    document.getElementById('sc-buyer-phone').textContent = '+237 ' + b.phone;
+  }
 
   // Load messages
   const msgEl = document.getElementById('sc-messages');
