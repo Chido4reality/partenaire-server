@@ -883,6 +883,51 @@ http.createServer((req, res) => {
     }
   }
 
+  // STAGE-1-DOZIE-ORDER-RPC: re-run payment for an existing order
+  // (orphans + Campay retries). Replaces the unauthenticated /campay/pay
+  // for the buyer flow. RPC verifies the caller owns the order.
+  //
+  // ROUTE ORDERING — this block MUST sit before the generic /api/
+  // Supabase proxy below; otherwise the proxy's startsWith('/api/')
+  // intercepts the request and forwards to /rest/v1/orders/<uuid>/
+  // retry-payment, which Supabase REST 404s as "invalid path
+  // specified in request URL". Mirrors the at-shop handoff block
+  // above (search for "complete-at-shop" — same ordering rationale).
+  {
+    const mRetry = req.url.split('?')[0].match(/^\/api\/orders\/([0-9a-fA-F-]{36})\/retry-payment$/);
+    if (mRetry && req.method === 'POST') {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', async () => {
+        const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+        try {
+          const idn = resolveDozieIdentity(req, 'buyer');
+          if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+          const order_id = mRetry[1];
+          const { payer_phone } = JSON.parse(body || '{}');
+          if (!payer_phone) return send(400, { success: false, error_code: 'validation', message: 'payer_phone is required' });
+
+          const rp = await supaRpc('ptn_request_payment', { p_caller: idn.uid, p_order_id: order_id, p_payer_phone: String(payer_phone) });
+          if (!rp || rp.success !== true) {
+            const ec = (rp && rp.error_code) || 'validation';
+            const http = ec === 'forbidden' ? 403 : ec === 'not_found' ? 404 : 400;
+            return send(http, { success: false, error_code: ec, message: (rp && rp.message) || 'Payment request failed', order_id });
+          }
+          let camp;
+          try { camp = await campayCollect({ amount: rp.total, phone: String(payer_phone), description: 'PARTENAIRE ' + rp.order_ref, reference: rp.ext_reference }); }
+          catch (e) { camp = { _error: e.message }; }
+          if (!camp || !(camp.reference || camp.ussd_code)) {
+            await supaRpc('ptn_record_campay_reference', { p_caller: idn.uid, p_order_id: order_id, p_campay_reference: null, p_campay_operator: null, p_campay_status: 'failed', p_error_message: 'Campay collect failed: ' + JSON.stringify(camp && (camp.message || camp._error || camp)) });
+            return send(502, { success: false, error_code: 'campay_failed', message: 'Mobile money request failed. You can retry.', order_id, campay_error: camp });
+          }
+          await supaRpc('ptn_record_campay_reference', { p_caller: idn.uid, p_order_id: order_id, p_campay_reference: camp.reference || rp.ext_reference, p_campay_operator: camp.operator || null, p_campay_status: 'PENDING', p_error_message: null });
+          return send(200, { success: true, order_id, order_ref: rp.order_ref, server_total: rp.total, campay_reference: camp.reference || rp.ext_reference, campay_operator: camp.operator || null, ussd_code: camp.ussd_code || null, expected_status: 'PENDING' });
+        } catch (e) { send(500, { success: false, error_code: 'validation', message: e.message }); }
+      });
+      return;
+    }
+  }
+
   // ── SUPABASE API PROXY ────────────────────────────────────────────────
   //
   // Phase D — MP-subscription gating for sellers. Before forwarding to
@@ -1111,44 +1156,6 @@ http.createServer((req, res) => {
       } catch (e) { send(500, { success: false, error_code: 'validation', message: e.message }); }
     });
     return;
-  }
-
-  // STAGE-1-DOZIE-ORDER-RPC: re-run payment for an existing order
-  // (orphans + Campay retries). Replaces the unauthenticated /campay/pay
-  // for the buyer flow. RPC verifies the caller owns the order.
-  {
-    const mRetry = req.url.split('?')[0].match(/^\/api\/orders\/([0-9a-fA-F-]{36})\/retry-payment$/);
-    if (mRetry && req.method === 'POST') {
-      let body = '';
-      req.on('data', c => body += c);
-      req.on('end', async () => {
-        const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
-        try {
-          const idn = resolveDozieIdentity(req, 'buyer');
-          if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
-          const order_id = mRetry[1];
-          const { payer_phone } = JSON.parse(body || '{}');
-          if (!payer_phone) return send(400, { success: false, error_code: 'validation', message: 'payer_phone is required' });
-
-          const rp = await supaRpc('ptn_request_payment', { p_caller: idn.uid, p_order_id: order_id, p_payer_phone: String(payer_phone) });
-          if (!rp || rp.success !== true) {
-            const ec = (rp && rp.error_code) || 'validation';
-            const http = ec === 'forbidden' ? 403 : ec === 'not_found' ? 404 : 400;
-            return send(http, { success: false, error_code: ec, message: (rp && rp.message) || 'Payment request failed', order_id });
-          }
-          let camp;
-          try { camp = await campayCollect({ amount: rp.total, phone: String(payer_phone), description: 'PARTENAIRE ' + rp.order_ref, reference: rp.ext_reference }); }
-          catch (e) { camp = { _error: e.message }; }
-          if (!camp || !(camp.reference || camp.ussd_code)) {
-            await supaRpc('ptn_record_campay_reference', { p_caller: idn.uid, p_order_id: order_id, p_campay_reference: null, p_campay_operator: null, p_campay_status: 'failed', p_error_message: 'Campay collect failed: ' + JSON.stringify(camp && (camp.message || camp._error || camp)) });
-            return send(502, { success: false, error_code: 'campay_failed', message: 'Mobile money request failed. You can retry.', order_id, campay_error: camp });
-          }
-          await supaRpc('ptn_record_campay_reference', { p_caller: idn.uid, p_order_id: order_id, p_campay_reference: camp.reference || rp.ext_reference, p_campay_operator: camp.operator || null, p_campay_status: 'PENDING', p_error_message: null });
-          return send(200, { success: true, order_id, order_ref: rp.order_ref, server_total: rp.total, campay_reference: camp.reference || rp.ext_reference, campay_operator: camp.operator || null, ussd_code: camp.ussd_code || null, expected_status: 'PENDING' });
-        } catch (e) { send(500, { success: false, error_code: 'validation', message: e.message }); }
-      });
-      return;
-    }
   }
 
   // â”€â”€
