@@ -41,6 +41,29 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .phone-row{display:flex;gap:8px;margin-bottom:16px}
 .cc{background:#f8f6f0;border:1.5px solid var(--lgrey);border-radius:10px;padding:13px 14px;font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap}
 .app-header{background:var(--navy);padding:0 20px;height:58px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100}
+/* ── HAMBURGER DRAWER ───────────────────────────────────────── */
+.dz-hamburger{background:rgba(255,255,255,0.1);border:0;color:#fff;width:36px;height:36px;border-radius:8px;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.dz-hamburger:hover{background:rgba(255,255,255,0.2)}
+.dz-hamburger:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+#dz-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0);transition:background .25s ease-out;z-index:200;pointer-events:none}
+#dz-drawer-backdrop.open{background:rgba(0,0,0,0.5);pointer-events:auto}
+#dz-drawer{position:fixed;top:0;left:0;bottom:0;width:80%;max-width:320px;background:#fff;box-shadow:2px 0 12px rgba(0,0,0,0.2);transform:translateX(-100%);transition:transform .25s ease-out;z-index:201;display:flex;flex-direction:column;overflow:hidden}
+#dz-drawer.open{transform:translateX(0)}
+.dz-drawer-header{background:var(--navy);color:#fff;padding:24px 20px 16px}
+.dz-drawer-shop{font-size:16px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dz-drawer-role{font-size:12px;color:rgba(255,255,255,0.6);margin-top:2px}
+.dz-drawer-list{flex:1;overflow-y:auto;padding:8px 0}
+.dz-drawer-item{display:flex;align-items:center;gap:12px;width:100%;padding:14px 20px;background:0;border:0;font-size:14px;font-weight:600;color:var(--navy);cursor:pointer;text-align:left;font-family:inherit}
+.dz-drawer-item:hover{background:var(--light)}
+.dz-drawer-item.soon{color:var(--grey)}
+.dz-drawer-item-soon{font-size:10px;color:var(--grey);font-weight:500;margin-left:4px}
+.dz-drawer-sep{height:1px;background:var(--lgrey);margin:8px 16px}
+.dz-drawer-footer{border-top:1px solid var(--lgrey);padding:12px 16px}
+.dz-drawer-lang{display:flex;background:var(--light);border-radius:20px;padding:3px;gap:2px;margin-bottom:10px}
+.dz-drawer-lang button{flex:1;padding:6px;border:0;background:transparent;color:var(--grey);font-size:12px;font-weight:700;border-radius:16px;cursor:pointer;font-family:inherit}
+.dz-drawer-lang button.active{background:var(--gold);color:var(--navy)}
+.dz-drawer-logout{width:100%;background:transparent;color:var(--red);border:1.5px solid var(--red);border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+.dz-drawer-logout:hover{background:var(--red);color:#fff}
 .logo{font-size:15px;font-weight:900;letter-spacing:2px;color:#fff;flex:1}
 .logo span{color:var(--gold)}
 .hbtn{background:rgba(255,255,255,0.12);border:none;color:#fff;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
@@ -340,7 +363,24 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 
 <!-- ══ MAIN APP ═════════════════════════════════════════════════ -->
 <div class="screen" id="app-screen">
+  <!-- ══ HAMBURGER DRAWER ═══════════════════════════════════════ -->
+  <div id="dz-drawer-backdrop" aria-hidden="true"></div>
+  <aside id="dz-drawer" role="navigation" aria-label="Main menu" aria-hidden="true">
+    <div class="dz-drawer-header">
+      <div class="dz-drawer-shop" id="dz-drawer-shop">—</div>
+      <div class="dz-drawer-role" id="dz-drawer-role">—</div>
+    </div>
+    <nav class="dz-drawer-list" id="dz-drawer-list"></nav>
+    <div class="dz-drawer-footer">
+      <div class="dz-drawer-lang">
+        <button id="dz-drawer-lang-en" onclick="setLang('en')">EN</button>
+        <button id="dz-drawer-lang-fr" onclick="setLang('fr')">FR</button>
+      </div>
+      <button class="dz-drawer-logout" onclick="signOut()">🚪 <span id="dz-drawer-logout-label">Logout</span></button>
+    </div>
+  </aside>
   <div class="app-header">
+    <button class="dz-hamburger" id="dz-hamburger" onclick="dzOpenDrawer()" aria-label="Open menu" aria-controls="dz-drawer" aria-expanded="false">☰</button>
     <div class="logo">PARTENAIRE <span>✦</span></div>
     <span style="font-size:12px;color:rgba(255,255,255,0.6);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="hdr-name">Buyer</span>
     <div style="display:flex;background:rgba(255,255,255,0.12);border-radius:20px;padding:3px;gap:2px">
@@ -1672,7 +1712,79 @@ function setLang(lang) {
   const fr = document.getElementById('b-lang-fr');
   if (en) { en.style.background = lang==='en'?'var(--gold)':'transparent'; en.style.color = lang==='en'?'var(--navy)':'rgba(255,255,255,0.6)'; }
   if (fr) { fr.style.background = lang==='fr'?'var(--gold)':'transparent'; fr.style.color = lang==='fr'?'var(--navy)':'rgba(255,255,255,0.6)'; }
+  dzRenderDrawer();
 }
+
+// ══════════════════════════════════════════════════════════════
+//  HAMBURGER DRAWER — slide-in nav (vanilla JS, no framework)
+// ══════════════════════════════════════════════════════════════
+function dzOpenDrawer() {
+  const d = document.getElementById('dz-drawer');
+  const bg = document.getElementById('dz-drawer-backdrop');
+  if (!d || !bg) return;
+  dzRenderDrawer();
+  d.classList.add('open');
+  bg.classList.add('open');
+  d.setAttribute('aria-hidden', 'false');
+  document.getElementById('dz-hamburger')?.setAttribute('aria-expanded', 'true');
+}
+function dzCloseDrawer() {
+  const d = document.getElementById('dz-drawer');
+  const bg = document.getElementById('dz-drawer-backdrop');
+  if (!d || !bg) return;
+  d.classList.remove('open');
+  bg.classList.remove('open');
+  d.setAttribute('aria-hidden', 'true');
+  document.getElementById('dz-hamburger')?.setAttribute('aria-expanded', 'false');
+}
+
+function dzRenderDrawer() {
+  const b = currentBuyer;
+  if (!b) return;
+  const fr = currentLang === 'fr';
+  const head = document.getElementById('dz-drawer-shop');
+  const role = document.getElementById('dz-drawer-role');
+  if (!head || !role) return;
+  head.textContent = b.name || b.phone || (fr ? 'Mon compte' : 'My account');
+  role.textContent = fr ? '🛒 Compte acheteur' : '🛒 Buyer account';
+
+  // Cart intentionally not in the drawer — it's the primary buying
+  // action, already lives in the header + tab-bar as the 🛒 button.
+  const items = [
+    { id:'tab-shops',   icon:'🏠', en:'Marketplace', fr:'Boutiques' },
+    { id:'tab-orders',  icon:'📦', en:'My Orders',   fr:'Mes Commandes' },
+    { id:'msg',         icon:'💬', en:'Messages',    fr:'Messages',     soon:true },
+    { id:'rev',         icon:'⭐', en:'My Reviews',  fr:'Mes Avis',     soon:true },
+    { id:'tab-profile', icon:'👤', en:'My Profile',  fr:'Mon Profil' }
+  ];
+  const esc = (str) => String(str).replace(/'/g, "\\'");
+  const soonToast = esc(fr ? 'Bientôt disponible' : 'Coming soon');
+  const list = document.getElementById('dz-drawer-list');
+  list.innerHTML = items.map(it => {
+    const label = fr ? it.fr : it.en;
+    const soon = it.soon ? `<span class="dz-drawer-item-soon">(${fr ? 'bientôt' : 'soon'})</span>` : '';
+    const cls = it.soon ? 'dz-drawer-item soon' : 'dz-drawer-item';
+    const handler = it.soon
+      ? `toast('${soonToast}','success');dzCloseDrawer()`
+      : `dzCloseDrawer();switchTab('${it.id}')`;
+    return `<button class="${cls}" onclick="${handler}">${it.icon} <span>${label}</span>${soon}</button>`;
+  }).join('');
+
+  document.getElementById('dz-drawer-logout-label').textContent = fr ? 'Déconnexion' : 'Logout';
+  document.getElementById('dz-drawer-lang-en')?.classList.toggle('active', !fr);
+  document.getElementById('dz-drawer-lang-fr')?.classList.toggle('active', fr);
+}
+
+(function dzInitDrawerGestures() {
+  const d = document.getElementById('dz-drawer');
+  if (!d) return;
+  let startX = null, dx = 0;
+  d.addEventListener('touchstart', e => { startX = e.touches[0].clientX; dx = 0; }, { passive: true });
+  d.addEventListener('touchmove',  e => { if (startX === null) return; dx = e.touches[0].clientX - startX; }, { passive: true });
+  d.addEventListener('touchend',   () => { if (dx < -40) dzCloseDrawer(); startX = null; dx = 0; });
+  document.getElementById('dz-drawer-backdrop')?.addEventListener('click', dzCloseDrawer);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') dzCloseDrawer(); });
+})();
 
 // ══════════════════════════════════════════════════════════════
 //  SYNC

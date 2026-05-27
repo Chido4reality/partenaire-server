@@ -226,6 +226,19 @@
     badge.textContent = labels[selectedMode][currentLang];
   }
 
+  // Pre-select mode from ?mode=buyer / ?mode=seller. Used by the
+  // seller portal's "Switch to Buyer" entry (drawer) — it clears the
+  // dozie_jwt and routes here with mode already chosen so the user
+  // only needs to re-enter their PIN, not pick mode again. The
+  // early-redirect IIFE above already returned (no JWT after clear),
+  // so this lands cleanly on the PIN screen.
+  (function () {
+    try {
+      var m = new URLSearchParams(location.search).get('mode');
+      if (m === 'buyer' || m === 'seller') pickMode(m);
+    } catch (_) {}
+  })();
+
   // ── LOGIN SUBMIT ───────────────────────────────────────────
   async function submitLogin() {
     var fr = currentLang === 'fr';

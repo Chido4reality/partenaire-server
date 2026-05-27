@@ -62,6 +62,30 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .header-notif{position:relative;background:rgba(255,255,255,0.1);border:none;color:#fff;width:36px;height:36px;border-radius:8px;cursor:pointer;font-size:16px;transition:background .2s}
 .header-notif:hover{background:rgba(255,255,255,0.2)}
 .notif-dot{position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:4px;background:var(--red);display:none}
+/* ── HAMBURGER DRAWER ───────────────────────────────────────── */
+.dz-hamburger{background:rgba(255,255,255,0.1);border:0;color:#fff;width:36px;height:36px;border-radius:8px;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-right:6px;flex-shrink:0}
+.dz-hamburger:hover{background:rgba(255,255,255,0.2)}
+.dz-hamburger:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+#dz-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0);transition:background .25s ease-out;z-index:200;pointer-events:none}
+#dz-drawer-backdrop.open{background:rgba(0,0,0,0.5);pointer-events:auto}
+#dz-drawer{position:fixed;top:0;left:0;bottom:0;width:80%;max-width:320px;background:#fff;box-shadow:2px 0 12px rgba(0,0,0,0.2);transform:translateX(-100%);transition:transform .25s ease-out;z-index:201;display:flex;flex-direction:column;overflow:hidden}
+#dz-drawer.open{transform:translateX(0)}
+.dz-drawer-header{background:var(--navy);color:#fff;padding:24px 20px 16px}
+.dz-drawer-shop{font-size:16px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dz-drawer-role{font-size:12px;color:rgba(255,255,255,0.6);margin-top:2px}
+.dz-drawer-list{flex:1;overflow-y:auto;padding:8px 0}
+.dz-drawer-item{display:flex;align-items:center;gap:12px;width:100%;padding:14px 20px;background:0;border:0;font-size:14px;font-weight:600;color:var(--navy);cursor:pointer;text-align:left;font-family:inherit}
+.dz-drawer-item:hover{background:var(--light)}
+.dz-drawer-item.soon{color:var(--grey)}
+.dz-drawer-item-soon{font-size:10px;color:var(--grey);font-weight:500;margin-left:4px}
+.dz-drawer-item-badge{margin-left:auto;background:var(--red);color:#fff;font-size:11px;font-weight:800;min-width:18px;height:18px;border-radius:9px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center}
+.dz-drawer-sep{height:1px;background:var(--lgrey);margin:8px 16px}
+.dz-drawer-footer{border-top:1px solid var(--lgrey);padding:12px 16px}
+.dz-drawer-lang{display:flex;background:var(--light);border-radius:20px;padding:3px;gap:2px;margin-bottom:10px}
+.dz-drawer-lang button{flex:1;padding:6px;border:0;background:transparent;color:var(--grey);font-size:12px;font-weight:700;border-radius:16px;cursor:pointer;font-family:inherit}
+.dz-drawer-lang button.active{background:var(--gold);color:var(--navy)}
+.dz-drawer-logout{width:100%;background:transparent;color:var(--red);border:1.5px solid var(--red);border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+.dz-drawer-logout:hover{background:var(--red);color:#fff}
 
 /* ── TABS ── */
 .tab-bar{background:#fff;border-bottom:1px solid var(--lgrey);display:flex;padding:0 24px;gap:0;position:sticky;top:60px;z-index:99}
@@ -487,7 +511,24 @@ function openWhatsApp(e, phone, text){
 
 <!-- ══ MAIN APP ═══════════════════════════════════════════════ -->
 <div class="screen" id="app-screen">
+  <!-- ══ HAMBURGER DRAWER ═══════════════════════════════════════ -->
+  <div id="dz-drawer-backdrop" aria-hidden="true"></div>
+  <aside id="dz-drawer" role="navigation" aria-label="Main menu" aria-hidden="true">
+    <div class="dz-drawer-header">
+      <div class="dz-drawer-shop" id="dz-drawer-shop">—</div>
+      <div class="dz-drawer-role" id="dz-drawer-role">—</div>
+    </div>
+    <nav class="dz-drawer-list" id="dz-drawer-list"></nav>
+    <div class="dz-drawer-footer">
+      <div class="dz-drawer-lang">
+        <button id="dz-drawer-lang-en" onclick="setLang('en')">EN</button>
+        <button id="dz-drawer-lang-fr" onclick="setLang('fr')">FR</button>
+      </div>
+      <button class="dz-drawer-logout" onclick="signOut()">🚪 <span id="dz-drawer-logout-label">Logout</span></button>
+    </div>
+  </aside>
   <div class="app-header">
+    <button class="dz-hamburger" id="dz-hamburger" onclick="dzOpenDrawer()" aria-label="Open menu" aria-controls="dz-drawer" aria-expanded="false">☰</button>
     <div class="app-header-logo">PARTENAIRE <span>✦</span></div>
     <div class="app-header-right">
       <div class="header-shop" id="header-shop-name">My Shop</div>
@@ -2832,10 +2873,113 @@ async function registerAsBuyer() {
 }
 
 function switchToBuyer() {
-  // In a full sync this would open the buyer portal
-  // For now show a clear message
-  toast('🛒 Buyer portal coming soon — same phone, same account', 'success');
+  // Same-phone seller switching to their buyer account. Today's auth
+  // model has no role-swap RPC — both portals share the dozie_jwt
+  // localStorage key but each JWT is signed for a specific role. So:
+  // clear the token, jump to the unified /login with the buyer mode
+  // pre-selected (?mode=buyer), user re-enters PIN, lands on /buyer.
+  // Phase 2 would replace this with an authenticated swap RPC so the
+  // user doesn't re-PIN. Documented edge case: in ptn_users rows with
+  // mismatched PINs across the seller/buyer pair, this fails over to
+  // the standard login error — separate dedupe issue, not a drawer bug.
+  try { localStorage.removeItem('dozie_jwt'); sessionStorage.clear(); } catch (_) {}
+  location.replace('/login?mode=buyer');
 }
+
+// ══════════════════════════════════════════════════════════════
+//  HAMBURGER DRAWER — slide-in nav (vanilla JS, no framework)
+// ══════════════════════════════════════════════════════════════
+function dzOpenDrawer() {
+  const d = document.getElementById('dz-drawer');
+  const bg = document.getElementById('dz-drawer-backdrop');
+  if (!d || !bg) return;
+  dzRenderDrawer();
+  d.classList.add('open');
+  bg.classList.add('open');
+  d.setAttribute('aria-hidden', 'false');
+  document.getElementById('dz-hamburger')?.setAttribute('aria-expanded', 'true');
+}
+function dzCloseDrawer() {
+  const d = document.getElementById('dz-drawer');
+  const bg = document.getElementById('dz-drawer-backdrop');
+  if (!d || !bg) return;
+  d.classList.remove('open');
+  bg.classList.remove('open');
+  d.setAttribute('aria-hidden', 'true');
+  document.getElementById('dz-hamburger')?.setAttribute('aria-expanded', 'false');
+}
+
+// Re-rendered on every open so name / role / dispute count / language
+// state are fresh. No-op if currentSeller isn't loaded yet.
+function dzRenderDrawer() {
+  const s = currentSeller;
+  if (!s) return;
+  const fr = currentLang === 'fr';
+  const head = document.getElementById('dz-drawer-shop');
+  const role = document.getElementById('dz-drawer-role');
+  if (!head || !role) return;
+  head.textContent = s.company || s.name || (fr ? 'Ma Boutique' : 'My Shop');
+  if (s.badge_status === 'approved') {
+    const chk = document.createElement('span');
+    chk.textContent = ' ✓';
+    chk.style.cssText = 'color:#86C75A;margin-left:4px';
+    chk.title = fr ? 'Boutique vérifiée' : 'Verified shop';
+    head.appendChild(chk);
+  }
+  role.textContent = fr ? '🏪 Compte vendeur' : '🏪 Seller account';
+
+  const disputed = (typeof allOrders !== 'undefined' && allOrders)
+    ? allOrders.filter(o => o.status === 'disputed').length : 0;
+
+  // Items live in the drawer in addition to the existing tab-bar; tab
+  // taps and drawer taps both call switchTab(). 'soon' items have no
+  // backing page yet — they show a toast and close the drawer.
+  const items = [
+    { id:'tab-dashboard', icon:'📊', en:'Dashboard',              fr:'Tableau de bord' },
+    { id:'tab-products',  icon:'📦', en:'My Products',            fr:'Mes Produits' },
+    { id:'tab-orders',    icon:'🧾', en:'Orders',                 fr:'Commandes' },
+    { id:'msg',           icon:'💬', en:'Messages',               fr:'Messages',                soon:true },
+    { id:'disp',          icon:'⚠',  en:'Disputes',              fr:'Litiges',                 soon:true, badge: disputed || null },
+    { id:'rpt',           icon:'📈', en:'Reports',                fr:'Rapports',                soon:true },
+    { id:'tab-profile',   icon:'👤', en:'Profile / Verification', fr:'Profil / Vérification' }
+  ];
+  const esc = (str) => String(str).replace(/'/g, "\\'");
+  const soonToast = esc(fr ? 'Bientôt disponible' : 'Coming soon');
+  const list = document.getElementById('dz-drawer-list');
+  list.innerHTML = items.map(it => {
+    const label = fr ? it.fr : it.en;
+    const badge = it.badge ? `<span class="dz-drawer-item-badge">${it.badge}</span>` : '';
+    const soon = it.soon ? `<span class="dz-drawer-item-soon">(${fr ? 'bientôt' : 'soon'})</span>` : '';
+    const cls = it.soon ? 'dz-drawer-item soon' : 'dz-drawer-item';
+    const handler = it.soon
+      ? `toast('${soonToast}','success');dzCloseDrawer()`
+      : `dzCloseDrawer();switchTab('${it.id}')`;
+    return `<button class="${cls}" onclick="${handler}">${it.icon} <span>${label}</span>${soon}${badge}</button>`;
+  }).join('');
+
+  if (s.also_buyer) {
+    list.insertAdjacentHTML('beforeend',
+      `<div class="dz-drawer-sep"></div>
+       <button class="dz-drawer-item" onclick="switchToBuyer()">🛒 <span>${fr ? 'Basculer vers Acheteur' : 'Switch to Buyer'}</span></button>`);
+  }
+
+  document.getElementById('dz-drawer-logout-label').textContent = fr ? 'Déconnexion' : 'Logout';
+  document.getElementById('dz-drawer-lang-en')?.classList.toggle('active', !fr);
+  document.getElementById('dz-drawer-lang-fr')?.classList.toggle('active', fr);
+}
+
+// Swipe-left close (mobile). Only triggers when the gesture crosses
+// -40px so accidental small drags don't dismiss.
+(function dzInitDrawerGestures() {
+  const d = document.getElementById('dz-drawer');
+  if (!d) return;
+  let startX = null, dx = 0;
+  d.addEventListener('touchstart', e => { startX = e.touches[0].clientX; dx = 0; }, { passive: true });
+  d.addEventListener('touchmove',  e => { if (startX === null) return; dx = e.touches[0].clientX - startX; }, { passive: true });
+  d.addEventListener('touchend',   () => { if (dx < -40) dzCloseDrawer(); startX = null; dx = 0; });
+  document.getElementById('dz-drawer-backdrop')?.addEventListener('click', dzCloseDrawer);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') dzCloseDrawer(); });
+})();
 
 function renderDashboard() {
   const revenue = allOrders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(o.total||0),0);
@@ -3060,6 +3204,7 @@ function setLang(lang) {
     renderProducts();
     renderOrders();
     renderNotifications();
+    dzRenderDrawer();
   }
 }
 
