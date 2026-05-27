@@ -416,16 +416,21 @@ http.createServer((req, res) => {
   // Dozie server's old PIN page (PARTENAIRE_Admin.html, still in git
   // history, just no longer served) and any /admin/* | /api/admin/*
   // API surface here are gone.
-  //   • GET / and GET /admin  → 302 to the new portal (302 not 301: keeps
-  //     flexibility to revisit; root was still mapped to the legacy
-  //     PARTENAIRE_Admin.html via ROUTES, so it must be covered too)
+  //   • GET /admin → 302 to the new MP-hosted portal. Admin staff
+  //     reach this URL deliberately; the redirect keeps the legacy
+  //     bookmark working.
+  //   • / used to be aliased to PARTENAIRE_Admin.html via ROUTES and
+  //     was caught here too. d55adaa retired that alias and added a
+  //     unified-entry auto-router at the bottom of this handler; the
+  //     `/` clause was removed from this redirect so the auto-router
+  //     can actually fire.
   //   • /admin/* | /api/admin* → 410 Gone (discoverable for API callers)
   // NOT touched: /mp-admin/* (MP svc proxy), /api/auth/impersonate-*
   // (used by the real admin), /campay/* (financial, separate concern).
   {
     const NEW_ADMIN = 'https://mon-partenaire-app.vercel.app/admin.html';
     const p = req.url.split('?')[0].replace(/\/+$/, '') || '/';
-    if (p === '/' || p === '/admin') {
+    if (p === '/admin') {
       res.writeHead(302, { Location: NEW_ADMIN });
       res.end();
       return;
