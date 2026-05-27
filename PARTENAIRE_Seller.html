@@ -956,9 +956,23 @@ async function restoreSellerSession() {
   if (currentSeller) return;
   const s = dozieSession();
   if (!s) return;
+  // Guard A — JWT role claim. dozie_jwt is shared between the buyer and
+  // seller portals (same localStorage key), so a buyer login overwrites
+  // any prior seller token. Hard-refreshing /seller with a buyer-role JWT
+  // would otherwise resolve the buyer row via get_my_profile and render
+  // the seller portal with buyer data (wrong name + "Pending review"
+  // pill). Bounce non-seller JWTs through / so the auto-router lands the
+  // user in their actual portal — same source-of-truth as the router.
+  if (s.role && s.role !== 'seller') { location.replace('/'); return; }
   try {
     const prof = await RPC('get_my_profile', { p_caller: s.uid });
     if (!prof || !prof.ok || !prof.user) { dozieLogout(); return; }
+    // Guard B — defense-in-depth against a JWT whose uid and role
+    // disagree (would require a future signing bug). also_seller=true
+    // preserves the mid-wholesaler dual-role path.
+    if (prof.user.role !== 'seller' && !prof.user.also_seller) {
+      location.replace('/'); return;
+    }
     currentSeller = prof.user;
     try {
       const accRows = await GET('dozie_seller_access',
