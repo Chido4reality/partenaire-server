@@ -173,11 +173,17 @@ const DIR=__dirname;
 
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.jpg':'image/jpeg' };
 
+// DOZIE-UNIFIED-ENTRY: `/` no longer aliases the admin portal — it's
+// served by a dynamic auto-router (see the inline /-handler below the
+// API routes) that reads localStorage.dozie_jwt in the browser and
+// redirects to /seller, /buyer, or /login. Admin staff continue to
+// use /admin explicitly. /login is a new unified phone+PIN page with
+// a buyer/seller mode chooser.
 const ROUTES = {
-  '/':       'PARTENAIRE_Admin.html',
   '/admin':  'PARTENAIRE_Admin.html',
   '/seller': 'PARTENAIRE_Seller.html',
   '/buyer':  'PARTENAIRE_Buyer.html',
+  '/login':  'PARTENAIRE_Login.html',
 };
 
 // B.4.1: OTP login fully retired. otpStore / generateOTP / sendOTP /
@@ -1611,6 +1617,41 @@ http.createServer((req, res) => {
         res.end(JSON.stringify({ success: false, message: e.message }));
       }
     });
+    return;
+  }
+
+  // DOZIE-UNIFIED-ENTRY: `/` auto-router. Tiny shell that decodes the
+  // JWT in localStorage and replaces itself with /seller, /buyer, or
+  // /login. Network-first SW caches this page so cold launch in the
+  // Capacitor wrap is one round trip + an in-browser redirect.
+  // No DB calls; the JWT's `role` claim is the source of truth — same
+  // claim the buyer/seller portals already trust on hard refresh.
+  if ((req.url === '/' || req.url.split('?')[0] === '/') && req.method === 'GET') {
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(
+      '<!DOCTYPE html><html lang="fr"><head>' +
+      '<meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<title>PARTENAIRE Dozie</title>' +
+      '<meta name="theme-color" content="#1A2B4A">' +
+      '<link rel="icon" href="/icon.svg" type="image/svg+xml">' +
+      '<style>html,body{margin:0;height:100%;background:#1A2B4A;color:#fff;' +
+      'font-family:system-ui,sans-serif;display:flex;align-items:center;' +
+      'justify-content:center}.l{text-align:center;opacity:.75;font-size:14px}</style>' +
+      '</head><body>' +
+      '<div class="l">PARTENAIRE Dozie…</div>' +
+      '<script>(function(){try{var t=localStorage.getItem("dozie_jwt");' +
+      'if(t){var p=JSON.parse(atob(t.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));' +
+      'if(p&&p.uid&&(!p.exp||Date.now()/1000<p.exp)){' +
+      'if(p.role==="seller"){location.replace("/seller");return;}' +
+      'if(p.role==="buyer"){location.replace("/buyer");return;}}}' +
+      '}catch(_){}location.replace("/login");})();<\/script>' +
+      '</body></html>'
+    );
     return;
   }
 

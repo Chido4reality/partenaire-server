@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PARTENAIRE Dozie ✦ Connexion</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="theme-color" content="#1A2B4A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Partenaire Dozie">
+<script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js',{updateViaCache:'none'}).catch(()=>{});</script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
+  :root{
+    --navy:#1A2B4A;--gold:#C9A84C;--light:#F4F1EC;--white:#fff;
+    --grey:#8A8A8A;--lgrey:#E8E8E8;--red:#E84040;--green:#2E7D32;
+  }
+  html,body{height:100%}
+  body{
+    background:var(--navy);color:var(--navy);min-height:100vh;
+    display:flex;align-items:center;justify-content:center;padding:20px;
+  }
+  .lang-toggle{
+    position:fixed;top:14px;right:14px;display:flex;gap:6px;z-index:10;
+  }
+  .lang-toggle button{
+    background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);
+    color:#fff;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;
+  }
+  .lang-toggle button.active{background:var(--gold);border-color:var(--gold);color:var(--navy)}
+  .auth-box{
+    background:#fff;border-radius:20px;padding:36px 28px;width:100%;max-width:420px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.3);
+  }
+  .auth-logo{
+    font-size:24px;font-weight:900;letter-spacing:2px;color:var(--navy);
+    text-align:center;margin-bottom:2px;
+  }
+  .auth-logo span{color:var(--gold)}
+  .auth-sub{
+    text-align:center;color:var(--grey);font-size:12px;margin-bottom:24px;
+  }
+  .screen{display:none}
+  .screen.active{display:block}
+  /* ── MODE PICKER ──────────────────────────────────────── */
+  .mode-title{
+    text-align:center;color:var(--navy);font-size:17px;font-weight:700;
+    margin-bottom:6px;
+  }
+  .mode-sub{
+    text-align:center;color:var(--grey);font-size:13px;margin-bottom:22px;
+  }
+  .mode-btn{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    width:100%;padding:22px 16px;border:1.5px solid var(--lgrey);border-radius:14px;
+    background:#fff;color:var(--navy);font-size:15px;font-weight:700;
+    cursor:pointer;transition:all .15s;margin-bottom:12px;text-align:center;
+  }
+  .mode-btn:hover,.mode-btn:focus{
+    border-color:var(--gold);background:#FBF7EC;outline:none;
+  }
+  .mode-btn .ico{font-size:32px;margin-bottom:8px;line-height:1}
+  .mode-btn .lbl{font-size:16px}
+  .mode-btn .hint{font-size:11px;color:var(--grey);font-weight:500;margin-top:4px}
+  /* ── PIN ENTRY ──────────────────────────────────────── */
+  .back-btn{
+    background:none;border:none;color:var(--grey);font-size:13px;font-weight:600;
+    cursor:pointer;padding:4px 0;margin-bottom:12px;
+  }
+  .back-btn:hover{color:var(--navy)}
+  .mode-badge{
+    display:inline-flex;align-items:center;gap:6px;
+    background:#FBF7EC;border:1px solid var(--gold);color:var(--navy);
+    padding:5px 11px;border-radius:20px;font-size:12px;font-weight:700;margin-bottom:18px;
+  }
+  .auth-input{
+    width:100%;padding:13px 16px;border:1.5px solid var(--lgrey);border-radius:10px;
+    font-size:15px;color:var(--navy);background:#fff;margin-bottom:14px;outline:none;
+    transition:border .2s;
+  }
+  .auth-input:focus{border-color:var(--gold)}
+  .auth-btn{
+    width:100%;padding:14px;background:var(--navy);color:#fff;border:none;border-radius:10px;
+    font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;transition:background .2s;
+  }
+  .auth-btn:hover{background:#243b65}
+  .auth-btn:disabled{opacity:0.6;cursor:not-allowed}
+  .auth-err{
+    color:var(--red);font-size:12px;text-align:center;min-height:18px;margin-bottom:4px;
+  }
+  .auth-hint{
+    background:#f8f6f0;border-radius:10px;padding:11px;font-size:11px;
+    color:var(--grey);text-align:center;line-height:1.55;margin-top:6px;
+  }
+</style>
+</head>
+<body>
+
+<div class="lang-toggle">
+  <button id="lang-fr" class="active" onclick="setLang('fr')">FR</button>
+  <button id="lang-en" onclick="setLang('en')">EN</button>
+</div>
+
+<div class="auth-box">
+  <div class="auth-logo">PARTENAIRE <span>DOZIE</span></div>
+  <div class="auth-sub" data-fr="Marketplace B2B" data-en="B2B marketplace">Marketplace B2B</div>
+
+  <!-- MODE PICKER -->
+  <div id="screen-mode" class="screen active">
+    <div class="mode-title" data-fr="Comment allez-vous utiliser Partenaire Dozie ?" data-en="How will you use Partenaire Dozie?">
+      Comment allez-vous utiliser Partenaire Dozie ?
+    </div>
+    <div class="mode-sub" data-fr="Choisissez votre mode" data-en="Choose your mode">Choisissez votre mode</div>
+
+    <button class="mode-btn" onclick="pickMode('buyer')">
+      <div class="ico">🛒</div>
+      <div class="lbl" data-fr="Acheter des produits" data-en="Buy products">Acheter des produits</div>
+      <div class="hint" data-fr="Commander chez les boutiques" data-en="Order from shops">Commander chez les boutiques</div>
+    </button>
+
+    <button class="mode-btn" onclick="pickMode('seller')">
+      <div class="ico">🏪</div>
+      <div class="lbl" data-fr="Gérer ma boutique" data-en="Manage my shop">Gérer ma boutique</div>
+      <div class="hint" data-fr="Publier produits, recevoir commandes" data-en="List products, receive orders">Publier produits, recevoir commandes</div>
+    </button>
+  </div>
+
+  <!-- PIN ENTRY -->
+  <div id="screen-pin" class="screen">
+    <button class="back-btn" onclick="backToMode()" data-fr="← Retour" data-en="← Back">← Retour</button>
+    <div id="mode-badge" class="mode-badge"></div>
+
+    <input id="phone-input" class="auth-input" type="tel" inputmode="numeric"
+           placeholder="6XXXXXXXX"
+           data-fr-placeholder="6XXXXXXXX"
+           data-en-placeholder="6XXXXXXXX"
+           autocomplete="tel-national" />
+
+    <input id="pin-input" class="auth-input" type="password" inputmode="numeric"
+           maxlength="6"
+           placeholder="••••"
+           autocomplete="one-time-code" />
+
+    <div id="auth-err" class="auth-err"></div>
+
+    <button id="submit-btn" class="auth-btn" onclick="submitLogin()"
+            data-fr="Se connecter" data-en="Sign in">Se connecter</button>
+
+    <div class="auth-hint" data-fr="Votre code PIN à 4 chiffres a été défini lors de l'inscription." data-en="Your 4-digit PIN was set when you registered.">
+      Votre code PIN à 4 chiffres a été défini lors de l'inscription.
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── EARLY REDIRECT — if a valid session already exists, send the user
+  //    directly to their portal without showing the login form. Same
+  //    JWT-decode logic the buyer/seller portals use; sync localStorage
+  //    read, no network.
+  (function () {
+    try {
+      var t = localStorage.getItem('dozie_jwt');
+      if (!t) return;
+      var p = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      if (!p || !p.uid) return;
+      if (p.exp && Date.now() / 1000 >= p.exp) return;
+      if (p.role === 'seller') { location.replace('/seller'); return; }
+      if (p.role === 'buyer')  { location.replace('/buyer');  return; }
+    } catch (_) { /* fall through to login UI */ }
+  })();
+
+  // ── LANG ───────────────────────────────────────────────────
+  var currentLang = (function () {
+    try {
+      var saved = localStorage.getItem('dozie_lang');
+      if (saved === 'en' || saved === 'fr') return saved;
+    } catch (_) {}
+    return 'fr';
+  })();
+
+  function setLang(l) {
+    currentLang = l;
+    try { localStorage.setItem('dozie_lang', l); } catch (_) {}
+    document.documentElement.lang = l;
+    document.getElementById('lang-fr').classList.toggle('active', l === 'fr');
+    document.getElementById('lang-en').classList.toggle('active', l === 'en');
+    document.querySelectorAll('[data-' + l + ']').forEach(function (el) {
+      el.textContent = el.getAttribute('data-' + l);
+    });
+    document.querySelectorAll('[data-' + l + '-placeholder]').forEach(function (el) {
+      el.placeholder = el.getAttribute('data-' + l + '-placeholder');
+    });
+    renderModeBadge();
+  }
+
+  // ── MODE / PIN STATE ───────────────────────────────────────
+  var selectedMode = null;  // 'buyer' or 'seller'
+
+  function pickMode(mode) {
+    selectedMode = mode;
+    document.getElementById('screen-mode').classList.remove('active');
+    document.getElementById('screen-pin').classList.add('active');
+    document.getElementById('auth-err').textContent = '';
+    renderModeBadge();
+    setTimeout(function () { document.getElementById('phone-input').focus(); }, 80);
+  }
+
+  function backToMode() {
+    selectedMode = null;
+    document.getElementById('screen-pin').classList.remove('active');
+    document.getElementById('screen-mode').classList.add('active');
+    document.getElementById('auth-err').textContent = '';
+  }
+
+  function renderModeBadge() {
+    var badge = document.getElementById('mode-badge');
+    if (!badge || !selectedMode) return;
+    var labels = {
+      buyer:  { fr: '🛒 Mode acheteur',      en: '🛒 Buyer mode' },
+      seller: { fr: '🏪 Mode boutique',     en: '🏪 Seller mode' },
+    };
+    badge.textContent = labels[selectedMode][currentLang];
+  }
+
+  // ── LOGIN SUBMIT ───────────────────────────────────────────
+  async function submitLogin() {
+    var fr = currentLang === 'fr';
+    var errBox = document.getElementById('auth-err');
+    var btn = document.getElementById('submit-btn');
+    errBox.textContent = '';
+
+    if (!selectedMode) { backToMode(); return; }
+
+    var rawPhone = document.getElementById('phone-input').value.trim();
+    var pin = document.getElementById('pin-input').value.trim();
+    var cleanPhone = rawPhone.replace(/^\+?237/, '').replace(/\D/g, '');
+
+    if (cleanPhone.length < 8) {
+      errBox.textContent = fr ? 'Entrez votre numéro de téléphone' : 'Enter your phone number';
+      return;
+    }
+    if (!pin || pin.length < 4) {
+      errBox.textContent = fr ? 'Entrez votre code PIN à 4 chiffres' : 'Enter your 4-digit PIN';
+      return;
+    }
+
+    btn.disabled = true;
+    var originalLabel = btn.textContent;
+    btn.textContent = fr ? 'Connexion…' : 'Signing in…';
+
+    try {
+      var resp = await fetch('/auth/pin-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: cleanPhone, pin: pin, role: selectedMode })
+      });
+      var result = await resp.json().catch(function () { return {}; });
+
+      if (!resp.ok || !result.success) {
+        if (resp.status === 429) {
+          errBox.textContent = fr
+            ? 'Trop de tentatives. Réessayez dans 15 minutes.'
+            : 'Too many attempts. Try again in 15 minutes.';
+        } else if (resp.status === 403) {
+          errBox.textContent = fr
+            ? 'Compte suspendu — contactez le support.'
+            : 'Account suspended — contact support.';
+        } else {
+          errBox.textContent = fr
+            ? 'Téléphone ou PIN invalide pour ce mode'
+            : 'Invalid phone or PIN for this mode';
+        }
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        return;
+      }
+
+      // Success — store JWT and redirect to the picked portal.
+      try { localStorage.setItem('dozie_jwt', result.jwt); } catch (_) {}
+      location.replace(selectedMode === 'seller' ? '/seller' : '/buyer');
+    } catch (e) {
+      errBox.textContent = fr
+        ? 'Erreur réseau. Réessayez.'
+        : 'Network error. Try again.';
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  }
+
+  // Submit on Enter from PIN input.
+  document.getElementById('pin-input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') submitLogin();
+  });
+
+  // Initial paint at the right language.
+  setLang(currentLang);
+</script>
+
+</body>
+</html>
