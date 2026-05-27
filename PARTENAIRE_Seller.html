@@ -52,18 +52,14 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 
 /* ── MAIN APP ── */
 #app-screen{background:#F0EDE8}
-.app-header{background:var(--navy);padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
-.app-header-logo{font-size:16px;font-weight:900;letter-spacing:2px;color:#fff}
+.app-header{background:var(--navy);padding:0 16px;height:60px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
+.app-header-logo{font-size:16px;font-weight:900;letter-spacing:2px;color:#fff;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app-header-logo span{color:var(--gold)}
-.app-header-right{display:flex;align-items:center;gap:12px}
-.header-shop{font-size:13px;color:rgba(255,255,255,0.7);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.header-btn{background:rgba(255,255,255,0.1);border:none;color:#fff;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:background .2s}
-.header-btn:hover{background:rgba(255,255,255,0.2)}
-.header-notif{position:relative;background:rgba(255,255,255,0.1);border:none;color:#fff;width:36px;height:36px;border-radius:8px;cursor:pointer;font-size:16px;transition:background .2s}
+.header-notif{position:relative;background:rgba(255,255,255,0.1);border:none;color:#fff;width:40px;height:40px;border-radius:8px;cursor:pointer;font-size:16px;transition:background .2s;flex-shrink:0}
 .header-notif:hover{background:rgba(255,255,255,0.2)}
 .notif-dot{position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:4px;background:var(--red);display:none}
 /* ── HAMBURGER DRAWER ───────────────────────────────────────── */
-.dz-hamburger{background:rgba(255,255,255,0.1);border:0;color:#fff;width:36px;height:36px;border-radius:8px;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-right:6px;flex-shrink:0}
+.dz-hamburger{background:rgba(255,255,255,0.1);border:0;color:#fff;width:44px;height:44px;border-radius:8px;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .dz-hamburger:hover{background:rgba(255,255,255,0.2)}
 .dz-hamburger:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 #dz-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0);transition:background .25s ease-out;z-index:200;pointer-events:none}
@@ -84,6 +80,8 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .dz-drawer-lang{display:flex;background:var(--light);border-radius:20px;padding:3px;gap:2px;margin-bottom:10px}
 .dz-drawer-lang button{flex:1;padding:6px;border:0;background:transparent;color:var(--grey);font-size:12px;font-weight:700;border-radius:16px;cursor:pointer;font-family:inherit}
 .dz-drawer-lang button.active{background:var(--gold);color:var(--navy)}
+.dz-drawer-switch{width:100%;background:transparent;color:var(--navy);border:1.5px solid var(--lgrey);border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:8px}
+.dz-drawer-switch:hover{background:var(--light)}
 .dz-drawer-logout{width:100%;background:transparent;color:var(--red);border:1.5px solid var(--red);border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
 .dz-drawer-logout:hover{background:var(--red);color:#fff}
 
@@ -524,24 +522,16 @@ function openWhatsApp(e, phone, text){
         <button id="dz-drawer-lang-en" onclick="setLang('en')">EN</button>
         <button id="dz-drawer-lang-fr" onclick="setLang('fr')">FR</button>
       </div>
-      <button class="dz-drawer-logout" onclick="signOut()">🚪 <span id="dz-drawer-logout-label">Logout</span></button>
+      <button class="dz-drawer-switch" onclick="dzSwitchAccount()">🔄 <span id="dz-drawer-switch-label">Switch account</span></button>
+      <button class="dz-drawer-logout" onclick="signOut()">🚪 <span id="dz-drawer-logout-label">Sign out</span></button>
     </div>
   </aside>
   <div class="app-header">
     <button class="dz-hamburger" id="dz-hamburger" onclick="dzOpenDrawer()" aria-label="Open menu" aria-controls="dz-drawer" aria-expanded="false">☰</button>
     <div class="app-header-logo">PARTENAIRE <span>✦</span></div>
-    <div class="app-header-right">
-      <div class="header-shop" id="header-shop-name">My Shop</div>
-      <!-- Language toggle -->
-      <div style="display:flex;background:rgba(255,255,255,0.12);border-radius:20px;padding:3px;gap:2px">
-        <button id="lang-en" onclick="setLang('en')" style="padding:4px 10px;border-radius:16px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:var(--gold);color:var(--navy)">EN</button>
-        <button id="lang-fr" onclick="setLang('fr')" style="padding:4px 10px;border-radius:16px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:rgba(255,255,255,0.6)">FR</button>
-      </div>
-      <button class="header-notif" onclick="switchTab('tab-notifications')" id="notif-btn">
-        🔔<div class="notif-dot" id="notif-dot"></div>
-      </button>
-      <button class="header-btn" id="btn-signout" onclick="signOut()">Sign Out</button>
-    </div>
+    <button class="header-notif" onclick="switchTab('tab-notifications')" id="notif-btn" aria-label="Notifications">
+      🔔<div class="notif-dot" id="notif-dot"></div>
+    </button>
   </div>
 
   <div class="tab-bar">
@@ -1363,7 +1353,13 @@ function enterApp() {
   // Set French as default for Cameroon
   setLang('fr');
   showScreen('app-screen');
-  document.getElementById('header-shop-name').textContent = currentSeller.company || 'My Shop';
+  // Shop name lives in the drawer header (#dz-drawer-shop) — refreshed
+  // via dzRenderDrawer(). The legacy #header-shop-name was removed when
+  // the top bar was slimmed; null-safe lookup in case any stale call
+  // path still references it.
+  const hdrShop = document.getElementById('header-shop-name');
+  if (hdrShop) hdrShop.textContent = currentSeller.company || 'My Shop';
+  dzRenderDrawer();
   document.getElementById('edit-company').value = currentSeller.company || '';
   document.getElementById('edit-name').value     = currentSeller.name || '';
   document.getElementById('edit-desc').value     = currentSeller.shop_desc || '';
@@ -2963,9 +2959,21 @@ function dzRenderDrawer() {
        <button class="dz-drawer-item" onclick="switchToBuyer()">🛒 <span>${fr ? 'Basculer vers Acheteur' : 'Switch to Buyer'}</span></button>`);
   }
 
-  document.getElementById('dz-drawer-logout-label').textContent = fr ? 'Déconnexion' : 'Logout';
+  const swLabel = document.getElementById('dz-drawer-switch-label');
+  if (swLabel) swLabel.textContent = fr ? 'Changer de compte' : 'Switch account';
+  const loLabel = document.getElementById('dz-drawer-logout-label');
+  if (loLabel) loLabel.textContent = fr ? 'Déconnexion' : 'Sign out';
   document.getElementById('dz-drawer-lang-en')?.classList.toggle('active', !fr);
   document.getElementById('dz-drawer-lang-fr')?.classList.toggle('active', fr);
+}
+
+// Clears the JWT and lands on the unified /login mode chooser — no
+// ?mode= so the user can pick either role. Functionally identical to
+// signOut() below; the separate label signals intent ("swap who I am"
+// vs "leave the device").
+function dzSwitchAccount() {
+  try { localStorage.removeItem('dozie_jwt'); sessionStorage.clear(); } catch (_) {}
+  location.replace('/login');
 }
 
 // Swipe-left close (mobile). Only triggers when the gesture crosses
@@ -3000,7 +3008,9 @@ async function saveProfile() {
   try {
     await RPC('update_my_profile',{ p_caller: currentSeller.id, p_updates: {company,name,city,shop_desc:desc,momo_phone} });
     currentSeller = {...currentSeller,company,name,city,shop_desc:desc,momo_phone};
-    document.getElementById('header-shop-name').textContent = company;
+    const hdrShop = document.getElementById('header-shop-name');
+    if (hdrShop) hdrShop.textContent = company;
+    dzRenderDrawer();
     renderProfileHero();
     toast('✓ Profile saved','success');
   } catch(e) { toast('Error: '+e.message,'error'); }
@@ -3125,7 +3135,7 @@ const SELLER_T = {
   en: {
     dashboard: '📊 Dashboard', products: '📦 Products', orders: '🛒 Orders',
     profile: '🏪 Shop Profile', notifications: '🔔 Notifications',
-    signout: 'Sign Out', myShop: 'My Shop',
+    signout: 'Sign out', switchAccount: 'Switch account', myShop: 'My Shop',
     noOrders: 'No orders yet', noProducts: 'No products yet',
     addProduct: '+ Add Product', viewAllOrders: 'View All Orders',
     editShop: 'Edit Shop Profile', recentOrders: '📦 Recent Orders',
@@ -3157,7 +3167,7 @@ const SELLER_T = {
   fr: {
     dashboard: '📊 Tableau de bord', products: '📦 Produits', orders: '🛒 Commandes',
     profile: '🏪 Profil Boutique', notifications: '🔔 Notifications',
-    signout: 'Déconnexion', myShop: 'Ma Boutique',
+    signout: 'Déconnexion', switchAccount: 'Changer de compte', myShop: 'Ma Boutique',
     noOrders: 'Aucune commande', noProducts: 'Aucun produit',
     addProduct: '+ Ajouter Produit', viewAllOrders: 'Voir toutes les commandes',
     editShop: 'Modifier le profil boutique', recentOrders: '📦 Commandes récentes',
@@ -3192,11 +3202,14 @@ function t(key) { return SELLER_T[currentLang]?.[key] || SELLER_T['en'][key] || 
 
 function setLang(lang) {
   currentLang = lang;
-  // Update toggle buttons
-  document.getElementById('lang-en').style.background = lang==='en' ? 'var(--gold)' : 'transparent';
-  document.getElementById('lang-en').style.color = lang==='en' ? 'var(--navy)' : 'rgba(255,255,255,0.6)';
-  document.getElementById('lang-fr').style.background = lang==='fr' ? 'var(--gold)' : 'transparent';
-  document.getElementById('lang-fr').style.color = lang==='fr' ? 'var(--navy)' : 'rgba(255,255,255,0.6)';
+  // Legacy header EN/FR pill (#lang-en/#lang-fr) was removed in the
+  // header-slim pass; the active language toggle now lives in the
+  // drawer footer (#dz-drawer-lang-en/fr), updated by dzRenderDrawer().
+  // Guarded lookup keeps any out-of-tree caller safe.
+  const le = document.getElementById('lang-en');
+  const lf = document.getElementById('lang-fr');
+  if (le) { le.style.background = lang==='en' ? 'var(--gold)' : 'transparent'; le.style.color = lang==='en' ? 'var(--navy)' : 'rgba(255,255,255,0.6)'; }
+  if (lf) { lf.style.background = lang==='fr' ? 'var(--gold)' : 'transparent'; lf.style.color = lang==='fr' ? 'var(--navy)' : 'rgba(255,255,255,0.6)'; }
   // Update all labelled elements
   applyTranslations();
   // Re-render dynamic content
@@ -3220,12 +3233,14 @@ function applyTranslations() {
     const el = document.getElementById(id);
     if (el) el.textContent = label;
   });
-  // Sign out button
+  // Legacy #btn-signout (header) and #header-shop-name (header) were
+  // removed in the header-slim pass — their drawer equivalents are
+  // refreshed by dzRenderDrawer(). Guarded lookups stay so external
+  // callers don't crash if either id is reintroduced later.
   const so = document.getElementById('btn-signout');
   if (so) so.textContent = t('signout');
-  // Header shop name
   const hs = document.getElementById('header-shop-name');
-  if (hs && hs.textContent === 'My Shop' || hs?.textContent === 'Ma Boutique') {
+  if (hs && (hs.textContent === 'My Shop' || hs.textContent === 'Ma Boutique')) {
     hs.textContent = t('myShop');
   }
   // Auth screens
@@ -3961,10 +3976,16 @@ function copyShopLink() {
 }
 
 function signOut() {
+  // Previously only nulled local state + showScreen('screen-phone') —
+  // never cleared the JWT, so Login.html's early-redirect IIFE would
+  // see the still-valid token on next visit and bounce the user right
+  // back into /seller. Effectively a soft sign-out that silently
+  // re-auths. Now it does what users expect: clear JWT + session +
+  // route to the unified /login mode chooser. The post-action toast
+  // was dropped because the immediate redirect is its own feedback.
   currentSeller = null; allProducts = []; allOrders = []; allNotifs = [];
-  document.getElementById('phone-input').value = '';
-  showScreen('screen-phone');
-  toast('Signed out successfully','');
+  try { localStorage.removeItem('dozie_jwt'); sessionStorage.clear(); } catch (_) {}
+  location.replace('/login');
 }
 
 // ══════════════════════════════════════════════════════════════

@@ -40,9 +40,9 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .auth-link span{color:var(--gold);font-weight:700}
 .phone-row{display:flex;gap:8px;margin-bottom:16px}
 .cc{background:#f8f6f0;border:1.5px solid var(--lgrey);border-radius:10px;padding:13px 14px;font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap}
-.app-header{background:var(--navy);padding:0 20px;height:58px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100}
+.app-header{background:var(--navy);padding:0 16px;height:58px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
 /* ── HAMBURGER DRAWER ───────────────────────────────────────── */
-.dz-hamburger{background:rgba(255,255,255,0.1);border:0;color:#fff;width:36px;height:36px;border-radius:8px;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.dz-hamburger{background:rgba(255,255,255,0.1);border:0;color:#fff;width:44px;height:44px;border-radius:8px;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .dz-hamburger:hover{background:rgba(255,255,255,0.2)}
 .dz-hamburger:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 #dz-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0);transition:background .25s ease-out;z-index:200;pointer-events:none}
@@ -62,9 +62,11 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .dz-drawer-lang{display:flex;background:var(--light);border-radius:20px;padding:3px;gap:2px;margin-bottom:10px}
 .dz-drawer-lang button{flex:1;padding:6px;border:0;background:transparent;color:var(--grey);font-size:12px;font-weight:700;border-radius:16px;cursor:pointer;font-family:inherit}
 .dz-drawer-lang button.active{background:var(--gold);color:var(--navy)}
+.dz-drawer-switch{width:100%;background:transparent;color:var(--navy);border:1.5px solid var(--lgrey);border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:8px}
+.dz-drawer-switch:hover{background:var(--light)}
 .dz-drawer-logout{width:100%;background:transparent;color:var(--red);border:1.5px solid var(--red);border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
 .dz-drawer-logout:hover{background:var(--red);color:#fff}
-.logo{font-size:15px;font-weight:900;letter-spacing:2px;color:#fff;flex:1}
+.logo{font-size:15px;font-weight:900;letter-spacing:2px;color:#fff;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .logo span{color:var(--gold)}
 .hbtn{background:rgba(255,255,255,0.12);border:none;color:#fff;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
 .hbtn:hover{background:rgba(255,255,255,0.2)}
@@ -376,23 +378,16 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
         <button id="dz-drawer-lang-en" onclick="setLang('en')">EN</button>
         <button id="dz-drawer-lang-fr" onclick="setLang('fr')">FR</button>
       </div>
-      <button class="dz-drawer-logout" onclick="signOut()">🚪 <span id="dz-drawer-logout-label">Logout</span></button>
+      <button class="dz-drawer-switch" onclick="dzSwitchAccount()">🔄 <span id="dz-drawer-switch-label">Switch account</span></button>
+      <button class="dz-drawer-logout" onclick="signOut()">🚪 <span id="dz-drawer-logout-label">Sign out</span></button>
     </div>
   </aside>
   <div class="app-header">
     <button class="dz-hamburger" id="dz-hamburger" onclick="dzOpenDrawer()" aria-label="Open menu" aria-controls="dz-drawer" aria-expanded="false">☰</button>
     <div class="logo">PARTENAIRE <span>✦</span></div>
-    <span style="font-size:12px;color:rgba(255,255,255,0.6);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="hdr-name">Buyer</span>
-    <div style="display:flex;background:rgba(255,255,255,0.12);border-radius:20px;padding:3px;gap:2px">
-      <button id="b-lang-en" onclick="setLang('en')" style="padding:4px 10px;border-radius:16px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:rgba(255,255,255,0.6)">EN</button>
-      <button id="b-lang-fr" onclick="setLang('fr')" style="padding:4px 10px;border-radius:16px;border:none;font-size:11px;font-weight:700;cursor:pointer;background:var(--gold);color:var(--navy)">FR</button>
-    </div>
-    <button class="hbtn cart-btn" onclick="switchTab('tab-cart')" id="cart-hbtn">
+    <button class="hbtn cart-btn" onclick="switchTab('tab-cart')" id="cart-hbtn" aria-label="Cart">
       🛒 <span id="lbl-cart-btn">Panier</span> <span class="cart-count" id="cart-count">0</span>
     </button>
-    
-
-<button class="hbtn" id="btn-signout" onclick="signOut()">Déconnexion</button>
   </div>
   <div class="search-bar">
     <div class="search-inner">
@@ -996,7 +991,12 @@ function enterApp() {
   }
   setLang('fr');
   showScreen('app-screen');
-  document.getElementById('hdr-name').textContent = currentBuyer.name || 'Buyer';
+  // #hdr-name lived in the slimmed-out header; the buyer name now lives
+  // in the drawer header (#dz-drawer-shop) via dzRenderDrawer(). Guard
+  // kept null-safe in case any caller path still references the id.
+  const hdrName = document.getElementById('hdr-name');
+  if (hdrName) hdrName.textContent = currentBuyer.name || 'Buyer';
+  dzRenderDrawer();
   document.getElementById('p-name').textContent = currentBuyer.name || 'Buyer';
   document.getElementById('p-sub').textContent = (currentBuyer.company||'') + ' · 📍 ' + (currentBuyer.city||'');
   document.getElementById('p-avatar-text').textContent = (currentBuyer.name||'B').charAt(0).toUpperCase();
@@ -1658,7 +1658,9 @@ async function saveProfile() {
     currentBuyer = (upd && upd.ok && upd.user) ? upd.user : {...currentBuyer,name,company,city,momo_phone};
     document.getElementById('p-name').textContent = name;
     document.getElementById('p-sub').textContent = company+' · 📍 '+city;
-    document.getElementById('hdr-name').textContent = name;
+    const hdrName = document.getElementById('hdr-name');
+    if (hdrName) hdrName.textContent = name;
+    dzRenderDrawer();
     toast('✓ Profile saved', 'success');
   } catch(e) { toast('Error: '+e.message, 'error'); }
 }
@@ -1770,9 +1772,21 @@ function dzRenderDrawer() {
     return `<button class="${cls}" onclick="${handler}">${it.icon} <span>${label}</span>${soon}</button>`;
   }).join('');
 
-  document.getElementById('dz-drawer-logout-label').textContent = fr ? 'Déconnexion' : 'Logout';
+  const swLabel = document.getElementById('dz-drawer-switch-label');
+  if (swLabel) swLabel.textContent = fr ? 'Changer de compte' : 'Switch account';
+  const loLabel = document.getElementById('dz-drawer-logout-label');
+  if (loLabel) loLabel.textContent = fr ? 'Déconnexion' : 'Sign out';
   document.getElementById('dz-drawer-lang-en')?.classList.toggle('active', !fr);
   document.getElementById('dz-drawer-lang-fr')?.classList.toggle('active', fr);
+}
+
+// Clears the JWT and lands on the unified /login mode chooser — no
+// ?mode= so the user can pick either role. Functionally identical to
+// signOut() below; the separate label signals intent ("swap who I am"
+// vs "leave the device").
+function dzSwitchAccount() {
+  try { localStorage.removeItem('dozie_jwt'); sessionStorage.clear(); } catch (_) {}
+  location.replace('/login');
 }
 
 (function dzInitDrawerGestures() {
@@ -2331,12 +2345,17 @@ async function handleDeepLink() {
 window.addEventListener('DOMContentLoaded', handleDeepLink);
 
 function signOut() {
+  // Previously only nulled local state + showScreen('screen-phone') —
+  // never cleared the JWT, so Login.html's early-redirect IIFE would
+  // see the still-valid token on next visit and bounce the user right
+  // back into /buyer. Effectively a soft sign-out that silently
+  // re-auths. Now it does what users expect: clear JWT + session +
+  // route to the unified /login mode chooser.
   if (syncInterval) clearInterval(syncInterval);
   if (broadcastInterval) clearInterval(broadcastInterval);
   currentBuyer=null; cart=[]; allShops=[]; allOrders=[];
-  document.getElementById('phone-input').value='';
-  [0,1,2,3].forEach(i=>{const e=document.getElementById('o'+i);if(e)e.value='';});
-  showScreen('screen-phone');
+  try { localStorage.removeItem('dozie_jwt'); sessionStorage.clear(); } catch (_) {}
+  location.replace('/login');
 }
 
 function authErr(id, msg) {
