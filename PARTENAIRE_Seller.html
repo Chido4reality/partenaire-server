@@ -93,7 +93,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .badge-info-title{font-size:15px;font-weight:700}
 .badge-info-sub{font-size:12px;color:var(--grey);margin-top:2px}
 .badge-status{margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px}
-.badge-status.pending{background:var(--amberl);color:var(--amber)}
+.badge-status.pending{background:#EEF1F6;color:#5C6470}
 .badge-status.approved{background:var(--greenl);color:var(--green)}
 .badge-status.rejected{background:#FEECEC;color:var(--red)}
 
@@ -2689,7 +2689,20 @@ function renderProfileHero() {
     avatarText.textContent = (s.company||'?').charAt(0).toUpperCase();
   }
 
-  document.getElementById('profile-name').textContent = s.company || 'My Shop';
+  // Subtle ✓ Verified tick next to shop name when badge approved —
+  // the calm, "earned" positive signal (Twitter-style). DOM build
+  // (not innerHTML) preserves XSS-safety on s.company. textContent
+  // assignment also wipes any prior tick, keeping this idempotent
+  // across re-renders.
+  const nameEl = document.getElementById('profile-name');
+  nameEl.textContent = s.company || 'My Shop';
+  if (s.badge_status === 'approved') {
+    const chk = document.createElement('span');
+    chk.title = currentLang === 'fr' ? 'Boutique vérifiée' : 'Verified shop';
+    chk.style.cssText = 'color:var(--green);margin-left:6px;font-weight:800';
+    chk.textContent = '✓';
+    nameEl.appendChild(chk);
+  }
   document.getElementById('profile-sub').textContent = `${s.name||''} · 📍 ${s.city||''} · ${CATS[s.category]||''}`;
 
   // Show "Also a Buyer" badge if applicable
@@ -2728,10 +2741,26 @@ function renderProfileHero() {
   } else if (acc.source === 'blocked') {
     sub = 'Contact support / Contactez le support';
   }
-  const verifPill = s.badge_status === 'approved' ? '<span class="badge-status approved">✓ Verified</span>'
-                  : s.badge_status === 'rejected' ? '<span class="badge-status rejected">✕ Verification rejected</span>'
-                  : s.badge_status === 'pending'  ? '<span class="badge-status pending">⏳ Pending review</span>'
-                  : '';
+  // Verification pill — differentiated render per mount point.
+  // Dashboard (#badge-status-card) is the seller's home view, so it
+  // shows the pill ONLY for the actionable 'rejected' state. The old
+  // amber "Pending review" pill greeted every freshly-onboarded seller
+  // (badge_status defaults to 'pending' at the schema level) as if
+  // their account were flagged. Profile (#badge-card-profile) still
+  // renders all three states so sellers can see where they stand.
+  const fr = currentLang === 'fr';
+  const pillText = {
+    approved: fr ? '✓ Vérifié'              : '✓ Verified',
+    rejected: fr ? '✕ Vérification refusée' : '✕ Verification rejected',
+    pending:  fr ? '⏳ Vérification en cours' : '⏳ Verification in progress'
+  };
+  const profilePill = s.badge_status === 'approved' ? `<span class="badge-status approved">${pillText.approved}</span>`
+                    : s.badge_status === 'rejected' ? `<span class="badge-status rejected">${pillText.rejected}</span>`
+                    : s.badge_status === 'pending'  ? `<span class="badge-status pending">${pillText.pending}</span>`
+                    : '';
+  const dashboardPill = s.badge_status === 'rejected'
+    ? `<span class="badge-status rejected">${pillText.rejected}</span>`
+    : '';
   // FU.5 — pause control. Paused sellers see a big red Reopen card;
   // active sellers see a small "Pause shop" link in the plan card.
   const isPaused = s.status === 'paused';
@@ -2746,14 +2775,14 @@ function renderProfileHero() {
     `<div style="margin-top:8px;font-size:11px;color:var(--grey)">
        <a href="javascript:void(0)" onclick="toggleShopPause(true)" style="color:var(--grey);text-decoration:underline;cursor:pointer">⏸ ${currentLang === 'fr' ? 'Mettre la boutique en pause' : 'Pause my shop'}</a>
      </div>`;
-  const html = `${pauseControl}<div class="badge-card ${pc.cls}" style="margin-bottom:16px">
+  const cardBody = pill => `${pauseControl}<div class="badge-card ${pc.cls}" style="margin-bottom:16px">
     <div class="badge-icon">${pc.icon}</div>
     <div style="flex:1"><div class="badge-info-title" style="color:${pc.color}">${pc.label}</div>
     <div class="badge-info-sub">${sub}</div>${pauseLink}</div>
-    ${verifPill}
+    ${pill}
   </div>`;
-  document.getElementById('badge-card-profile').innerHTML = html;
-  document.getElementById('badge-status-card').innerHTML = html;
+  document.getElementById('badge-card-profile').innerHTML = cardBody(profilePill);
+  document.getElementById('badge-status-card').innerHTML = cardBody(dashboardPill);
 }
 
 // ── PROFILE PHOTO ────────────────────────────────────────────
@@ -2967,7 +2996,7 @@ const SELLER_T = {
     markShipped: '🚚 Mark as Shipped', markDelivered: '✅ Confirm Delivered',
     markReady: '📦 Mark as Ready for Pickup', markPickedUp: '✅ Confirm Picked Up',
     confirmOrder: '✓ Confirm Order', rejectOrder: '✕ Reject Order',
-    pendingVerif: '⏳ Pending Review', approved: '✓ Approved', rejected: '✕ Rejected',
+    pendingVerif: '⏳ Verification in progress', approved: '✓ Verified', rejected: '✕ Verification rejected',
     products_label: 'Products', orders_label: 'Orders', revenue_label: 'Revenue',
     publish: '🚀 Publish Product Now', saveProduct: '✓ Save Changes',
     addItem: '+ Add Product', editProduct: '✏️ Edit Product',
@@ -2999,7 +3028,7 @@ const SELLER_T = {
     markShipped: '🚚 Marquer comme expédié', markDelivered: '✅ Confirmer la livraison',
     markReady: '📦 Prêt pour retrait', markPickedUp: '✅ Confirmer le retrait',
     confirmOrder: '✓ Confirmer la commande', rejectOrder: '✕ Rejeter',
-    pendingVerif: '⏳ En attente', approved: '✓ Approuvé', rejected: '✕ Rejeté',
+    pendingVerif: '⏳ Vérification en cours', approved: '✓ Vérifié', rejected: '✕ Vérification refusée',
     products_label: 'Produits', orders_label: 'Commandes', revenue_label: 'Revenus',
     publish: '🚀 Publier maintenant', saveProduct: '✓ Enregistrer',
     addItem: '+ Ajouter un produit', editProduct: '✏️ Modifier le produit',
