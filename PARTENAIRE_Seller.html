@@ -248,9 +248,11 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 
 @media(max-width:600px){
   .stat-row{grid-template-columns:repeat(3,1fr)}
-  /* matches the !important on the desktop rule — otherwise the 2-col mobile
-     override is defeated by the auto-fill rule above. */
-  .products-grid{grid-template-columns:1fr 1fr !important}
+  /* Forced 2-col override removed: it defeated the desktop auto-fill's
+     min(100%,200px) guard, pinning 2 columns even at 360px where each
+     ~140px track couldn't hold the Edit+Delete action row (~148px
+     min-content), clipping the Delete button. Auto-fill now governs —
+     1 column on phones (≤~470px), 2 on tablets. */
   .tab-page{padding:16px}
   .detail-body{padding:0 16px}
 }
