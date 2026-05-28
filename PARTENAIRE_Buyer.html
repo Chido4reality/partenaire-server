@@ -80,10 +80,11 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .search-box::before{content:'🔍';position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px}
 .city-filter{padding:10px 14px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:13px;color:var(--navy);background:#f8f7f4;outline:none;cursor:pointer}
 .tab-bar{background:#fff;border-bottom:1px solid var(--lgrey);display:flex;padding:0 16px;gap:0;overflow-x:auto}
-.tab{padding:13px 18px;font-size:13px;font-weight:600;color:var(--grey);cursor:pointer;border-bottom:2.5px solid transparent;white-space:nowrap;transition:all .15s}
+.tab{flex:1;min-width:0;text-align:center;padding:13px 6px;font-size:13px;font-weight:600;color:var(--grey);cursor:pointer;border-bottom:2.5px solid transparent;white-space:nowrap;transition:all .15s}
 .tab:hover{color:var(--navy)}
 .tab.active{color:var(--navy);border-bottom-color:var(--gold)}
 .tab-badge{background:var(--red);color:#fff;font-size:10px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:4px;display:none}
+@media(max-width:600px){.tab{font-size:12px;padding:13px 4px}}
 .tab-page{display:none;padding:20px;max-width:1000px;margin:0 auto}
 .tab-page.active{display:block}
 .cat-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:16px;scrollbar-width:none}
@@ -404,7 +405,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
   <div class="tab-bar">
     <div class="tab active" onclick="switchTab('tab-shops')" id="tab-shops">🏪 <span id="lbl-shops">Boutiques</span></div>
     <div class="tab" onclick="switchTab('tab-cart')" id="tab-cart">🛒 <span id="lbl-cart">Panier</span> <span class="tab-badge" id="cart-badge">0</span></div>
-    <div class="tab" onclick="switchTab('tab-orders')" id="tab-orders">📦 <span id="lbl-orders">Mes Commandes</span> <span class="tab-badge" id="order-badge">0</span></div>
+    <div class="tab" onclick="switchTab('tab-orders')" id="tab-orders">📦 <span id="lbl-orders">Commandes</span> <span class="tab-badge" id="order-badge">0</span></div>
     <div class="tab" onclick="switchTab('tab-profile')" id="tab-profile">👤 <span id="lbl-profile">Profil</span></div>
   </div>
   <div class="tab-page active" id="page-shops">

@@ -87,7 +87,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 
 /* ── TABS ── */
 .tab-bar{background:#fff;border-bottom:1px solid var(--lgrey);display:flex;padding:0 24px;gap:0;position:sticky;top:60px;z-index:99}
-.tab{padding:14px 20px;font-size:13px;font-weight:600;color:var(--grey);cursor:pointer;border-bottom:2.5px solid transparent;transition:all .15s;white-space:nowrap}
+.tab{flex:1;min-width:0;text-align:center;padding:14px 6px;font-size:13px;font-weight:600;color:var(--grey);cursor:pointer;border-bottom:2.5px solid transparent;transition:all .15s;white-space:nowrap}
 .tab:hover{color:var(--navy)}
 .tab.active{color:var(--navy);border-bottom-color:var(--gold)}
 .tab-badge{background:var(--red);color:#fff;font-size:10px;font-weight:800;padding:1px 5px;border-radius:8px;margin-left:4px;display:none}
@@ -248,6 +248,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 
 @media(max-width:600px){
   .stat-row{grid-template-columns:repeat(3,1fr)}
+  .tab{font-size:12px;padding:12px 4px}
   /* Forced 2-col override removed: it defeated the desktop auto-fill's
      min(100%,200px) guard, pinning 2 columns even at 360px where each
      ~140px track couldn't hold the Edit+Delete action row (~148px
@@ -540,8 +541,7 @@ function openWhatsApp(e, phone, text){
     <div class="tab active" onclick="switchTab('tab-dashboard')" id="tab-dashboard">📊 <span id="lbl-dashboard">Dashboard</span></div>
     <div class="tab" onclick="switchTab('tab-products')" id="tab-products">📦 <span id="lbl-products">Products</span></div>
     <div class="tab" onclick="switchTab('tab-orders')" id="tab-orders">🛒 <span id="lbl-orders">Orders</span> <span class="tab-badge" id="order-badge">0</span></div>
-    <div class="tab" onclick="switchTab('tab-profile')" id="tab-profile">🏪 <span id="lbl-profile">Shop Profile</span></div>
-    <div class="tab" onclick="switchTab('tab-notifications')" id="tab-notifications">🔔 <span id="lbl-notifs">Notifications</span></div>
+    <div class="tab" onclick="switchTab('tab-profile')" id="tab-profile">🏪 <span id="lbl-profile">Profil</span></div>
   </div>
 
   <!-- DASHBOARD TAB -->
@@ -3135,8 +3135,8 @@ let currentLang = 'fr'; // Default French for Cameroon
 
 const SELLER_T = {
   en: {
-    dashboard: '📊 Dashboard', products: '📦 Products', orders: '🛒 Orders',
-    profile: '🏪 Shop Profile', notifications: '🔔 Notifications',
+    dashboard: 'Home', products: 'Products', orders: 'Orders',
+    profile: 'Profile', notifications: 'Notifications',
     signout: 'Sign out', switchAccount: 'Switch account', myShop: 'My Shop',
     noOrders: 'No orders yet', noProducts: 'No products yet',
     addProduct: '+ Add Product', viewAllOrders: 'View All Orders',
@@ -3167,8 +3167,8 @@ const SELLER_T = {
     signin: 'Sign in →',
   },
   fr: {
-    dashboard: '📊 Tableau de bord', products: '📦 Produits', orders: '🛒 Commandes',
-    profile: '🏪 Profil Boutique', notifications: '🔔 Notifications',
+    dashboard: 'Accueil', products: 'Produits', orders: 'Commandes',
+    profile: 'Profil', notifications: 'Notifications',
     signout: 'Déconnexion', switchAccount: 'Changer de compte', myShop: 'Ma Boutique',
     noOrders: 'Aucune commande', noProducts: 'Aucun produit',
     addProduct: '+ Ajouter Produit', viewAllOrders: 'Voir toutes les commandes',
@@ -3228,8 +3228,7 @@ function applyTranslations() {
   // Tab labels
   const spanMap = {
     'lbl-dashboard': t('dashboard'), 'lbl-products': t('products'),
-    'lbl-orders': t('orders'), 'lbl-profile': t('profile'),
-    'lbl-notifs': t('notifications')
+    'lbl-orders': t('orders'), 'lbl-profile': t('profile')
   };
   Object.entries(spanMap).forEach(([id, label]) => {
     const el = document.getElementById(id);
