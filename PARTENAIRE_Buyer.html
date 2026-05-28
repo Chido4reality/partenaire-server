@@ -88,21 +88,21 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 @media(max-width:600px){.tab{font-size:12px;padding:13px 4px}}
 .tab-page{display:none;padding:20px;max-width:1000px;margin:0 auto;overflow-x:hidden}
 .tab-page.active{display:block}
-.cat-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:16px;scrollbar-width:none;scroll-snap-type:x proximity;-webkit-mask-image:linear-gradient(to right,#000 88%,transparent);mask-image:linear-gradient(to right,#000 88%,transparent)}
+.cat-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:16px;scrollbar-width:none;scroll-snap-type:x proximity;touch-action:pan-x;-webkit-overflow-scrolling:touch;-webkit-mask-image:linear-gradient(to right,#000 88%,transparent);mask-image:linear-gradient(to right,#000 88%,transparent)}
 .cat-row::-webkit-scrollbar{display:none}
 .cat-chip{padding:7px 16px;border-radius:20px;border:1.5px solid var(--lgrey);font-size:12px;font-weight:600;cursor:pointer;background:#fff;white-space:nowrap;transition:all .15s;color:var(--grey);scroll-snap-align:start}
 .cat-chip:hover{border-color:var(--gold);color:var(--navy)}
 .cat-chip.active{background:var(--navy);color:#fff;border-color:var(--navy)}
-.shops-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:16px;margin-bottom:24px}
+.shops-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr));gap:12px;margin-bottom:24px}
 .shop-card{background:#fff;border-radius:16px;overflow:hidden;cursor:pointer;transition:all .2s;border:1.5px solid transparent;min-width:0}
 .shop-card:hover{box-shadow:0 8px 32px rgba(0,0,0,0.1);border-color:var(--gold);transform:translateY(-2px)}
 .shop-banner{height:70px;background:linear-gradient(135deg,var(--navy) 0%,#2a4a7a 100%);display:flex;align-items:center;justify-content:center;font-size:32px;position:relative}
 .shop-avatar-wrap{position:absolute;bottom:-20px;left:16px;width:44px;height:44px;border-radius:12px;background:var(--gold);border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:var(--navy)}
 .shop-badge-icon{position:absolute;top:8px;right:8px;font-size:18px}
 .shop-body{padding:28px 16px 16px}
-.shop-name{font-size:15px;font-weight:800;color:var(--navy);margin-bottom:3px}
+.shop-name{font-size:15px;font-weight:800;color:var(--navy);margin-bottom:3px;overflow-wrap:break-word}
 .shop-city{font-size:12px;color:var(--grey);margin-bottom:8px}
-.shop-meta{display:flex;align-items:center;justify-content:space-between}
+.shop-meta{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px}
 .badge-pill{font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px}
 .badge-premium{background:var(--bluel);color:var(--blue)}
 .badge-gold{background:var(--amberl);color:var(--amber)}
