@@ -53,7 +53,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 /* ── MAIN APP ── */
 #app-screen{background:#F0EDE8}
 .app-header{background:var(--navy);padding:0 16px;height:60px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
-.app-header-logo{font-size:16px;font-weight:900;letter-spacing:2px;color:#fff;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app-header-logo{font-size:16px;font-weight:900;letter-spacing:1px;color:#fff;flex:1;min-width:0;white-space:nowrap}
 .app-header-logo span{color:var(--gold)}
 .header-notif{position:relative;background:rgba(255,255,255,0.1);border:none;color:#fff;width:40px;height:40px;border-radius:8px;cursor:pointer;font-size:16px;transition:background .2s;flex-shrink:0}
 .header-notif:hover{background:rgba(255,255,255,0.2)}
@@ -129,11 +129,11 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
    inline width/flex declaration that previously squeezed the grid into
    a single column on desktop. Don't strip them without checking the
    single-column regression first. */
-.products-grid{display:grid !important;grid-template-columns:repeat(auto-fill,minmax(200px,1fr)) !important;gap:16px !important;padding:16px !important;max-width:1400px;margin:0 auto 20px}
+.products-grid{display:grid !important;grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr)) !important;gap:16px !important;padding:16px !important;max-width:1400px;margin:0 auto 20px}
 /* Let the products tab expand to the full window width on desktop —
    the default .tab-page max-width:1000px starves the grid above ~5 cols. */
 #page-products{max-width:1600px}
-.product-card{background:#fff;border-radius:12px;overflow:hidden;padding:16px;position:relative;box-shadow:0 2px 8px rgba(0,0,0,0.08);transition:box-shadow .2s,transform .15s}
+.product-card{background:#fff;border-radius:12px;overflow:hidden;padding:16px;position:relative;box-shadow:0 2px 8px rgba(0,0,0,0.08);transition:box-shadow .2s,transform .15s;min-width:0}
 .product-card:hover{box-shadow:0 6px 20px rgba(0,0,0,0.12);transform:translateY(-1px)}
 .product-photo{width:100%;height:120px;background:#f8f6f0;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:48px;margin-bottom:12px}
 .product-name{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px}
