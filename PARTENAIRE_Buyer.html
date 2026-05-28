@@ -88,9 +88,8 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 @media(max-width:600px){.tab{font-size:12px;padding:13px 4px}}
 .tab-page{display:none;padding:20px;max-width:1000px;margin:0 auto;overflow-x:hidden}
 .tab-page.active{display:block}
-.cat-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:16px;scrollbar-width:none;scroll-snap-type:x proximity;touch-action:pan-x;-webkit-overflow-scrolling:touch;-webkit-mask-image:linear-gradient(to right,#000 88%,transparent);mask-image:linear-gradient(to right,#000 88%,transparent)}
-.cat-row::-webkit-scrollbar{display:none}
-.cat-chip{padding:7px 16px;border-radius:20px;border:1.5px solid var(--lgrey);font-size:12px;font-weight:600;cursor:pointer;background:#fff;white-space:nowrap;transition:all .15s;color:var(--grey);scroll-snap-align:start}
+.cat-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.cat-chip{padding:7px 16px;border-radius:20px;border:1.5px solid var(--lgrey);font-size:12px;font-weight:600;cursor:pointer;background:#fff;white-space:nowrap;transition:all .15s;color:var(--grey)}
 .cat-chip:hover{border-color:var(--gold);color:var(--navy)}
 .cat-chip.active{background:var(--navy);color:#fff;border-color:var(--navy)}
 .shops-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr));gap:12px;margin-bottom:24px}
@@ -417,6 +416,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
       <div class="cat-chip" onclick="filterCat('3',this)">📱 Electronics</div>
       <div class="cat-chip" onclick="filterCat('4',this)">🔧 Hardware</div>
       <div class="cat-chip" onclick="filterCat('5',this)">🌾 Agriculture</div>
+      <div class="cat-chip" onclick="filterCat('6',this)">👗 Textile</div>
     </div>
     <div class="shops-grid" id="shops-grid">
       <div class="loading"><div class="spinner"></div><br>Loading shops...</div>
