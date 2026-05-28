@@ -14,7 +14,7 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v19-20260528h';
+const CACHE = 'partenaire-dozie-v20-20260528i';
 
 const STATIC = [
   '/',
