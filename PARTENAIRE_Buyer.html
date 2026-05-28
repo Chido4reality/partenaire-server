@@ -123,6 +123,8 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .product-name{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px;overflow-wrap:break-word}
 .product-price{font-size:15px;font-weight:800;color:var(--gold)}
 .product-stock{font-size:11px;color:var(--grey);margin-top:3px}
+.product-shop{font-size:11px;color:var(--grey);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.results-header{font-size:13px;font-weight:800;color:var(--navy);margin:4px 0 10px;text-transform:uppercase;letter-spacing:0.5px}
 .add-to-cart-btn{width:100%;margin-top:10px;padding:9px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;transition:background .2s;min-width:0}
 .add-to-cart-btn:hover{background:#243b65}
 .add-to-cart-btn.added{background:var(--green)}
@@ -393,7 +395,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
   <div class="search-bar">
     <div class="search-inner">
       <div class="search-box" style="flex:1">
-        <input type="text" id="search-input" placeholder="Search shops, products, cities..." oninput="doSearch()">
+        <input type="text" id="search-input" placeholder="Search products, shops, cities..." oninput="onSearchInput()">
       </div>
       <select class="city-filter" id="city-filter" onchange="doSearch()">
         <option value="">All Cities</option>
@@ -418,6 +420,12 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
       <div class="cat-chip" onclick="filterCat('5',this)">🌾 Agriculture</div>
       <div class="cat-chip" onclick="filterCat('6',this)">👗 Textile</div>
     </div>
+    <!-- Product search results (shown only when a text query is active) -->
+    <div id="search-products-section" style="display:none">
+      <div class="results-header" id="products-header"></div>
+      <div class="products-grid" id="product-results"></div>
+    </div>
+    <div class="results-header" id="shops-header" style="display:none"></div>
     <div class="shops-grid" id="shops-grid">
       <div class="loading"><div class="spinner"></div><br>Loading shops...</div>
     </div>
@@ -1085,21 +1093,84 @@ async function loadShops() {
 
 function renderShops() { doSearch(); }
 
-function doSearch() {
-  const q = (document.getElementById('search-input').value||'').toLowerCase();
+// Debounce keystrokes so we don't fire a product REST call per character.
+let _searchDebounce = null;
+function onSearchInput() {
+  clearTimeout(_searchDebounce);
+  _searchDebounce = setTimeout(doSearch, 250);
+}
+
+async function doSearch() {
+  const q = (document.getElementById('search-input').value||'').trim().toLowerCase();
   const city = document.getElementById('city-filter').value;
-  let filtered = allShops.filter(s => {
+  // SHOPS — in-memory filter (unchanged behaviour: company/city/name match).
+  const shops = allShops.filter(s => {
     const matchQ = !q || s.company?.toLowerCase().includes(q) || s.city?.toLowerCase().includes(q) || s.name?.toLowerCase().includes(q);
     const matchCity = !city || s.city === city;
     const matchCat = !selectedCat || s.category === selectedCat;
     return matchQ && matchCity && matchCat;
   });
+
+  const prodSection = document.getElementById('search-products-section');
+  const shopsHeader = document.getElementById('shops-header');
   const grid = document.getElementById('shops-grid');
-  if (!filtered.length) {
-    grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="empty-icon">🏪</div><div>No shops found</div></div>';
-    return;
+
+  if (q) {
+    // Products are the primary result while a text query is active.
+    await renderProductSearch(q, city);
+    prodSection.style.display = 'block';
+    shopsHeader.textContent = (currentLang==='fr'?'Boutiques':'Shops') + ` (${shops.length})`;
+    shopsHeader.style.display = shops.length ? 'block' : 'none';
+    grid.innerHTML = shops.length ? shops.map(s => buildShopCard(s)).join('') : '';
+  } else {
+    // No query → marketplace default: just the shops grid (categories/city still apply).
+    prodSection.style.display = 'none';
+    shopsHeader.style.display = 'none';
+    grid.innerHTML = shops.length
+      ? shops.map(s => buildShopCard(s)).join('')
+      : '<div class="empty" style="grid-column:1/-1"><div class="empty-icon">🏪</div><div>No shops found</div></div>';
   }
-  grid.innerHTML = filtered.map(s => buildShopCard(s)).join('');
+}
+
+// Product search hits the SAME dozie_marketplace_products view the shop
+// detail already reads, extended with an ILIKE on name. Attribution +
+// visibility come from the in-memory allShops map (blocked sellers are
+// already filtered out of allShops, so their products are dropped here too).
+async function renderProductSearch(q, city) {
+  const grid = document.getElementById('product-results');
+  const header = document.getElementById('products-header');
+  grid.innerHTML = '<div class="loading" style="grid-column:1/-1"><div class="spinner"></div></div>';
+  try {
+    const term = encodeURIComponent('*' + q + '*');
+    const products = await GET('dozie_marketplace_products',
+      `published=eq.true&name=ilike.${term}&select=listing_id,seller_id,name,price,photo_url,stock_state,category&limit=50`);
+    const rows = (products||[])
+      .map(p => { const shop = allShops.find(s => s.id === p.seller_id); return shop ? { ...p, _shop: shop } : null; })
+      .filter(Boolean)
+      .filter(p => (!selectedCat || p._shop.category === selectedCat) && (!city || p._shop.city === city));
+    header.textContent = (currentLang==='fr'?'Produits':'Products') + ` (${rows.length})`;
+    grid.innerHTML = rows.length
+      ? rows.map(buildSearchProductCard).join('')
+      : `<div class="empty" style="grid-column:1/-1"><div class="empty-icon">📦</div><div>${currentLang==='fr'?'Aucun produit trouvé':'No products found'}</div></div>`;
+  } catch (e) {
+    console.error('product search:', e);
+    header.textContent = (currentLang==='fr'?'Produits':'Products') + ' (0)';
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-icon">📦</div><div>${currentLang==='fr'?'Recherche indisponible':'Search unavailable'}</div></div>`;
+  }
+}
+
+function buildSearchProductCard(p) {
+  const shop = p._shop;
+  const photo = (p.photo_url && (p.photo_url.startsWith('data:') || p.photo_url.startsWith('http')))
+    ? `<img src="${p.photo_url}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">`
+    : (EMOJIS[p.category] || '📦');
+  const price = p.price ? p.price.toLocaleString() + ' FCFA' : (currentLang==='fr'?'Prix sur demande':'Ask for price');
+  return `<div class="product-card" onclick="openShop('${shop.id}')">
+    <div class="product-emoji">${photo}</div>
+    <div class="product-name">${p.name || ''}</div>
+    <div class="product-price">${price}</div>
+    <div class="product-shop">🏪 ${shop.company || shop.name || ''}</div>
+  </div>`;
 }
 
 function buildShopCard(s) {
