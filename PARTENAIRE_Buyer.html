@@ -20,8 +20,9 @@
   --grey:#8A8A8A;--lgrey:#E8E8E8;--red:#E84040;--green:#2E7D32;
   --greenl:#E8F5E9;--blue:#185FA5;--bluel:#E6F1FB;--amber:#92600A;--amberl:#FEF9EC;
 }
+html,body{overflow-x:hidden;max-width:100%}
 body{background:#F0EDE8;color:var(--navy);min-height:100vh}
-.screen{display:none;min-height:100vh}
+.screen{display:none;min-height:100vh;max-width:100vw}
 .screen.active{display:flex;flex-direction:column}
 .auth-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--navy);padding:20px}
 .auth-box{background:#fff;border-radius:20px;padding:40px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
