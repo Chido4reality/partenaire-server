@@ -604,6 +604,27 @@ function openWhatsApp(e, phone, text){
     <div id="orders-list"><div class="loading"><div class="spinner"></div></div></div>
   </div>
 
+  <!-- MESSAGES TAB -->
+  <div class="tab-page" id="page-messages">
+    <div style="font-size:18px;font-weight:800;margin-bottom:4px">💬 Messages</div>
+    <div style="font-size:13px;color:var(--grey);margin-bottom:16px">Vos conversations avec les acheteurs.</div>
+    <div id="seller-inbox"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- DISPUTES (LITIGES) TAB -->
+  <div class="tab-page" id="page-disputes">
+    <div style="font-size:18px;font-weight:800;margin-bottom:4px">⚠️ Litiges</div>
+    <div style="font-size:13px;color:var(--grey);margin-bottom:16px">Répondez aux litiges et suivez leur résolution.</div>
+    <div id="disputes-list"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- REPORTS (RAPPORTS) TAB -->
+  <div class="tab-page" id="page-reports">
+    <div style="font-size:18px;font-weight:800;margin-bottom:4px">📈 Rapports</div>
+    <div style="font-size:13px;color:var(--grey);margin-bottom:16px">Vos statistiques de vente.</div>
+    <div id="reports-content"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
+
   <!-- PROFILE TAB -->
   <div class="tab-page" id="page-profile">
     <div class="profile-hero" id="profile-hero">
@@ -1383,6 +1404,7 @@ function enterApp() {
   // Generate QR code after short delay (allows DOM to settle)
   setTimeout(() => generateQRCode(currentSeller.id, currentSeller.company || currentSeller.name), 500);
   startSellerSync();
+  startSellerMessagesSync();
   checkBroadcasts("sellers", currentSeller.city);
   broadcastInterval = setInterval(() => checkBroadcasts("sellers", currentSeller.city), 60000);
 
@@ -2422,9 +2444,8 @@ async function submitDisputeReply(orderId, buyerId, orderRef) {
     // Save to ptn_disputes.seller_reply (for admin display)
     await PATCH('ptn_disputes', 'order_id', orderId, {
       seller_reply: reply,
-      seller_reply_at: replyAt,
-      status: 'seller_replied'
-    }).catch(() => {}); // non-blocking if no dispute record exists
+      seller_replied_at: replyAt
+    }).catch(() => {}); // correct column (was seller_reply_at); status left 'open' for admin/Litiges
     await POST('ptn_notifications', {
       user_id: buyerId,
       type: 'dispute',
@@ -2936,9 +2957,9 @@ function dzRenderDrawer() {
     { id:'tab-dashboard', icon:'📊', en:'Dashboard',              fr:'Tableau de bord' },
     { id:'tab-products',  icon:'📦', en:'My Products',            fr:'Mes Produits' },
     { id:'tab-orders',    icon:'🧾', en:'Orders',                 fr:'Commandes' },
-    { id:'msg',           icon:'💬', en:'Messages',               fr:'Messages',                soon:true },
-    { id:'disp',          icon:'⚠',  en:'Disputes',              fr:'Litiges',                 soon:true, badge: disputed || null },
-    { id:'rpt',           icon:'📈', en:'Reports',                fr:'Rapports',                soon:true },
+    { id:'tab-messages',  icon:'💬', en:'Messages',               fr:'Messages',                badge: (window.scUnread||0) || null },
+    { id:'tab-disputes',  icon:'⚠',  en:'Disputes',              fr:'Litiges',                 badge: disputed || null },
+    { id:'tab-reports',   icon:'📈', en:'Reports',                fr:'Rapports' },
     { id:'tab-profile',   icon:'👤', en:'Profile / Verification', fr:'Profil / Vérification' }
   ];
   const esc = (str) => String(str).replace(/'/g, "\\'");
@@ -3099,11 +3120,245 @@ function switchTab(tabId) {
   }
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
-  document.getElementById(tabId).classList.add('active');
-  document.getElementById('page-' + tabId.replace('tab-','page-').replace('tab-','')) ;
+  const tabEl = document.getElementById(tabId);
+  if (tabEl) tabEl.classList.add('active'); // drawer-only pages have no tab-bar button
   const pageId = 'page-' + tabId.replace('tab-','');
   const page = document.getElementById(pageId);
   if (page) page.classList.add('active');
+  if (tabId === 'tab-disputes') loadSellerDisputes();
+  if (tabId === 'tab-reports')  loadSellerReports();
+  if (tabId === 'tab-messages') loadSellerInbox();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  LITIGES — seller disputes (ptn_disputes; RLS: anon select/update).
+// ══════════════════════════════════════════════════════════════
+function dzEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+const DISPUTE_STATUS = {
+  open:             { fr:'Ouvert',              en:'Open',           color:'#92400e', bg:'#FEF3C7' },
+  resolved_refund:  { fr:'Remboursé (acheteur)', en:'Refunded',      color:'#dc2626', bg:'#FEE2E2' },
+  resolved_release: { fr:'Réglé (vendeur)',     en:'Released',       color:'#16a34a', bg:'#DCFCE7' },
+  resolved_partial: { fr:'Remb. partiel',       en:'Partial refund', color:'#2563eb', bg:'#DBEAFE' }
+};
+function disputeStatusPill(status){
+  const fr = currentLang === 'fr';
+  const s = DISPUTE_STATUS[status] || { fr:status, en:status, color:'#6b7280', bg:'#f3f4f6' };
+  return `<span style="background:${s.bg};color:${s.color};font-size:11px;font-weight:800;padding:3px 10px;border-radius:20px;white-space:nowrap">${fr?s.fr:s.en}</span>`;
+}
+async function loadSellerDisputes() {
+  const box = document.getElementById('disputes-list');
+  if (!box || !currentSeller) return;
+  const fr = currentLang === 'fr';
+  try {
+    const rows = await GET('ptn_disputes', 'seller_id=eq.' + currentSeller.id + '&order=created_at.desc&select=*');
+    renderSellerDisputes(rows || []);
+  } catch (e) {
+    box.innerHTML = '<div style="padding:20px;text-align:center;color:#dc2626">' + (fr?'Erreur de chargement':'Load error') + '</div>';
+  }
+}
+function renderSellerDisputes(rows) {
+  const fr = currentLang === 'fr';
+  const box = document.getElementById('disputes-list');
+  if (!rows.length) {
+    box.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--grey)"><div style="font-size:40px;margin-bottom:8px">✅</div>${fr?'Aucun litige. Tout va bien !':'No disputes. All good!'}</div>`;
+    return;
+  }
+  box.innerHTML = rows.map(d => {
+    const isOpen = d.status === 'open';
+    const amount = d.amount != null ? Number(d.amount).toLocaleString('fr-FR') + ' FCFA' : '—';
+    return `<div style="background:#fff;border:1px solid #ece8e1;border-radius:14px;padding:16px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">
+        <div>
+          <div style="font-weight:800;color:var(--navy)">${dzEsc(d.order_ref || '—')}</div>
+          <div style="font-size:11px;color:var(--grey);margin-top:2px">${new Date(d.created_at).toLocaleDateString('fr-FR')} · ${amount}</div>
+        </div>
+        ${disputeStatusPill(d.status)}
+      </div>
+      <div style="background:#FEF3C7;border-radius:10px;padding:10px 12px;font-size:13px;color:#92400e;margin-bottom:10px">
+        <strong>${fr?'Réclamation :':'Buyer claim:'}</strong> ${dzEsc(d.buyer_claim || '—')}
+      </div>
+      ${d.seller_reply ? `<div style="background:#ECFDF5;border-radius:10px;padding:10px 12px;font-size:13px;color:#065f46;margin-bottom:10px"><strong>${fr?'Votre réponse :':'Your reply:'}</strong> ${dzEsc(d.seller_reply)}</div>` : ''}
+      ${d.resolution_note ? `<div style="background:#EEF2FF;border-radius:10px;padding:10px 12px;font-size:13px;color:#3730a3;margin-bottom:10px"><strong>${fr?'Décision admin :':'Admin decision:'}</strong> ${dzEsc(d.resolution_note)}</div>` : ''}
+      ${isOpen ? `
+        <textarea id="dr-${d.id}" rows="2" placeholder="${fr?'Votre réponse au litige…':'Your response…'}" style="width:100%;border:1px solid #dcd7cf;border-radius:10px;padding:10px;font-size:13px;box-sizing:border-box;font-family:inherit;resize:none">${d.seller_reply ? dzEsc(d.seller_reply) : ''}</textarea>
+        <button onclick="submitSellerDisputeReply('${d.id}')" style="margin-top:8px;background:var(--navy);color:#fff;border:none;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">${fr?'Envoyer la réponse':'Send reply'}</button>
+      ` : ''}
+    </div>`;
+  }).join('');
+}
+async function submitSellerDisputeReply(id) {
+  const fr = currentLang === 'fr';
+  const ta = document.getElementById('dr-' + id);
+  const reply = ta ? ta.value.trim() : '';
+  if (!reply) { toast(fr?'Écrivez une réponse':'Write a reply','error'); return; }
+  try {
+    await PATCH('ptn_disputes', 'id', id, { seller_reply: reply, seller_replied_at: new Date().toISOString() });
+    try { await POST('ptn_notifications', { type:'dispute', title_en:'Seller replied to a dispute', title_fr:'Le vendeur a répondu à un litige', body_en:reply.slice(0,120), body_fr:reply.slice(0,120), read:false }); } catch(e) {}
+    toast(fr?'Réponse envoyée':'Reply sent','success');
+    loadSellerDisputes();
+  } catch (e) { toast((fr?'Erreur : ':'Error: ')+e.message,'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RAPPORTS — seller analytics (ptn_seller_overview + ptn_orders).
+// ══════════════════════════════════════════════════════════════
+async function loadSellerReports() {
+  const box = document.getElementById('reports-content');
+  if (!box || !currentSeller) return;
+  const fr = currentLang === 'fr';
+  try {
+    const ovRows = await GET('ptn_seller_overview', 'id=eq.' + currentSeller.id + '&select=*');
+    const ov = (ovRows && ovRows[0]) || {};
+    let orders = [];
+    try { orders = await GET('ptn_orders', 'seller_id=eq.' + currentSeller.id + '&select=status,total,created_at') || []; } catch(e) {}
+    renderSellerReports(ov, orders);
+  } catch (e) {
+    box.innerHTML = '<div style="padding:20px;text-align:center;color:#dc2626">' + (fr?'Erreur de chargement':'Load error') + '</div>';
+  }
+}
+function renderSellerReports(ov, orders) {
+  const fr = currentLang === 'fr';
+  const fcfa = (n) => Number(n||0).toLocaleString('fr-FR') + ' FCFA';
+  const now = Date.now();
+  const rev30 = orders.filter(o => o.created_at && (now - new Date(o.created_at).getTime()) <= 30*86400000)
+                      .reduce((s,o)=> s + Number(o.total||0), 0);
+  const byStatus = {};
+  orders.forEach(o => { byStatus[o.status] = (byStatus[o.status]||0) + 1; });
+  const STATUS_FR = { pending:'En attente', confirmed:'Confirmées', agreed:'Acceptées', shipped:'Expédiées', delivered:'Livrées', disputed:'Litiges', rejected:'Rejetées', cancelled:'Annulées' };
+  const card = (label, value, accent) => `<div style="background:#fff;border:1px solid #ece8e1;border-radius:14px;padding:16px;flex:1;min-width:130px">
+      <div style="font-size:12px;color:var(--grey);margin-bottom:6px">${label}</div>
+      <div style="font-size:22px;font-weight:900;color:${accent||'var(--navy)'}">${value}</div></div>`;
+  const statusRows = Object.keys(byStatus).sort((a,b)=>byStatus[b]-byStatus[a]).map(st =>
+    `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f3efe8;font-size:13px">
+       <span style="color:var(--navy)">${fr?(STATUS_FR[st]||st):st}</span><strong>${byStatus[st]}</strong></div>`).join('');
+  document.getElementById('reports-content').innerHTML = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      ${card(fr?'Revenu total':'Total revenue', fcfa(ov.total_revenue), '#B8860B')}
+      ${card(fr?'Commandes':'Orders', ov.order_count != null ? ov.order_count : (orders.length||0))}
+      ${card(fr?'En attente':'Pending', ov.pending_orders != null ? ov.pending_orders : (byStatus.pending||0), '#d97706')}
+      ${card(fr?'Produits':'Products', ov.product_count != null ? ov.product_count : '—')}
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      ${card(fr?'Revenu (30 jours)':'Revenue (30d)', fcfa(rev30), 'var(--navy)')}
+      ${card(fr?'Total commandes':'All-time orders', orders.length)}
+    </div>
+    <div style="background:#fff;border:1px solid #ece8e1;border-radius:14px;padding:16px;margin-bottom:12px">
+      <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:8px">${fr?'Commandes par statut':'Orders by status'}</div>
+      ${statusRows || `<div style="font-size:13px;color:var(--grey)">${fr?'Aucune commande pour le moment':'No orders yet'}</div>`}
+    </div>
+    ${ov.sub_tier ? `<div style="background:#fff;border:1px solid #ece8e1;border-radius:14px;padding:16px">
+      <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:8px">${fr?'Abonnement':'Subscription'}</div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:var(--grey)">${fr?'Formule':'Tier'}</span><strong>${dzEsc(ov.sub_tier)}${ov.sub_status?(' · '+dzEsc(ov.sub_status)):''}</strong></div>
+      ${ov.sub_amount?`<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:var(--grey)">${fr?'Montant':'Amount'}</span><strong>${fcfa(ov.sub_amount)}</strong></div>`:''}
+      ${ov.next_due_date?`<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:var(--grey)">${fr?'Prochaine échéance':'Next due'}</span><strong>${new Date(ov.next_due_date).toLocaleDateString('fr-FR')}</strong></div>`:''}
+    </div>` : ''}
+  `;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MESSAGES INBOX (seller) — ptn_conversations + ptn_blocks.
+//  Reuses the existing openSellerChat() overlay for each conversation.
+// ══════════════════════════════════════════════════════════════
+window.scUnread = 0;
+let _scBlocked = new Set();
+async function loadSellerBlocks() {
+  _scBlocked = new Set();
+  try {
+    const mine = await GET('ptn_blocks', 'blocker_id=eq.' + currentSeller.id + '&select=blocked_id') || [];
+    const them = await GET('ptn_blocks', 'blocked_id=eq.' + currentSeller.id + '&select=blocker_id') || [];
+    mine.forEach(b => _scBlocked.add(b.blocked_id));
+    them.forEach(b => _scBlocked.add(b.blocker_id));
+  } catch (e) {}
+}
+async function loadSellerInbox() {
+  const box = document.getElementById('seller-inbox');
+  if (!box || !currentSeller) return;
+  const fr = currentLang === 'fr';
+  try {
+    await loadSellerBlocks();
+    let convos = await GET('ptn_conversations', 'seller_id=eq.' + currentSeller.id + '&order=last_at.desc&select=*') || [];
+    convos = convos.filter(c => !_scBlocked.has(c.buyer_id)); // blocked either direction
+    let nameMap = {};
+    const ids = convos.map(c => c.buyer_id);
+    if (ids.length) { try { const us = await getUsersMinimal(ids); (us||[]).forEach(u => nameMap[u.id] = u.name || u.company || u.phone); } catch(e) {} }
+    renderSellerInbox(convos, nameMap);
+    updateSellerUnread(convos);
+  } catch (e) {
+    box.innerHTML = '<div style="padding:20px;text-align:center;color:#dc2626">' + (fr?'Erreur de chargement':'Load error') + '</div>';
+  }
+}
+function renderSellerInbox(convos, nameMap) {
+  const fr = currentLang === 'fr';
+  const box = document.getElementById('seller-inbox');
+  if (!convos.length) { box.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--grey)"><div style="font-size:40px;margin-bottom:8px">💬</div>${fr?'Aucune conversation pour le moment.':'No conversations yet.'}</div>`; return; }
+  box.innerHTML = convos.map(c => {
+    const name = nameMap[c.buyer_id] || (fr?'Acheteur':'Buyer');
+    const unread = c.unread_for_seller || 0;
+    const preview = c.last_type === 'image' ? '📷 Image' : (c.last_type === 'voice' ? '🎤 Voice' : (c.last_content || ''));
+    const when = c.last_at ? new Date(c.last_at).toLocaleDateString('fr-FR') : '';
+    return `<div onclick="openSellerChat('${c.buyer_id}','${dzEsc(name).replace(/'/g,"\\'")}')" style="background:#fff;border:1px solid #ece8e1;border-radius:14px;padding:14px;margin-bottom:10px;display:flex;gap:12px;align-items:center;cursor:pointer">
+      <div style="width:44px;height:44px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;flex-shrink:0">${dzEsc((name||'?').charAt(0).toUpperCase())}</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div style="font-weight:800;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${dzEsc(name)}</div><div style="font-size:11px;color:var(--grey);flex-shrink:0">${when}</div></div>
+        <div style="font-size:13px;color:var(--grey);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.last_sender_role==='seller'?(fr?'Vous : ':'You: '):''}${dzEsc(preview)}</div>
+      </div>
+      ${unread ? `<div style="background:var(--gold);color:var(--navy);font-size:12px;font-weight:800;min-width:22px;height:22px;border-radius:11px;display:flex;align-items:center;justify-content:center;padding:0 6px;flex-shrink:0">${unread}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+function updateSellerUnread(convos) {
+  window.scUnread = (convos||[]).reduce((s,c)=> s + (c.unread_for_seller||0), 0);
+  if (document.getElementById('dz-drawer')?.classList.contains('open')) dzRenderDrawer();
+}
+async function refreshSellerUnread() {
+  if (!currentSeller) return;
+  try {
+    await loadSellerBlocks();
+    let convos = await GET('ptn_conversations', 'seller_id=eq.' + currentSeller.id + '&select=buyer_id,unread_for_seller') || [];
+    convos = convos.filter(c => !_scBlocked.has(c.buyer_id));
+    updateSellerUnread(convos);
+    if (document.getElementById('page-messages')?.classList.contains('active')) loadSellerInbox();
+  } catch (e) {}
+}
+async function scBlockBuyer() {
+  const fr = currentLang === 'fr';
+  if (!scBuyerId) return;
+  if (!confirm(fr?'Bloquer cet acheteur ? Vous ne verrez plus ses messages.':'Block this buyer? You will no longer see their messages.')) return;
+  try {
+    await POST('ptn_blocks', { blocker_id: currentSeller.id, blocked_id: scBuyerId });
+    toast(fr?'Acheteur bloqué':'Buyer blocked','success');
+    closeSellerChat(); loadSellerInbox();
+  } catch (e) { toast((fr?'Erreur : ':'Error: ')+e.message,'error'); }
+}
+async function scReportBuyer() {
+  const fr = currentLang === 'fr';
+  if (!scBuyerId) return;
+  const reason = prompt(fr?'Raison du signalement :':'Reason for report:');
+  if (!reason) return;
+  try {
+    await POST('ptn_reports', { target_type:'user', target_id:String(scBuyerId), target_label:scBuyerName||null, reason:reason, reporter_id:currentSeller.id, reporter_name:currentSeller.company||currentSeller.name||null, status:'open' });
+    try { await POST('ptn_notifications', { type:'report', title_en:'New report: user', title_fr:'Nouveau signalement : utilisateur', body_en:'Reason: '+reason, body_fr:'Raison : '+reason, read:false }); } catch(e){}
+    toast(fr?'Signalement envoyé':'Report sent','success');
+  } catch (e) { toast((fr?'Erreur : ':'Error: ')+e.message,'error'); }
+}
+// Realtime (mirrors buyer WS) + polling fallback.
+let _scWs = null, _scInboxPoll = null;
+function startSellerRealtime() {
+  if (_scWs || !currentSeller) return;
+  try {
+    const ws = new WebSocket('wss://ftxttdagpioieyzaijdc.supabase.co/realtime/v1/websocket?apikey=' + SUPABASE_KEY + '&vsn=1.0.0');
+    _scWs = ws;
+    ws.onopen = () => { ws.send(JSON.stringify({ topic:'realtime:public:ptn_messages', event:'phx_join', payload:{ config:{ postgres_changes:[{ event:'INSERT', schema:'public', table:'ptn_messages', filter:'seller_id=eq.'+currentSeller.id }] } }, ref:'1' })); };
+    ws.onmessage = (e) => { try { const m = JSON.parse(e.data); if (m.payload && m.payload.data) refreshSellerUnread(); } catch(_){} };
+    ws.onclose = () => { _scWs = null; setTimeout(()=>{ if(currentSeller) startSellerRealtime(); }, 5000); };
+    ws.onerror = () => { _scWs = null; };
+  } catch (e) {}
+}
+function startSellerMessagesSync() {
+  startSellerRealtime();
+  if (_scInboxPoll) clearInterval(_scInboxPoll);
+  _scInboxPoll = setInterval(refreshSellerUnread, 12000); // graceful fallback to polling
+  refreshSellerUnread();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -4073,7 +4328,8 @@ document.addEventListener('keydown', e => {
       <div style="color:#fff;font-size:15px;font-weight:700" id="sc-buyer-name">Buyer</div>
       <div style="color:rgba(255,255,255,0.5);font-size:11px" id="sc-buyer-phone"></div>
     </div>
-    <div style="font-size:12px;color:rgba(255,255,255,0.4)">💬 Live Chat</div>
+    <button onclick="scReportBuyer()" title="Signaler" style="background:rgba(255,255,255,0.12);border:none;color:#fff;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:14px;flex-shrink:0">🚩</button>
+    <button onclick="scBlockBuyer()" title="Bloquer" style="background:rgba(255,255,255,0.12);border:none;color:#fff;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:14px;flex-shrink:0;margin-left:6px">🚫</button>
   </div>
   <!-- Messages -->
   <div id="sc-messages" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;background:#f0ede8"></div>

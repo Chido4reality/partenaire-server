@@ -447,6 +447,14 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
     </div>
     <div id="orders-list"><div class="loading"><div class="spinner"></div></div></div>
   </div>
+  <div class="tab-page" id="page-messages">
+    <div style="font-size:18px;font-weight:800;margin-bottom:16px">💬 Messages</div>
+    <div id="buyer-inbox"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
+  <div class="tab-page" id="page-reviews">
+    <div style="font-size:18px;font-weight:800;margin-bottom:16px">⭐ Mes Avis</div>
+    <div id="my-reviews-list"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
   <div class="tab-page" id="page-profile">
     <div class="profile-hero">
       <div class="profile-avatar" id="p-avatar" onclick="document.getElementById('avatar-input').click()">
@@ -619,6 +627,10 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
       </div>
     </div>
     <div class="sd-panel" id="panel-chat">
+      <div style="display:flex;justify-content:flex-end;gap:8px;padding:0 0 8px">
+        <button onclick="bzReportCurrentSeller()" title="Signaler" style="background:#f1eee8;border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;color:var(--navy);cursor:pointer">🚩 Signaler</button>
+        <button onclick="bzBlockCurrentSeller()" title="Bloquer" style="background:#FEE2E2;border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;color:#dc2626;cursor:pointer">🚫 Bloquer</button>
+      </div>
       <div class="chat-wrap">
         <div class="chat-messages" id="chat-messages">
           <div style="text-align:center;padding:20px;color:var(--grey);font-size:13px">
@@ -829,6 +841,9 @@ async function POST(table, body) {
 }
 async function PATCH(table, col, val, body) {
   return xhr('PATCH', apiUrl(table) + '?' + col + '=eq.' + encodeURIComponent(val), body);
+}
+async function DELETE(table, col, val) {
+  return xhr('DELETE', apiUrl(table) + '?' + col + '=eq.' + encodeURIComponent(val));
 }
 
 // M-2.1 Phase B.4: SECURITY DEFINER RPC calls. xhr() attaches the anon key
@@ -1775,10 +1790,13 @@ function goToSeller() { window.location.href = '/seller'; }
 function switchTab(tabId) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
-  document.getElementById(tabId).classList.add('active');
+  const tabEl = document.getElementById(tabId);
+  if (tabEl) tabEl.classList.add('active'); // drawer-only pages have no tab-bar button
   const page = document.getElementById('page-' + tabId.replace('tab-',''));
   if (page) page.classList.add('active');
   if (tabId==='tab-cart') renderCart();
+  if (tabId==='tab-reviews') loadMyReviews();
+  if (tabId==='tab-messages') loadBuyerInbox();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1833,8 +1851,8 @@ function dzRenderDrawer() {
   const items = [
     { id:'tab-shops',   icon:'🏠', en:'Marketplace', fr:'Boutiques' },
     { id:'tab-orders',  icon:'📦', en:'My Orders',   fr:'Mes Commandes' },
-    { id:'msg',         icon:'💬', en:'Messages',    fr:'Messages',     soon:true },
-    { id:'rev',         icon:'⭐', en:'My Reviews',  fr:'Mes Avis',     soon:true },
+    { id:'tab-messages',icon:'💬', en:'Messages',    fr:'Messages',     badge: (window.bzUnread||0) || null },
+    { id:'tab-reviews', icon:'⭐', en:'My Reviews',  fr:'Mes Avis' },
     { id:'tab-profile', icon:'👤', en:'My Profile',  fr:'Mon Profil' }
   ];
   const esc = (str) => String(str).replace(/'/g, "\\'");
@@ -1847,7 +1865,8 @@ function dzRenderDrawer() {
     const handler = it.soon
       ? `toast('${soonToast}','success');dzCloseDrawer()`
       : `dzCloseDrawer();switchTab('${it.id}')`;
-    return `<button class="${cls}" onclick="${handler}">${it.icon} <span>${label}</span>${soon}</button>`;
+    const badge = it.badge ? `<span style="margin-left:auto;background:var(--gold);color:var(--navy);font-size:11px;font-weight:800;min-width:20px;height:20px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;padding:0 6px">${it.badge}</span>` : '';
+    return `<button class="${cls}" onclick="${handler}">${it.icon} <span>${label}</span>${soon}${badge}</button>`;
   }).join('');
 
   const swLabel = document.getElementById('dz-drawer-switch-label');
@@ -1890,6 +1909,7 @@ function startSync() {
   }, 30000);
   // Start Supabase Realtime for instant order updates
   startBuyerRealtime();
+  startBuyerMessagesSync();
 }
 
 let _buyerWs = null;
@@ -1900,15 +1920,17 @@ function startBuyerRealtime() {
     _buyerWs = ws;
     ws.onopen = () => {
       ws.send(JSON.stringify({ topic: 'realtime:public:ptn_orders', event: 'phx_join', payload: { config: { postgres_changes: [{ event: '*', schema: 'public', table: 'ptn_orders', filter: 'buyer_id=eq.' + currentBuyer.id }] } }, ref: '1' }));
+      // Also subscribe to incoming chat messages for live inbox/unread.
+      ws.send(JSON.stringify({ topic: 'realtime:public:ptn_messages', event: 'phx_join', payload: { config: { postgres_changes: [{ event: 'INSERT', schema: 'public', table: 'ptn_messages', filter: 'buyer_id=eq.' + currentBuyer.id }] } }, ref: '2' }));
       console.log('Buyer realtime connected');
     };
     ws.onmessage = async (e) => {
       try {
         const msg = JSON.parse(e.data);
-        if (msg.payload && msg.payload.data) {
-          await loadOrders();
-          toast('🔄 Commande mise a jour!', '');
-        }
+        if (!msg.payload || !msg.payload.data) return;
+        if (msg.payload.data.table === 'ptn_messages') { refreshBuyerUnread(); return; }
+        await loadOrders();
+        toast('🔄 Commande mise a jour!', '');
       } catch(err) {}
     };
     ws.onclose = () => { _buyerWs = null; setTimeout(() => { if (currentBuyer) startBuyerRealtime(); }, 5000); };
@@ -2424,6 +2446,179 @@ async function submitReview(orderId, sellerId) {
   } catch(e) { toast('Erreur: ' + e.message, 'error'); }
 }
 
+
+// ══════════════════════════════════════════════════════════════
+//  MES AVIS — the buyer's own reviews (ptn_reviews; RLS: select /
+//  update-own / delete-own). Shop name resolved from allShops.
+// ══════════════════════════════════════════════════════════════
+function dzEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+let _myReviews = [];
+function shopNameFor(sellerId){ const s=(allShops||[]).find(x=>x.id===sellerId); return s?(s.company||s.name||''):''; }
+async function loadMyReviews() {
+  const box = document.getElementById('my-reviews-list');
+  if (!box || !currentBuyer) return;
+  const fr = currentLang === 'fr';
+  try {
+    if (!allShops || !allShops.length) { try { await loadShops(); } catch(e){} }
+    _myReviews = await GET('ptn_reviews', 'buyer_id=eq.' + currentBuyer.id + '&order=created_at.desc&select=*') || [];
+    renderMyReviews();
+  } catch (e) {
+    box.innerHTML = '<div style="padding:20px;text-align:center;color:#dc2626">' + (fr?'Erreur de chargement':'Load error') + '</div>';
+  }
+}
+function renderMyReviews() {
+  const fr = currentLang === 'fr';
+  const box = document.getElementById('my-reviews-list');
+  if (!_myReviews.length) {
+    box.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--grey)"><div style="font-size:40px;margin-bottom:8px">⭐</div>${fr?'Vous n\'avez pas encore laissé d\'avis.':'You haven\'t left any reviews yet.'}</div>`;
+    return;
+  }
+  box.innerHTML = _myReviews.map(r => `
+    <div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:12px" id="rev-card-${r.id}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+        <div style="font-weight:800;color:var(--navy)">🏪 ${dzEsc(shopNameFor(r.seller_id)) || (fr?'Boutique':'Shop')}</div>
+        <div style="font-size:11px;color:var(--grey)">${new Date(r.created_at).toLocaleDateString('fr-FR')}</div>
+      </div>
+      <div style="color:var(--gold);font-size:16px;margin-bottom:4px">${'⭐'.repeat(r.rating)}${'☆'.repeat(Math.max(0,5-r.rating))}</div>
+      ${r.comment ? `<div style="font-size:13px;color:var(--navy);margin-bottom:8px">${dzEsc(r.comment)}</div>` : '<div style="height:4px"></div>'}
+      <div style="display:flex;gap:8px">
+        <button onclick="editReview('${r.id}')" style="background:#f1eee8;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;color:var(--navy);cursor:pointer">${fr?'Modifier':'Edit'}</button>
+        <button onclick="deleteReview('${r.id}')" style="background:#FEE2E2;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;color:#dc2626;cursor:pointer">${fr?'Supprimer':'Delete'}</button>
+      </div>
+    </div>`).join('');
+}
+let _editRating = 0;
+function setEditRating(id, n) {
+  _editRating = n;
+  for (let i=1;i<=5;i++){ const el=document.getElementById('er-'+id+'-'+i); if(el) el.style.color = i<=n ? 'var(--gold)' : '#d8d2c8'; }
+}
+function editReview(id) {
+  const fr = currentLang === 'fr';
+  const r = _myReviews.find(x => x.id === id);
+  const card = document.getElementById('rev-card-' + id);
+  if (!r || !card) return;
+  _editRating = r.rating;
+  const stars = [1,2,3,4,5].map(n => `<span onclick="setEditRating('${id}',${n})" id="er-${id}-${n}" style="cursor:pointer;font-size:26px;color:${n<=r.rating?'var(--gold)':'#d8d2c8'}">★</span>`).join('');
+  card.innerHTML = `
+    <div style="font-weight:800;color:var(--navy);margin-bottom:8px">🏪 ${dzEsc(shopNameFor(r.seller_id)) || (fr?'Boutique':'Shop')}</div>
+    <div style="margin-bottom:8px">${stars}</div>
+    <textarea id="er-comment-${id}" rows="3" placeholder="${fr?'Votre commentaire…':'Your comment…'}" style="width:100%;border:1px solid #dcd7cf;border-radius:10px;padding:10px;font-size:13px;box-sizing:border-box;font-family:inherit;resize:none">${r.comment ? dzEsc(r.comment) : ''}</textarea>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button onclick="saveReview('${id}')" style="background:var(--navy);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer">${fr?'Enregistrer':'Save'}</button>
+      <button onclick="renderMyReviews()" style="background:#f1eee8;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;color:var(--navy);cursor:pointer">${fr?'Annuler':'Cancel'}</button>
+    </div>`;
+}
+async function saveReview(id) {
+  const fr = currentLang === 'fr';
+  if (!_editRating) { toast(fr?'Choisissez une note':'Pick a rating','error'); return; }
+  const ta = document.getElementById('er-comment-' + id);
+  const comment = ta ? ta.value.trim() : '';
+  try {
+    await PATCH('ptn_reviews', 'id', id, { rating: _editRating, comment: comment || null });
+    toast(fr?'Avis mis à jour':'Review updated','success');
+    await loadMyReviews();
+  } catch (e) { toast((fr?'Erreur : ':'Error: ')+e.message,'error'); }
+}
+async function deleteReview(id) {
+  const fr = currentLang === 'fr';
+  if (!confirm(fr?'Supprimer cet avis ?':'Delete this review?')) return;
+  try {
+    await DELETE('ptn_reviews', 'id', id);
+    toast(fr?'Avis supprimé':'Review deleted','success');
+    await loadMyReviews();
+  } catch (e) { toast((fr?'Erreur : ':'Error: ')+e.message,'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MESSAGES INBOX (buyer) — ptn_conversations + ptn_blocks.
+//  Reuses the shop-detail chat panel (openShop → panel-chat).
+// ══════════════════════════════════════════════════════════════
+window.bzUnread = 0;
+let _bzBlocked = new Set();
+async function loadBuyerBlocks() {
+  _bzBlocked = new Set();
+  try {
+    const mine = await GET('ptn_blocks', 'blocker_id=eq.' + currentBuyer.id + '&select=blocked_id') || [];
+    const them = await GET('ptn_blocks', 'blocked_id=eq.' + currentBuyer.id + '&select=blocker_id') || [];
+    mine.forEach(b => _bzBlocked.add(b.blocked_id));
+    them.forEach(b => _bzBlocked.add(b.blocker_id));
+  } catch (e) {}
+}
+async function loadBuyerInbox() {
+  const box = document.getElementById('buyer-inbox');
+  if (!box || !currentBuyer) return;
+  const fr = currentLang === 'fr';
+  try {
+    if (!allShops || !allShops.length) { try { await loadShops(); } catch(e){} }
+    await loadBuyerBlocks();
+    let convos = await GET('ptn_conversations', 'buyer_id=eq.' + currentBuyer.id + '&order=last_at.desc&select=*') || [];
+    convos = convos.filter(c => !_bzBlocked.has(c.seller_id)); // blocked either direction
+    renderBuyerInbox(convos);
+    updateBuyerUnread(convos);
+  } catch (e) {
+    box.innerHTML = '<div style="padding:20px;text-align:center;color:#dc2626">' + (fr?'Erreur de chargement':'Load error') + '</div>';
+  }
+}
+function renderBuyerInbox(convos) {
+  const fr = currentLang === 'fr';
+  const box = document.getElementById('buyer-inbox');
+  if (!convos.length) { box.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--grey)"><div style="font-size:40px;margin-bottom:8px">💬</div>${fr?'Aucune conversation pour le moment.':'No conversations yet.'}</div>`; return; }
+  box.innerHTML = convos.map(c => {
+    const name = shopNameFor(c.seller_id) || (fr?'Boutique':'Shop');
+    const unread = c.unread_for_buyer || 0;
+    const preview = c.last_type==='image'?'📷 Image':(c.last_type==='voice'?'🎤 Voice':(c.last_content||''));
+    const when = c.last_at ? new Date(c.last_at).toLocaleDateString('fr-FR') : '';
+    return `<div onclick="openBuyerConversation('${c.seller_id}')" style="background:#fff;border-radius:14px;padding:14px;margin-bottom:10px;display:flex;gap:12px;align-items:center;cursor:pointer">
+      <div style="width:44px;height:44px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;flex-shrink:0">🏪</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div style="font-weight:800;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${dzEsc(name)}</div><div style="font-size:11px;color:var(--grey);flex-shrink:0">${when}</div></div>
+        <div style="font-size:13px;color:var(--grey);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.last_sender_role==='buyer'?(fr?'Vous : ':'You: '):''}${dzEsc(preview)}</div>
+      </div>
+      ${unread?`<div style="background:var(--gold);color:var(--navy);font-size:12px;font-weight:800;min-width:22px;height:22px;border-radius:11px;display:flex;align-items:center;justify-content:center;padding:0 6px;flex-shrink:0">${unread}</div>`:''}
+    </div>`;
+  }).join('');
+}
+function updateBuyerUnread(convos) {
+  window.bzUnread = (convos||[]).reduce((s,c)=>s+(c.unread_for_buyer||0),0);
+  if (document.getElementById('dz-drawer')?.classList.contains('open')) dzRenderDrawer();
+}
+async function refreshBuyerUnread() {
+  if (!currentBuyer) return;
+  try {
+    await loadBuyerBlocks();
+    let convos = await GET('ptn_conversations', 'buyer_id=eq.' + currentBuyer.id + '&select=seller_id,unread_for_buyer') || [];
+    convos = convos.filter(c => !_bzBlocked.has(c.seller_id));
+    updateBuyerUnread(convos);
+    if (document.getElementById('page-messages')?.classList.contains('active')) loadBuyerInbox();
+  } catch (e) {}
+}
+async function openBuyerConversation(sellerId) {
+  // Same reuse pattern as chatAboutCounter: open the shop, then its Chat panel.
+  switchTab('tab-shops');
+  await openShop(sellerId);
+  setTimeout(() => { const t=document.querySelectorAll('.sd-tab')[2]; if(t) showSDPanel('panel-chat', t); }, 500);
+}
+function bzReportCurrentSeller() {
+  if (typeof currentShop === 'undefined' || !currentShop) return;
+  openReportModal('user', currentShop.id, shopNameFor(currentShop.id) || currentShop.company || '');
+}
+async function bzBlockCurrentSeller() {
+  const fr = currentLang==='fr';
+  if (typeof currentShop === 'undefined' || !currentShop) return;
+  if (!confirm(fr?'Bloquer cette boutique ? Vous ne verrez plus ses messages.':'Block this shop? You will no longer see their messages.')) return;
+  try {
+    await POST('ptn_blocks', { blocker_id: currentBuyer.id, blocked_id: currentShop.id });
+    toast(fr?'Boutique bloquée':'Shop blocked','success');
+    if (typeof closeShopDetail === 'function') closeShopDetail();
+    switchTab('tab-messages'); loadBuyerInbox();
+  } catch (e) { toast((fr?'Erreur : ':'Error: ')+e.message,'error'); }
+}
+let _bzInboxPoll = null;
+function startBuyerMessagesSync() {
+  if (_bzInboxPoll) clearInterval(_bzInboxPoll);
+  _bzInboxPoll = setInterval(refreshBuyerUnread, 12000); // graceful fallback to polling
+  refreshBuyerUnread();
+}
 
 // ── DEEP LINK HANDLER (QR Code scan) ─────────────────────────
 async function handleDeepLink() {
