@@ -534,6 +534,9 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
       <div class="sd-tab" onclick="showSDPanel('panel-quickorder',this)">⚡ Quick Order</div>
       <div class="sd-tab" onclick="showSDPanel('panel-chat',this)">💬 Chat</div>
     </div>
+    <div style="text-align:right;margin:-6px 0 10px">
+      <button onclick="reportCurrentShop()" style="background:none;border:none;color:var(--grey);font-size:12px;cursor:pointer;text-decoration:underline;padding:4px">🚩 Signaler cette boutique / Report shop</button>
+    </div>
     <div class="sd-panel active" id="panel-products">
       <div class="products-grid" id="sd-products"></div>
     </div>
@@ -1165,7 +1168,9 @@ function buildSearchProductCard(p) {
     ? `<img src="${p.photo_url}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">`
     : (EMOJIS[p.category] || '📦');
   const price = p.price ? p.price.toLocaleString() + ' FCFA' : (currentLang==='fr'?'Prix sur demande':'Ask for price');
-  return `<div class="product-card" onclick="openShop('${shop.id}')">
+  const rptLabel = (p.name || '').replace(/['"\\<>]/g, ' ').slice(0, 60);
+  return `<div class="product-card" onclick="openShop('${shop.id}')" style="position:relative">
+    <button onclick="event.stopPropagation();openReportModal('listing','${p.id||''}','${rptLabel}')" title="Signaler / Report" style="position:absolute;top:6px;right:6px;background:rgba(255,255,255,0.92);border:none;border-radius:8px;width:24px;height:24px;font-size:12px;line-height:1;cursor:pointer;color:#999;z-index:2">🚩</button>
     <div class="product-emoji">${photo}</div>
     <div class="product-name">${p.name || ''}</div>
     <div class="product-price">${price}</div>
@@ -1970,7 +1975,20 @@ function openMomoPayment(total, operator, orderId, orderRef) {
   });
 }
 
+// ── LAUNCH v1: in-app payment disabled (buyers pay at the shop) ──────
+// All money-collection UI is gated behind this flag. The Campay modals
+// and functions are kept intact so a future version can revive them
+// (flip this to true AND set PAYMENTS_ENABLED=true on the server).
+const PAYMENTS_ENABLED = false;
+function payAtShopMsg() {
+  return (typeof currentLang !== 'undefined' && currentLang === 'fr')
+    ? 'Paiement à effectuer en boutique'
+    : 'Payment is made at the shop';
+}
+
 function openMomoModal(context) {
+  // v1: never open the mobile-money modal — payment happens at the shop.
+  if (!PAYMENTS_ENABLED) { toast('📋 ' + payAtShopMsg(), 'success'); return; }
   momoContext = context;
   console.log('openMomoModal called with:', JSON.stringify(context));
   document.getElementById('momo-title').textContent = context.title || 'Pay with Mobile Money';
@@ -1998,6 +2016,7 @@ function selectOperator(op) {
 }
 
 async function confirmMomoPayment() {
+  if (!PAYMENTS_ENABLED) { toast('📋 ' + payAtShopMsg(), 'success'); closeMomoModal(); return; }
   const phone = document.getElementById('momo-phone').value.trim().replace(/\s/g,'');
   if (phone.length < 8) { toast('Entrez votre numero Mobile Money', 'error'); return; }
   const btn = document.getElementById('momo-pay-btn');
@@ -2070,6 +2089,18 @@ async function confirmMomoPayment() {
 // ══════════════════════════════════════════════════════════════
 let pcContext = null;
 function openPaymentChoice(ctx) {
+  // v1: no in-app payment. The "payment step" becomes a pay-at-shop notice;
+  // the order is flagged at_shop so it never sits waiting on an online pay.
+  if (!PAYMENTS_ENABLED) {
+    if (ctx && ctx.order_id) {
+      PATCH('ptn_orders', 'id', ctx.order_id, {
+        pay_option: 'at_shop', payment_method: 'cash', payment_requested: false,
+        escrow_held: 0, deposit_paid: 0, updated_at: new Date().toISOString()
+      }).then(() => { try { loadOrders(); } catch (e) {} }).catch(() => {});
+    }
+    toast('📋 ' + payAtShopMsg(), 'success');
+    return;
+  }
   pcContext = ctx;
   document.getElementById('pc-title').textContent = '💳 Pay for Order ' + (ctx.ref || '');
   document.getElementById('pc-amount').textContent = (ctx.total || 0).toLocaleString() + ' FCFA';
@@ -2080,6 +2111,7 @@ function closePaymentChoice() {
 }
 async function choosePaymentMethod(method, operator) {
   if (!pcContext || !pcContext.order_id) return;
+  if (!PAYMENTS_ENABLED) method = 'cash'; // v1: only pay-at-shop is allowed
   const fr = (currentLang === 'fr');
   const o = pcContext;
   closePaymentChoice();
@@ -2171,6 +2203,13 @@ async function acceptCounterOffer() {
     const finalItems = Array.isArray(o.counter_items) && o.counter_items.length ? o.counter_items : o.items;
     await PATCH('ptn_orders','id',activeCounterOrderId,{items:finalItems,total:finalTotal,counter_status:'accepted',updated_at:new Date().toISOString()});
     document.getElementById('counter-modal').classList.remove('open');
+    if (!PAYMENTS_ENABLED) {
+      // v1: accept the adjusted order as pay-at-shop — no online charge.
+      await PATCH('ptn_orders','id',activeCounterOrderId,{ pay_option:'at_shop', payment_method:'cash', payment_requested:false, escrow_held:0, updated_at:new Date().toISOString() });
+      await loadOrders();
+      toast('📋 ' + payAtShopMsg(), 'success');
+      return;
+    }
     openMomoModal({ type:'order', title:'💳 Pay for Your Order', subtitle:'Order confirmed — payment held in escrow', amount:finalTotal, order_id:activeCounterOrderId, ref:o.order_ref,
       onSuccess: async () => { await PATCH('ptn_orders','id',activeCounterOrderId,{escrow_held:finalTotal,payment_requested:false,payment_status:'paid',updated_at:new Date().toISOString()}); await loadOrders(); toast('✅ Payment confirmed!', 'success'); }
     });
@@ -2680,6 +2719,73 @@ async function submitDispute() {
   }
 }
 
+// ── CONTENT REPORTING (UGC moderation) ──────────────────────────────
+// Lets a buyer flag a shop, listing or seller content. Persists to
+// ptn_reports and notifies admin via ptn_notifications (mirrors disputes).
+let activeReport = null;
+function openReportModal(targetType, targetId, targetLabel) {
+  activeReport = { targetType: targetType, targetId: targetId || null, targetLabel: targetLabel || '' };
+  const prefix = ({ shop: 'Boutique / Shop: ', listing: 'Annonce / Listing: ', seller: 'Vendeur / Seller: ', content: 'Contenu / Content: ' }[targetType]) || '';
+  document.getElementById('report-target-label').textContent = prefix + (targetLabel || '');
+  document.getElementById('report-reason').value = '';
+  document.getElementById('report-desc').value = '';
+  const e = document.getElementById('report-error'); if (e) e.style.display = 'none';
+  document.getElementById('report-modal').classList.add('open');
+}
+function closeReportModal() {
+  document.getElementById('report-modal').classList.remove('open');
+  activeReport = null;
+}
+function reportCurrentShop() {
+  if (typeof currentShop === 'undefined' || !currentShop) { toast('No shop selected', 'error'); return; }
+  openReportModal('shop', currentShop.id, currentShop.company || currentShop.name || '');
+}
+async function submitReport() {
+  if (!activeReport) return;
+  const fr = (typeof currentLang !== 'undefined' && currentLang === 'fr');
+  const reason = document.getElementById('report-reason').value;
+  const desc = document.getElementById('report-desc').value.trim();
+  const errEl = document.getElementById('report-error');
+  if (!reason) {
+    errEl.textContent = fr ? 'Veuillez choisir une raison.' : 'Please select a reason.';
+    errEl.style.display = 'block'; return;
+  }
+  const btn = document.getElementById('report-submit-btn');
+  btn.textContent = fr ? 'Envoi…' : 'Submitting…';
+  btn.disabled = true; errEl.style.display = 'none';
+  try {
+    await POST('ptn_reports', {
+      target_type:   activeReport.targetType,
+      target_id:     activeReport.targetId ? String(activeReport.targetId) : null,
+      target_label:  activeReport.targetLabel || null,
+      reason:        reason,
+      description:   desc || null,
+      reporter_id:   (typeof currentBuyer !== 'undefined' && currentBuyer) ? currentBuyer.id : null,
+      reporter_name: (typeof currentBuyer !== 'undefined' && currentBuyer) ? (currentBuyer.name || null) : null,
+      status:        'open',
+      created_at:    new Date().toISOString()
+    });
+    try {
+      await POST('ptn_notifications', {
+        type:     'report',
+        title_en: '🚩 New report: ' + activeReport.targetType,
+        title_fr: '🚩 Nouveau signalement : ' + activeReport.targetType,
+        body_en:  'Reason: ' + reason + (activeReport.targetLabel ? ' — ' + activeReport.targetLabel : ''),
+        body_fr:  'Raison : ' + reason + (activeReport.targetLabel ? ' — ' + activeReport.targetLabel : ''),
+        read:     false
+      });
+    } catch (e) {}
+    closeReportModal();
+    toast('🚩 ' + (fr ? 'Signalement envoyé. Merci.' : 'Report submitted. Thank you.'), 'success');
+  } catch (e) {
+    errEl.textContent = (fr ? 'Erreur : ' : 'Error: ') + e.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.textContent = '🚩 ' + (fr ? 'Envoyer le signalement' : 'Submit report');
+    btn.disabled = false;
+  }
+}
+
 
 // ── SANDBOX: Simulate successful Campay payment ───────────────
 async function simulateCampaySuccess() {
@@ -2798,13 +2904,57 @@ async function simulateCampaySuccess() {
       <strong>Note from seller:</strong> <span id="counter-note-text"></span>
     </div>
     <div style="display:flex;flex-direction:column;gap:10px">
-      <button class="btn btn-gold btn-block" style="padding:14px;font-size:14px;font-weight:800" onclick="acceptCounterOffer()">✅ Accept & Pay — <span id="counter-pay-amount">0 FCFA</span></button>
+      <button class="btn btn-gold btn-block" style="padding:14px;font-size:14px;font-weight:800" onclick="acceptCounterOffer()">✅ Accept Order — <span id="counter-pay-amount">0 FCFA</span></button>
       <button class="btn btn-block" style="padding:12px;font-size:13px;color:var(--blue);border-color:var(--blue)" onclick="chatAboutCounter()">💬 Negotiate in Chat</button>
       <button class="btn btn-block" style="padding:12px;font-size:13px;color:var(--red);border-color:var(--red)" onclick="rejectCounterOffer()">✕ Reject — Cancel Order</button>
     </div>
   </div>
 </div>
 
+
+<!-- ══ REPORT / SIGNALER MODAL ════════════════════════════════ -->
+<!-- UGC moderation: lets a buyer flag a shop, listing or seller content.
+     Persists to ptn_reports + notifies admin (mirrors the dispute flow). -->
+<div class="counter-overlay" id="report-modal" onclick="if(event.target===this)closeReportModal()">
+  <div class="counter-box" style="max-width:440px">
+    <div style="font-size:18px;font-weight:800;color:var(--red);margin-bottom:4px">🚩 Signaler / Report</div>
+    <div style="font-size:13px;color:var(--grey);margin-bottom:16px" id="report-target-label"></div>
+
+    <label style="font-size:11px;font-weight:700;color:var(--grey);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px">Raison / Reason</label>
+    <select id="report-reason" style="width:100%;padding:12px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:14px;color:var(--navy);background:#fff;margin-bottom:14px;outline:none">
+      <option value="">-- Choisir une raison / Select a reason --</option>
+      <option value="Contenu inapproprié / Inappropriate content">Contenu inapproprié / Inappropriate content</option>
+      <option value="Produit interdit ou illégal / Prohibited or illegal item">Produit interdit ou illégal / Prohibited or illegal item</option>
+      <option value="Arnaque ou fraude / Scam or fraud">Arnaque ou fraude / Scam or fraud</option>
+      <option value="Fausses informations / Misleading information">Fausses informations / Misleading information</option>
+      <option value="Harcèlement ou abus / Harassment or abuse">Harcèlement ou abus / Harassment or abuse</option>
+      <option value="Spam">Spam</option>
+      <option value="Autre / Other">Autre / Other</option>
+    </select>
+
+    <label style="font-size:11px;font-weight:700;color:var(--grey);letter-spacing:1px;text-transform:uppercase;display:block;margin-bottom:6px">Description</label>
+    <textarea id="report-desc" rows="4"
+      placeholder="Décrivez le problème… / Describe the issue…"
+      style="width:100%;padding:12px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:14px;color:var(--navy);background:#fff;margin-bottom:14px;outline:none;resize:none;font-family:inherit;box-sizing:border-box"></textarea>
+
+    <div id="report-error" style="display:none;background:#FEECEC;border:1px solid var(--red);color:var(--red);padding:10px;border-radius:8px;font-size:13px;margin-bottom:12px"></div>
+
+    <div style="background:var(--amberl);border:1px solid #F0C050;border-radius:10px;padding:12px;font-size:12px;color:var(--amber);margin-bottom:16px">
+      ⭐ L'équipe examinera votre signalement sous 24h. / Our team will review your report within 24h.
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button id="report-submit-btn" onclick="submitReport()"
+        style="background:var(--red);color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;width:100%">
+        🚩 Envoyer le signalement / Submit report
+      </button>
+      <button onclick="closeReportModal()"
+        style="background:#fff;color:var(--grey);border:1.5px solid var(--lgrey);border-radius:12px;padding:12px;font-size:13px;cursor:pointer;width:100%">
+        Annuler / Cancel
+      </button>
+    </div>
+  </div>
+</div>
 
 <!-- ══ DISPUTE MODAL ══════════════════════════════════════════ -->
 <div class="counter-overlay" id="dispute-modal" onclick="if(event.target===this)closeDisputeModal()">

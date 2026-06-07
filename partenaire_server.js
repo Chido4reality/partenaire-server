@@ -84,10 +84,19 @@ const CAMPAY_BASE_URL = process.env.CAMPAY_ENV === 'production'
 // the Campay dashboard). See the /campay/webhook handler.
 const CAMPAY_WEBHOOK_SECRET = process.env.CAMPAY_WEBHOOK_SECRET || '';
 
+// ── LAUNCH v1: IN-APP PAYMENT MASTER SWITCH ──────────────────────────
+// v1 ships with NO in-app payment and NO escrow — buyers pay at the shop
+// (offline). Every money-movement path (Campay collect/payout, escrow,
+// /campay/* endpoints, create-and-pay's charge step) is gated behind this
+// flag and is unreachable while it is false. The Campay code below is kept
+// intact so a future version can revive it by setting PAYMENTS_ENABLED=true
+// (env) and providing real Campay credentials.
+const PAYMENTS_ENABLED = process.env.PAYMENTS_ENABLED === 'true';
+
 // Fail loud, not silent-sandbox: in production, refuse to boot unless the
-// Campay config is real. A crashed deploy is recoverable; silently
-// running against demo.campay or with an unauthenticated webhook is not.
-if (process.env.NODE_ENV === 'production') {
+// Campay config is real. Only enforced when payments are ENABLED — a
+// payments-off v1 must boot without any Campay credentials.
+if (PAYMENTS_ENABLED && process.env.NODE_ENV === 'production') {
   const _fail = (m) => { console.error('CRITICAL: ' + m); process.exit(1); };
   if (process.env.CAMPAY_ENV !== 'production')
     _fail('CAMPAY_ENV must be "production" in a production deployment');
@@ -184,6 +193,10 @@ const ROUTES = {
   '/seller': 'PARTENAIRE_Seller.html',
   '/buyer':  'PARTENAIRE_Buyer.html',
   '/login':  'PARTENAIRE_Login.html',
+  // Public Play-Store compliance pages — no login required (served by the
+  // static handler below, same as the app shells).
+  '/privacy-fr':         'privacy-fr.html',
+  '/suppression-compte': 'suppression-compte.html',
 };
 
 // B.4.1: OTP login fully retired. otpStore / generateOTP / sendOTP /
@@ -289,9 +302,35 @@ http.createServer((req, res) => {
       campay_env: process.env.CAMPAY_ENV || 'unknown',
       campay_base_url: CAMPAY_BASE_URL,
       campay_is_demo: isDemo,
-      is_sandbox: isDemo
+      is_sandbox: isDemo,
+      // v1: clients use this to hide all in-app payment UI and show the
+      // "pay at shop" notice instead.
+      payments_enabled: PAYMENTS_ENABLED
     }));
     return;
+  }
+
+  // ── LAUNCH v1: BLOCK ALL MONEY-MOVEMENT ENDPOINTS ──────────────────
+  // While PAYMENTS_ENABLED is false, no request may collect, hold, or
+  // transfer funds. Every Campay/escrow/payout endpoint and the order
+  // "retry-payment" charge path returns 410 here, before reaching the
+  // (intact, revivable) handlers below. create-and-pay is handled
+  // separately so an order can still be PLACED (pay at shop) without a
+  // charge.
+  if (!PAYMENTS_ENABLED) {
+    const _pp = req.url.split('?')[0];
+    const _isPay =
+      _pp.startsWith('/campay/') ||
+      _pp.startsWith('/monetbil/') ||
+      /^\/api\/orders\/[0-9a-fA-F-]{36}\/retry-payment$/.test(_pp);
+    if (_isPay) {
+      res.writeHead(410, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({
+        success: false, disabled: true, error_code: 'payments_disabled',
+        message: 'Paiement à effectuer en boutique — le paiement en ligne est désactivé.'
+      }));
+      return;
+    }
   }
 
   // ── M-2.1-A — HARDENED ADMIN API ───────────────────────────────────
@@ -1130,6 +1169,25 @@ http.createServer((req, res) => {
         const idn = resolveDozieIdentity(req, 'buyer');
         if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
         const { seller_id, items, client_total, mode, pay_option, city, notes, payer_phone } = JSON.parse(body || '{}');
+
+        // v1: payments disabled → create the order and return a "pay at
+        // shop" success. Skips ptn_request_payment + campayCollect entirely
+        // (no payer_phone needed since nothing is charged).
+        if (!PAYMENTS_ENABLED) {
+          if (!seller_id || !Array.isArray(items) || !items.length)
+            return send(400, { success: false, error_code: 'validation', message: 'seller_id and items are required' });
+          const cr0 = await supaRpc('ptn_create_order', {
+            p_caller: idn.uid, p_seller_id: seller_id, p_items: items,
+            p_client_total: Number(client_total), p_mode: mode || 'delivery',
+            p_pay_option: 'at_shop', p_city: city || null, p_notes: notes || null
+          });
+          if (!cr0 || cr0.success !== true) {
+            const ec0 = (cr0 && cr0.error_code) || 'validation';
+            return send(ec0 === 'auth_failed' ? 401 : 400, { success: false, error_code: ec0, message: (cr0 && cr0.message) || 'Order rejected', server_total: cr0 && cr0.server_total });
+          }
+          return send(200, { success: true, order_id: cr0.order_id, order_ref: cr0.order_ref, server_total: cr0.server_total, payment_disabled: true, pay_at_shop: true, message: 'Paiement à effectuer en boutique' });
+        }
+
         if (!seller_id || !Array.isArray(items) || !items.length || !payer_phone)
           return send(400, { success: false, error_code: 'validation', message: 'seller_id, items and payer_phone are required' });
 

@@ -241,6 +241,7 @@ window.addEventListener('DOMContentLoaded', function() {
     <a onclick="showPage('users')" data-page="users">👥 <span data-t="users">Users</span></a>
     <a onclick="showPage('orders')" data-page="orders">📦 <span data-t="orders">Orders</span></a>
     <a onclick="showPage('disputes')" data-page="disputes">⚖️ <span data-t="disputes">Disputes</span> <span class="badge" id="dispute-badge" style="display:none">0</span></a>
+    <a onclick="showPage('reports')" data-page="reports">🚩 <span data-t="reports">Reports</span> <span class="badge" id="report-badge" style="display:none">0</span></a>
     <a onclick="showPage('finance')" data-page="finance">💰 <span data-t="finance">Finance</span></a>
     <a onclick="showPage('subscriptions')" data-page="subscriptions">💳 <span data-t="subscriptions">Subscriptions</span> <span class="badge" id="sub-badge" style="display:none">0</span></a>
     <a onclick="showPage('admins')" data-page="admins" id="nav-admins">🔑 <span data-t="admins">Admin Team</span></a>
@@ -368,6 +369,19 @@ window.addEventListener('DOMContentLoaded', function() {
     </div>
     <div class="page-sub">Resolve conflicts and manage escrow payments</div>
     <div id="disputes-container"><div class="loading"><div class="spinner"></div><br>Loading disputes...</div></div>
+  </div>
+
+  <!-- REPORTS (UGC moderation) -->
+  <div class="page" id="page-reports">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div class="page-title" style="margin-bottom:0">Content Reports</div>
+      <button onclick="loadReports()"
+        style="background:#1A2B4A;color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+        🔄 Refresh
+      </button>
+    </div>
+    <div class="page-sub">Buyer reports on shops, listings and seller content</div>
+    <div id="reports-container"><div class="loading"><div class="spinner"></div><br>Loading reports...</div></div>
   </div>
 
   <!-- FINANCE -->
@@ -930,7 +944,7 @@ function logout() { location.reload(); }
 //  DATA LOADING
 // ══════════════════════════════════════════════════════════════
 async function loadAll() {
-  await Promise.all([loadUsers(), loadOrders(), loadAdmins(), loadDisputes(), loadSubscriptions(), loadBroadcasts()]);
+  await Promise.all([loadUsers(), loadOrders(), loadAdmins(), loadDisputes(), loadReports(), loadSubscriptions(), loadBroadcasts()]);
   loadDashboard();
 }
 
@@ -1031,6 +1045,72 @@ async function loadDisputes() {
     }));
     renderDisputes();
   } catch(e) { console.error('loadDisputes:', e); }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CONTENT REPORTS (UGC moderation)
+// ══════════════════════════════════════════════════════════════
+let allReports = [];
+function _escR(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+async function loadReports() {
+  if (isDemoMode) {
+    allReports = [
+      { id:'1', target_type:'listing', target_label:'Used phone battery', reason:'Produit interdit ou illégal / Prohibited or illegal item', description:'Looks counterfeit', reporter_name:'Marie Ekindi', status:'open', created_at:new Date().toISOString() },
+      { id:'2', target_type:'shop', target_label:'QuickFix CM', reason:'Arnaque ou fraude / Scam or fraud', description:'Took deposit, never delivered', reporter_name:'Ahmed Bello', status:'open', created_at:new Date().toISOString() },
+    ];
+    renderReports(); return;
+  }
+  try {
+    const reports = await xhr('GET', apiUrl('ptn_reports', 'select=*&order=created_at.desc'));
+    allReports = Array.isArray(reports) ? reports : [];
+    renderReports();
+  } catch(e) {
+    console.error('loadReports:', e);
+    const c = document.getElementById('reports-container');
+    if (c) c.innerHTML = '<div class="alert alert-warn">Could not load reports — has the ptn_reports table been created (db/migrations/20260607_ptn_reports.sql)?</div>';
+  }
+}
+function renderReports() {
+  const container = document.getElementById('reports-container');
+  if (!container) return;
+  const openR = allReports.filter(r => r.status==='open' || r.status==='reviewing');
+  const closedR = allReports.filter(r => r.status!=='open' && r.status!=='reviewing');
+  const badge = document.getElementById('report-badge');
+  if (badge) { if (openR.length) { badge.style.display='inline-block'; badge.textContent=openR.length; } else badge.style.display='none'; }
+  if (!allReports.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-icon">🚩</div><div class="empty-text">No reports — nothing flagged.</div></div>';
+    return;
+  }
+  const card = r => `
+    <div style="padding:20px;border-bottom:1px solid #f0ede8" id="rep-${r.id}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:12px">
+        <div>
+          <div style="font-weight:700;color:var(--navy)"><span class="badge">${_escR(r.target_type)}</span> ${_escR(r.target_label||'')}</div>
+          <div style="font-size:13px;color:var(--grey);margin-top:4px">🚩 ${_escR(r.reason)}</div>
+          ${r.description ? `<div style="font-size:13px;color:var(--navy);margin-top:6px">"${_escR(r.description)}"</div>` : ''}
+          <div style="font-size:11px;color:var(--grey);margin-top:6px">By ${_escR(r.reporter_name||'—')} · ${r.created_at?new Date(r.created_at).toLocaleString():''}${r.target_id?(' · id: '+_escR(r.target_id)):''}</div>
+        </div>
+        <span class="badge ${r.status==='open'?'':'badge-green'}">${_escR(r.status)}</span>
+      </div>
+      <div class="action-row">
+        <button class="btn" onclick="setReportStatus('${r.id}','reviewing')">👁 Reviewing</button>
+        <button class="btn btn-green" onclick="setReportStatus('${r.id}','actioned')">✅ Action taken</button>
+        <button class="btn" onclick="setReportStatus('${r.id}','dismissed')">✕ Dismiss</button>
+      </div>
+    </div>`;
+  container.innerHTML = `
+    ${openR.length ? `<div class="table-wrap" style="margin-bottom:20px"><div class="table-head"><div class="table-title" style="color:var(--red)">🚩 Open Reports (${openR.length})</div></div>${openR.map(card).join('')}</div>` : '<div class="alert alert-success">✅ No open reports.</div>'}
+    ${closedR.length ? `<div class="table-wrap"><div class="table-head"><div class="table-title">Resolved Reports (${closedR.length})</div></div><table><thead><tr><th>Type</th><th>Target</th><th>Reason</th><th>By</th><th>Status</th></tr></thead><tbody>${closedR.map(r=>`<tr><td>${_escR(r.target_type)}</td><td>${_escR(r.target_label||'')}</td><td>${_escR(r.reason)}</td><td>${_escR(r.reporter_name||'—')}</td><td><span class="badge badge-green">${_escR(r.status)}</span></td></tr>`).join('')}</tbody></table></div>` : ''}`;
+}
+async function setReportStatus(id, status) {
+  if (!isDemoMode) {
+    try {
+      await restPatch('ptn_reports', 'id', id, { status: status, reviewed_by: currentAdmin?.email, reviewed_at: new Date().toISOString() });
+      try { await logAction('moderate_report', 'report', id, { status }); } catch(e) {}
+    } catch(e) { alert('Update failed: ' + e.message); return; }
+  }
+  allReports = allReports.map(r => r.id===id ? {...r, status} : r);
+  renderReports();
 }
 
 // ══════════════════════════════════════════════════════════════
