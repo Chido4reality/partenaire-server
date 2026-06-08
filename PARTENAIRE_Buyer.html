@@ -1310,16 +1310,23 @@ function renderShopProducts(products, shop) {
   // the Sprint C buyer-privacy invariant holds. out_of_stock disables
   // ordering; in/low both allow it.
   const capped = shop._dozieAccess && shop._dozieAccess.can_accept_orders === false;
+  // BUG1-FIX: stash cart context keyed by listing_id (a UUID) and dispatch via
+  // addToCartById, instead of interpolating product/shop strings straight into
+  // the onclick. A shop or product name containing an apostrophe (e.g. "Peter
+  // Okafor Family's Bizz") used to terminate the single-quoted JS arg and turn
+  // the whole addToCart(...) call into a syntax error — so the tap did nothing.
+  window._cartCtx = {};
   el.innerHTML = products.map(p => {
     const cartProduct = { id: p.listing_id, name: p.name, price: p.price };
+    window._cartCtx[p.listing_id] = { product: cartProduct, shopId: shop.id, shopName: shop.company || shop.name };
     const inCart = cart.find(c => c.product.id === p.listing_id);
     const outOfStock = p.stock_state === 'out_of_stock';
     const orderable = !outOfStock;
     const baseStyle = capped ? 'opacity:0.6;cursor:pointer' : '';
     const cartHandler = capped
       ? `showSellerCappedMessage()`
-      : `addToCart(${JSON.stringify(cartProduct).replace(/"/g,'&quot;')}, '${shop.id}', '${shop.company||shop.name}', this)`;
-    const orderHandler = capped ? `showSellerCappedMessage()` : `addToQof('${p.name}',1,${p.price||0})`;
+      : `addToCartById('${p.listing_id}', this)`;
+    const orderHandler = capped ? `showSellerCappedMessage()` : `addToQofById('${p.listing_id}')`;
     const photoSrc = p.photo_url
       ? (p.photo_url.startsWith('data:') || p.photo_url.startsWith('http') ? p.photo_url : null)
       : null;
@@ -1354,6 +1361,14 @@ function closeShopDetail() {
 // ══════════════════════════════════════════════════════════════
 //  CART
 // ══════════════════════════════════════════════════════════════
+// BUG1-FIX: resolve the stashed context by listing_id, then add to cart. Keeps
+// all product/shop strings out of the inline onclick (apostrophe-safe).
+function addToCartById(listingId, btn) {
+  const ctx = (window._cartCtx || {})[listingId];
+  if (!ctx) return;
+  addToCart(ctx.product, ctx.shopId, ctx.shopName, btn);
+}
+
 function addToCart(product, shopId, shopName, btn) {
   const existing = cart.find(c => c.product.id===product.id);
   if (existing) existing.qty++;
@@ -2703,6 +2718,12 @@ function showSDPanel(panelId, tabEl) {
 // ══════════════════════════════════════════════════════════════
 //  QUICK ORDER FORM
 // ══════════════════════════════════════════════════════════════
+// BUG1-FIX (sibling): same apostrophe-safe dispatch for the ⚡ Order button.
+function addToQofById(listingId) {
+  const ctx = (window._cartCtx || {})[listingId];
+  if (!ctx) return;
+  addToQof(ctx.product.name, 1, ctx.product.price || 0);
+}
 function addToQof(name, qty, price) {
   const tab = document.querySelectorAll('.sd-tab')[1];
   showSDPanel('panel-quickorder', tab);
@@ -2777,6 +2798,20 @@ async function submitQuickOrder() {
 const buyerAudioStore = {};
 let buyerAudioIdx = 0;
 
+// BUG2-FIX: mark the SELLER's incoming messages read when the buyer opens the
+// chat, then re-read ptn_conversations so the unread badge clears. Targets only
+// sender_role=seller (never the buyer's own messages) so unread_for_seller is
+// left intact. unread_for_buyer counts seller messages with read=false.
+async function markBuyerIncomingRead() {
+  if (!currentBuyer || !currentShop) return;
+  try {
+    await xhr('PATCH', apiUrl('ptn_messages',
+      `buyer_id=eq.${currentBuyer.id}&seller_id=eq.${currentShop.id}&sender_role=eq.seller&read=eq.false`),
+      { read: true });
+    if (typeof refreshBuyerUnread === 'function') refreshBuyerUnread();
+  } catch(e) {}
+}
+
 async function initChat() {
   const nameEl=document.getElementById('chat-shop-name');
   if(nameEl)nameEl.textContent=currentShop?.company||'the seller';
@@ -2787,11 +2822,12 @@ async function initChat() {
     const msgs=await GET('ptn_messages',`buyer_id=eq.${currentBuyer.id}&seller_id=eq.${currentShop.id}&order=created_at.asc&select=*`);
     if(msgs&&msgs.length>0){el.innerHTML='';msgs.forEach(m=>addChatMsg(m.content,m.sender_role==='buyer'?'sent':'recv',m.type||'text'));chatMessages=msgs;chatLastMsgTime=msgs[msgs.length-1].created_at;}
     else{chatLastMsgTime=new Date(0).toISOString();}
+    markBuyerIncomingRead(); // BUG2-FIX: clear unread on open
   } catch(e){chatLastMsgTime=new Date(0).toISOString();}
   chatPollInterval=setInterval(async()=>{
     if(!currentShop||!currentBuyer||!chatLastMsgTime)return;
     try{const newMsgs=await GET('ptn_messages',`buyer_id=eq.${currentBuyer.id}&seller_id=eq.${currentShop.id}&created_at=gt.${encodeURIComponent(chatLastMsgTime)}&order=created_at.asc&select=*`);
-    if(newMsgs&&newMsgs.length>0){newMsgs.forEach(m=>{if(m.sender_role==='seller'){addChatMsg(m.content,'recv',m.type||'text');chatMessages.push(m);}});chatLastMsgTime=newMsgs[newMsgs.length-1].created_at;}}catch(e){}
+    if(newMsgs&&newMsgs.length>0){newMsgs.forEach(m=>{if(m.sender_role==='seller'){addChatMsg(m.content,'recv',m.type||'text');chatMessages.push(m);}});chatLastMsgTime=newMsgs[newMsgs.length-1].created_at;if(newMsgs.some(m=>m.sender_role==='seller'))markBuyerIncomingRead();/* BUG2-FIX */}}catch(e){}
   },3000);
 }
 

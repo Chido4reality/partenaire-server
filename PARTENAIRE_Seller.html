@@ -3570,10 +3570,13 @@ async function openSellerChat(buyerId, buyerName) {
       `buyer_id=eq.${buyerId}&seller_id=eq.${currentSeller.id}&order=created_at.asc&select=*`);
     scMessages = msgs || [];
     renderScMessages();
-    // Mark messages as read
+    // Mark messages as read. BUG2-FIX: filter sender_role=eq.buyer so we only
+    // clear the BUYER's incoming messages — not the seller's own unread
+    // (those drive the buyer's unread_for_buyer). Then re-read the badge.
     try {
-      await fetch(apiUrl('ptn_messages') + '?seller_id=eq.' + currentSeller.id + '&buyer_id=eq.' + buyerId + '&read=eq.false',
+      await fetch(apiUrl('ptn_messages') + '?seller_id=eq.' + currentSeller.id + '&buyer_id=eq.' + buyerId + '&sender_role=eq.buyer&read=eq.false',
         { method:'PATCH', headers:{...HEADERS_CONST, Prefer:'return=representation'}, body:JSON.stringify({read:true}) });
+      if (typeof refreshSellerUnread === 'function') refreshSellerUnread();
     } catch(e) {}
   } catch(e) {
     msgEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--grey)">Start a conversation with this buyer</div>';
@@ -3599,8 +3602,10 @@ async function openSellerChat(buyerId, buyerName) {
         const unread = newMsgs.filter(m => m.sender_role === 'buyer');
         if (unread.length) {
           try {
-            await fetch(apiUrl('ptn_messages') + '?seller_id=eq.' + currentSeller.id + '&buyer_id=eq.' + scBuyerId + '&read=eq.false',
+            // BUG2-FIX: sender_role=eq.buyer (don't clobber seller's own unread) + refresh badge.
+            await fetch(apiUrl('ptn_messages') + '?seller_id=eq.' + currentSeller.id + '&buyer_id=eq.' + scBuyerId + '&sender_role=eq.buyer&read=eq.false',
               { method:'PATCH', headers:{apikey:SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=representation'}, body:JSON.stringify({read:true}) });
+            if (typeof refreshSellerUnread === 'function') refreshSellerUnread();
           } catch(e) {}
         }
       }
