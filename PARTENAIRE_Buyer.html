@@ -1399,12 +1399,15 @@ function renderShopProducts(products, shop) {
       <div class="product-name">${p.name}</div>
       <div class="product-price">${p.price ? p.price.toLocaleString()+' FCFA' : 'Ask for price'}</div>
       <div class="product-stock" style="margin-top:4px">${stockBadge}</div>
-      <div style="display:flex;gap:6px;margin-top:8px">
+      <div style="display:flex;gap:6px;margin-top:8px;align-items:stretch">
         <button class="add-to-cart-btn ${inCart?'added':''}" id="btn-${p.listing_id}"
-          onclick="${orderable ? cartHandler : ''}" style="flex:1;${baseStyle}" ${orderable ? '' : 'disabled'}>${capped ? '🔒 Limite atteinte' : (inCart ? '✓ In Cart' : (orderable ? '🛒 Cart' : '✗ Out of stock'))}</button>
-        <button style="padding:9px 10px;background:var(--amberl);color:var(--amber);border:1.5px solid #F0C050;border-radius:8px;font-size:11px;font-weight:700;cursor:${orderable ? 'pointer' : 'not-allowed'};white-space:nowrap;${baseStyle}"
-          onclick="${orderable ? orderHandler : ''}" ${orderable ? '' : 'disabled'} title="${capped ? 'Seller has reached free tier limit' : (orderable ? 'Add to Quick Order Form' : 'Out of stock')}">${capped ? '🔒' : (orderable ? '⚡ Order' : '🔒')}</button>
-        <button onclick="shareProduct('${p.listing_id}','${(p.name||'').replace(/['"\\<>]/g,' ')}',${p.price||0})" title="Partager" style="padding:9px 10px;background:#fff;color:var(--navy);border:1.5px solid #dcd7cf;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">🔗 Partager</button>
+          onclick="${orderable ? cartHandler : ''}" ${orderable ? '' : 'disabled'}
+          title="${capped ? 'Limite atteinte' : (inCart ? 'Dans le panier' : (orderable ? 'Ajouter au panier' : 'Rupture de stock'))}"
+          style="flex:0 0 42px;width:42px;margin-top:0;padding:9px 0;font-size:15px;text-align:center;${baseStyle}">${capped ? '🔒' : (inCart ? '✓' : (orderable ? '🛒' : '✗'))}</button>
+        <button onclick="${orderable ? orderHandler : ''}" ${orderable ? '' : 'disabled'} title="${capped ? 'Seller has reached free tier limit' : (orderable ? 'Add to Quick Order Form' : 'Out of stock')}"
+          style="flex:1 1 0;min-width:0;padding:8px 4px;background:var(--amberl);color:var(--amber);border:1.5px solid #F0C050;border-radius:8px;font-size:11px;font-weight:700;line-height:1.15;white-space:normal;word-break:break-word;text-align:center;cursor:${orderable ? 'pointer' : 'not-allowed'};${baseStyle}">${capped ? '🔒' : (orderable ? '⚡ Order' : '🔒')}</button>
+        <button onclick="shareProduct('${p.listing_id}','${(p.name||'').replace(/['"\\<>]/g,' ')}',${p.price||0})" title="Partager"
+          style="flex:1 1 0;min-width:0;padding:8px 4px;background:#fff;color:var(--navy);border:1.5px solid #dcd7cf;border-radius:8px;font-size:11px;font-weight:700;line-height:1.15;white-space:normal;word-break:break-word;text-align:center;cursor:pointer">🔗 Partager</button>
       </div>
     </div>`;
   }).join('');
@@ -1432,7 +1435,7 @@ function addToCart(product, shopId, shopName, btn) {
   const existing = cart.find(c => c.product.id===product.id);
   if (existing) existing.qty++;
   else cart.push({ product, shopId, shopName, qty:1 });
-  btn.textContent = '✓ In Cart';
+  btn.textContent = '✓'; // icon-only fixed-width cart button (no overflow)
   btn.className = 'add-to-cart-btn added';
   updateCartBadge();
   document.getElementById('sd-cart-count').textContent = cart.length;
