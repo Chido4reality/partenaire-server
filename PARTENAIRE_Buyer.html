@@ -342,26 +342,25 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
   <div class="auth-wrap" style="align-items:flex-start;padding-top:40px">
     <div class="auth-box">
       <div class="auth-logo">PARTENAIRE <span>✦</span></div>
-      <div class="auth-sub">Create your buyer account</div>
-      <label class="auth-label">Full Name</label>
-      <input class="auth-input" id="reg-name" placeholder="e.g. Jean Dupont">
-      <label class="auth-label">Company (optional)</label>
-      <input class="auth-input" id="reg-company" placeholder="e.g. JD Import Sarl">
-      <label class="auth-label">Phone Number</label>
+      <div class="auth-sub">Créer votre compte acheteur</div>
+      <label class="auth-label">Nom complet</label>
+      <input class="auth-input" id="reg-name" placeholder="ex. Jean Dupont">
+      <label class="auth-label">Numéro de téléphone</label>
       <div class="phone-row" style="margin-bottom:16px">
         <div class="cc">🇨🇲 +237</div>
         <input class="auth-input" id="reg-phone" type="tel" placeholder="699 000 000" maxlength="9" style="margin-bottom:0;flex:1">
       </div>
-      <label class="auth-label">City</label>
-      <select class="auth-input" id="reg-city" style="margin-bottom:16px">
-        <option>Douala</option><option>Yaoundé</option><option>Bafoussam</option>
-        <option>Garoua</option><option>Maroua</option><option>Bertoua</option>
-      </select>
-      <label class="auth-label">Choose a PIN (4 digits)</label>
-      <input class="auth-input" id="reg-pin" type="password" placeholder="Choose a 4-digit PIN" maxlength="4" inputmode="numeric">
+      <label class="auth-label">Choisir un code PIN (4 chiffres)</label>
+      <input class="auth-input" id="reg-pin" type="password" placeholder="••••" maxlength="4" inputmode="numeric"
+        style="letter-spacing:8px;font-size:20px;text-align:center">
+      <label class="auth-label">Confirmer le code PIN</label>
+      <input class="auth-input" id="reg-pin2" type="password" placeholder="••••" maxlength="4" inputmode="numeric"
+        onkeydown="if(event.key==='Enter') registerBuyer()"
+        style="letter-spacing:8px;font-size:20px;text-align:center">
       <div class="auth-error" id="reg-error"></div>
-      <button class="auth-btn gold" onclick="registerBuyer()">Create Account →</button>
-      <div class="auth-link">Already have an account? <span onclick="showScreen('screen-phone')">Sign in →</span></div>
+      <button class="auth-btn gold" onclick="registerBuyer()">Créer le compte →</button>
+      <div class="auth-link">Vous avez déjà un compte ? <span onclick="showScreen('screen-phone')">Se connecter →</span></div>
+      <div class="auth-link" style="margin-top:4px"><span onclick="enterGuestApp()">← Continuer sans compte</span></div>
     </div>
   </div>
 </div>
@@ -788,7 +787,7 @@ window.addEventListener('load', dzImpBootstrapB);
 async function restoreBuyerSession() {
   if (currentBuyer) return;            // impersonation/login already handled it
   const s = dozieSession();
-  if (!s) return;                      // no token or expired → stay on login
+  if (!s) { enterGuestApp(); return; } // FEATURE 2: no token → public guest browse (not the login wall)
   try {
     const res = await RPC('get_my_profile', { p_caller: s.uid });
     if (!res || !res.ok) { dozieLogout(); return; }
@@ -908,6 +907,11 @@ async function apiAuth(path, bodyObj) {
 // ══════════════════════════════════════════════════════════════
 let currentBuyer = null;
 let allShops = [], allOrders = [];
+// FEATURE 2: public/guest browsing. isGuest = browsing with no account.
+// _pendingAuthAction holds the action a guest tried (order/message/review) so
+// it can resume after they sign up / log in.
+let isGuest = false;
+let _pendingAuthAction = null;
 
 // M-1.5 SECURITY: a valid Dozie JWT is REQUIRED to render any
 // authenticated content. Decodes the payload and checks exp + uid
@@ -974,35 +978,42 @@ async function loginWithPIN() {
     // B.4: dual-role probe dropped — no RPC; see migration note
     currentBuyer._hasSeller = false;
     enterApp();
+    if (typeof resumePendingAuthAction === 'function') resumePendingAuthAction();
   } catch(e) { authErr('phone-error', e.message || 'Erreur réseau / Network error'); }
 }
 
 async function registerBuyer() {
-  const name    = document.getElementById('reg-name').value.trim();
-  const company = document.getElementById('reg-company').value.trim();
-  const phone   = document.getElementById('reg-phone').value.trim().replace(/\s/g,'');
-  const city    = document.getElementById('reg-city').value;
-  if (!name || phone.length < 8) { authErr('reg-error','Name and phone are required'); return; }
+  const name  = document.getElementById('reg-name').value.trim();
+  const phone = document.getElementById('reg-phone').value.trim().replace(/\s/g,'');
+  const pin   = (document.getElementById('reg-pin')  ? document.getElementById('reg-pin').value  : '').trim();
+  const pin2  = (document.getElementById('reg-pin2') ? document.getElementById('reg-pin2').value : '').trim();
+  if (!name)              { authErr('reg-error','Entrez votre nom'); return; }
+  if (phone.length < 8)   { authErr('reg-error','Entrez un numéro de téléphone valide'); return; }
+  if (!/^\d{4}$/.test(pin)) { authErr('reg-error','Le PIN doit comporter 4 chiffres'); return; }
+  if (pin !== pin2)       { authErr('reg-error','Les deux PIN ne correspondent pas'); return; }
   try {
-    const pin = document.getElementById('reg-pin') ? document.getElementById('reg-pin').value.trim() : '0000';
-    if (!pin || pin.length < 4) { authErr('reg-error','Choisissez un PIN a 4 chiffres'); return; }
-    const reg = await RPC('register_user', {
-      p_phone: String(phone).replace(/^\+?237/,'').replace(/\D/g,''),
-      p_name: name, p_role: 'buyer', p_pin: pin,
-      p_company: company||null, p_city: city||null
+    // Self-registration via the server route: creates the ptn_users buyer row
+    // (role=buyer, also_buyer=true, bcrypt PIN) and returns a Dozie JWT so the
+    // new user is logged in straight away. Independent of Mon Partenaire.
+    const resp = await fetch('/auth/register-buyer', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone, pin })
     });
-    if (!reg || !reg.ok) {
-      if (reg && reg.error === 'duplicate_phone_role') { authErr('reg-error','This phone is already registered. Sign in instead.'); }
-      else { authErr('reg-error', (reg && reg.error) || 'Registration failed'); }
+    const result = await resp.json().catch(() => ({}));
+    if (!resp.ok || !result.success) {
+      if (resp.status === 409) authErr('reg-error','Ce numéro a déjà un compte. Connectez-vous.');
+      else authErr('reg-error', result.message || 'Échec de la création du compte');
       return;
     }
-    const prof = await RPC('get_my_profile', { p_caller: reg.user_id });
-    currentBuyer = (prof && prof.ok && prof.user) ? prof.user : { id: reg.user_id, phone, name, company, city, role:'buyer' };
+    localStorage.setItem('dozie_jwt', result.jwt);
+    currentBuyer = result.user;
     currentBuyer._hasSeller = false;
-    toast('✓ Account created! Welcome to PARTENAIRE', 'success');
+    toast('✓ Compte créé ! Bienvenue sur PARTENAIRE', 'success');
     enterApp();
+    // Resume any pending action the guest was trying (order / message).
+    if (typeof resumePendingAuthAction === 'function') resumePendingAuthAction();
   } catch(e) {
-    authErr('reg-error', e.message.includes('duplicate') ? 'Phone already registered' : e.message);
+    authErr('reg-error', e.message || 'Erreur réseau');
   }
 }
 
@@ -1042,6 +1053,8 @@ function enterApp() {
     document.getElementById('p-avatar-text').innerHTML =
       `<img src="${currentBuyer.profile_photo}" style="width:64px;height:64px;object-fit:cover;border-radius:16px">`;
   }
+  isGuest = false;
+  hideGuestBanner();
   loadShops();
   loadOrders();
   startSync();
@@ -1049,6 +1062,49 @@ function enterApp() {
   broadcastInterval = setInterval(() => checkBroadcasts("buyers", currentBuyer.city), 60000);
   setInterval(checkPaymentRequests, 15000);
   checkPaymentRequests();
+}
+
+// FEATURE 2: enter the marketplace WITHOUT an account. Browsing (shops,
+// product detail, search) uses anon reads, so it works with no JWT. Identity
+// actions (order / message / review) are gated via requireAuth().
+function enterGuestApp() {
+  isGuest = true;
+  currentBuyer = null;
+  setLang('fr');
+  showScreen('app-screen');
+  loadShops();
+  showGuestBanner();
+}
+
+function showGuestBanner() {
+  const host = document.getElementById('page-shops');
+  if (!host) return;
+  let b = document.getElementById('guest-banner');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'guest-banner';
+    b.style.cssText = 'background:var(--navy);color:#fff;border-radius:12px;margin:12px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px';
+    b.innerHTML = '<span>👋 Invité — connectez-vous pour commander ou discuter</span>'
+      + '<button onclick="showScreen(\'screen-register\')" style="background:var(--gold);color:var(--navy);border:none;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer;white-space:nowrap">Créer un compte</button>';
+    host.insertBefore(b, host.firstChild);
+  }
+  b.style.display = 'flex';
+}
+function hideGuestBanner() { const b = document.getElementById('guest-banner'); if (b) b.style.display = 'none'; }
+
+// Gate an identity-requiring action. Returns true if the user is authenticated
+// (caller proceeds); otherwise stashes the action, routes to sign-up, returns
+// false. The stashed action resumes after successful sign-up / login.
+function requireAuth(actionLabel, pendingFn) {
+  if (currentBuyer) return true;
+  _pendingAuthAction = (typeof pendingFn === 'function') ? pendingFn : null;
+  try { toast(actionLabel ? ('Créez un compte pour ' + actionLabel) : 'Créez un compte pour continuer', 'success'); } catch(_) {}
+  showScreen('screen-register');
+  return false;
+}
+function resumePendingAuthAction() {
+  const fn = _pendingAuthAction; _pendingAuthAction = null;
+  if (fn) { setTimeout(() => { try { fn(); } catch(_) {} }, 300); }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1186,6 +1242,7 @@ function buildSearchProductCard(p) {
   const rptLabel = (p.name || '').replace(/['"\\<>]/g, ' ').slice(0, 60);
   return `<div class="product-card" onclick="openShop('${shop.id}')" style="position:relative">
     <button onclick="event.stopPropagation();openReportModal('listing','${p.id||''}','${rptLabel}')" title="Signaler / Report" style="position:absolute;top:6px;right:6px;background:rgba(255,255,255,0.92);border:none;border-radius:8px;width:24px;height:24px;font-size:12px;line-height:1;cursor:pointer;color:#999;z-index:2">🚩</button>
+    <button onclick="event.stopPropagation();shareProduct('${p.listing_id}','${rptLabel}',${p.price||0})" title="Partager" style="position:absolute;top:6px;right:36px;background:rgba(255,255,255,0.92);border:none;border-radius:8px;width:24px;height:24px;font-size:12px;line-height:1;cursor:pointer;color:#666;z-index:2">🔗</button>
     <div class="product-emoji">${photo}</div>
     <div class="product-name">${p.name || ''}</div>
     <div class="product-price">${price}</div>
@@ -1206,6 +1263,7 @@ function buildShopCard(s) {
       <div style="font-size:36px">${EMOJIS[s.category]||'🏪'}</div>
       <div class="shop-avatar-wrap" style="${s.profile_photo?'background:transparent;padding:0;overflow:hidden':''}">${avatarHtml}</div>
       ${bi?`<div class="shop-badge-icon">${bi}</div>`:''}
+      <button onclick="event.stopPropagation();shareShop('${s.id}','${(s.company||s.name||'').replace(/['"\\<>]/g,' ')}')" title="Partager la boutique" style="position:absolute;top:8px;right:8px;background:rgba(255,255,255,0.92);border:none;border-radius:8px;width:28px;height:28px;font-size:13px;line-height:1;cursor:pointer;color:#444;z-index:2">🔗</button>
     </div>
     <div class="shop-body">
       <div class="shop-name">${s.company||s.name}${s.has_premium_perks ? ' <span title="Priority listing · Free pickup included" style="display:inline-block;font-size:10px;background:linear-gradient(135deg,#FFD93D,#C9A84C);color:#1A2B4A;padding:2px 7px;border-radius:10px;font-weight:800;letter-spacing:0.3px;margin-left:6px;vertical-align:middle">⭐ Premium</span>' : ''}</div>
@@ -1346,6 +1404,7 @@ function renderShopProducts(products, shop) {
           onclick="${orderable ? cartHandler : ''}" style="flex:1;${baseStyle}" ${orderable ? '' : 'disabled'}>${capped ? '🔒 Limite atteinte' : (inCart ? '✓ In Cart' : (orderable ? '🛒 Cart' : '✗ Out of stock'))}</button>
         <button style="padding:9px 10px;background:var(--amberl);color:var(--amber);border:1.5px solid #F0C050;border-radius:8px;font-size:11px;font-weight:700;cursor:${orderable ? 'pointer' : 'not-allowed'};white-space:nowrap;${baseStyle}"
           onclick="${orderable ? orderHandler : ''}" ${orderable ? '' : 'disabled'} title="${capped ? 'Seller has reached free tier limit' : (orderable ? 'Add to Quick Order Form' : 'Out of stock')}">${capped ? '🔒' : (orderable ? '⚡ Order' : '🔒')}</button>
+        <button onclick="shareProduct('${p.listing_id}','${(p.name||'').replace(/['"\\<>]/g,' ')}',${p.price||0})" title="Partager" style="padding:9px 10px;background:#fff;color:var(--navy);border:1.5px solid #dcd7cf;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">🔗 Partager</button>
       </div>
     </div>`;
   }).join('');
@@ -1469,6 +1528,7 @@ function showSellerCappedMessage() {
 
 async function placeOrder(total) {
   if (!cart.length) return;
+  if (!requireAuth('passer une commande', () => placeOrder(total))) return; // FEATURE 2 gate
   // Sprint B: pre-check every distinct seller in cart against
   // dozie_seller_access. If any can't accept orders, surface the
   // capped message and let the buyer either change cart or wait.
@@ -1803,6 +1863,13 @@ function goToSeller() { window.location.href = '/seller'; }
 //  NAV
 // ══════════════════════════════════════════════════════════════
 function switchTab(tabId) {
+  // FEATURE 2: guests can browse the marketplace + cart; everything else
+  // (orders, messages, reviews, profile) needs an account.
+  if (!currentBuyer && tabId !== 'tab-shops' && tabId !== 'tab-cart') {
+    const labels = { 'tab-orders': 'voir vos commandes', 'tab-messages': 'voir vos messages', 'tab-reviews': 'voir vos avis', 'tab-profile': 'accéder à votre profil' };
+    requireAuth(labels[tabId] || null);
+    return;
+  }
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
   const tabEl = document.getElementById(tabId);
@@ -2441,6 +2508,7 @@ function setRating(orderId, rating) {
 }
 
 async function submitReview(orderId, sellerId) {
+  if (!requireAuth('laisser un avis')) return; // FEATURE 2 gate
   const rating = _reviewRatings[orderId];
   if (!rating) { toast('Selectionnez une note (1-5 etoiles)', 'error'); return; }
   const comment = document.getElementById('review-comment-' + orderId);
@@ -2608,6 +2676,7 @@ async function refreshBuyerUnread() {
   } catch (e) {}
 }
 async function openBuyerConversation(sellerId) {
+  if (!requireAuth('discuter avec le vendeur', () => openBuyerConversation(sellerId))) return; // FEATURE 2 gate
   // Same reuse pattern as chatAboutCounter: open the shop, then its Chat panel.
   switchTab('tab-shops');
   await openShop(sellerId);
@@ -2639,28 +2708,64 @@ function startBuyerMessagesSync() {
 async function handleDeepLink() {
   const params = new URLSearchParams(window.location.search);
   const shopId = params.get('shop');
-  if (!shopId) return;
+  const productId = params.get('product');   // FEATURE 2: ?product=<listing_id>
+  if (!shopId && !productId) return;
 
-  // Wait for user to be logged in
-  const checkLogin = setInterval(async () => {
-    if (!currentBuyer) return;
-    clearInterval(checkLogin);
-    // Remove param from URL without reload
-    window.history.replaceState({}, '', window.location.pathname);
-    // Find and open the shop
-    try {
-      const seller = await RPC('get_public_seller', { p_seller_id: shopId });
-      if (seller) {
-        toast('🏪 Ouverture de ' + (seller.company || seller.name) + '...', 'success');
-        setTimeout(() => openShop(shopId), 500);
-      }
-    } catch(e) {
-      console.log('Deep link error:', e.message);
+  // Wait until the marketplace is ready (allShops loaded). Works for guests
+  // AND logged-in users — no login required to view a shared product.
+  let waited = 0;
+  const timer = setInterval(async () => {
+    waited += 300;
+    if (!Array.isArray(allShops) || allShops.length === 0) {
+      if (waited > 30000) clearInterval(timer);
+      return;
     }
-  }, 500);
+    clearInterval(timer);
+    window.history.replaceState({}, '', window.location.pathname);
+    try {
+      let sid = shopId;
+      if (!sid && productId) {
+        // Resolve the listing's seller, then open that shop's detail.
+        const rows = await GET('dozie_marketplace_products',
+          'listing_id=eq.' + encodeURIComponent(productId) + '&select=seller_id&limit=1');
+        sid = rows && rows[0] ? rows[0].seller_id : null;
+      }
+      if (!sid) { toast('Produit ou boutique introuvable', 'error'); return; }
+      await openShop(sid);
+      // Scroll the shared product into view + briefly highlight it.
+      if (productId) {
+        setTimeout(() => {
+          const btn = document.getElementById('btn-' + productId);
+          const card = btn ? btn.closest('.product-card') : null;
+          if (card) {
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            card.style.outline = '2px solid var(--gold)';
+            setTimeout(() => { card.style.outline = ''; }, 2500);
+          }
+        }, 700);
+      }
+    } catch(e) { console.log('Deep link error:', e.message); }
+  }, 300);
+  setTimeout(() => clearInterval(timer), 30000);
+}
 
-  // Timeout after 30 seconds
-  setTimeout(() => clearInterval(checkLogin), 30000);
+// FEATURE 2: share a product / shop. Builds a deep link and uses the native
+// share sheet when available, else falls back to WhatsApp. Product photo isn't
+// put in the text (often a data: URL); the opened link shows it.
+async function shareProduct(listingId, name, price) {
+  const url = location.origin + '/buyer?product=' + encodeURIComponent(listingId);
+  const priceTxt = price ? (Number(price).toLocaleString('fr-FR') + ' FCFA') : 'Prix sur demande';
+  const text = `${name} — ${priceTxt}\nVoir sur PARTENAIRE : ${url}`;
+  try { if (navigator.share) { await navigator.share({ title: name, text, url }); return; } }
+  catch(e) { if (e && e.name === 'AbortError') return; }
+  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+}
+async function shareShop(shopId, shopName) {
+  const url = location.origin + '/buyer?shop=' + encodeURIComponent(shopId);
+  const text = `${shopName} sur PARTENAIRE : ${url}`;
+  try { if (navigator.share) { await navigator.share({ title: shopName, text, url }); return; } }
+  catch(e) { if (e && e.name === 'AbortError') return; }
+  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
 }
 
 // Call on page load
@@ -2764,6 +2869,7 @@ async function submitQuickOrder() {
   const validRows=qofRows.filter(r=>r.name.trim());
   if(!validRows.length){toast('Add at least one product name','error');return;}
   if(!currentShop){toast('No shop selected','error');return;}
+  if(!requireAuth('passer une commande', submitQuickOrder)) return; // FEATURE 2 gate
   const quartier=document.getElementById('del-quartier')?.value.trim()||'';
   const landmark=document.getElementById('del-landmark')?.value.trim()||'';
   const note=document.getElementById('del-note')?.value.trim()||'';
@@ -2851,7 +2957,9 @@ function renderChatMsg(msg){
 
 async function sendChatMsg(){
   const input=document.getElementById('chat-input');const text=input?.value.trim();
-  if(!text||!currentShop||!currentBuyer)return;
+  if(!text||!currentShop)return;
+  if(!requireAuth('envoyer un message')) return; // FEATURE 2 gate
+  if(!currentBuyer)return;
   const sentAt=new Date().toISOString();addChatMsg(text,'sent','text');chatLastMsgTime=sentAt;input.value='';input.style.height='auto';
   try{await POST('ptn_messages',{buyer_id:currentBuyer.id,seller_id:currentShop.id,sender_role:'buyer',content:text,type:'text',read:false});
   await POST('ptn_notifications',{user_id:currentShop.id,type:'message',buyer_id:currentBuyer.id,title_en:'New message from '+(currentBuyer.name||'Buyer'),title_fr:'Nouveau message de '+(currentBuyer.name||'Acheteur'),body_en:text.slice(0,80)+(text.length>80?'...':''),body_fr:text.slice(0,80)+(text.length>80?'...':''),read:false});}catch(e){}

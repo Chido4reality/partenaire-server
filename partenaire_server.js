@@ -563,6 +563,67 @@ http.createServer((req, res) => {
     return;
   }
 
+  // POST /auth/register-buyer { name, phone, pin }
+  // Self-registration for a non-MP buyer. Creates a ptn_users row
+  // (role='buyer', also_buyer=true, dozie_pin_hash=bcrypt(pin)) and issues a
+  // Dozie JWT so the new user is logged in immediately. Fully independent of
+  // Mon Partenaire — no MP account required. Duplicate (phone, role='buyer')
+  // returns 409 so the UI can route them to sign-in.
+  if (req.url === '/auth/register-buyer' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => {
+        res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(obj));
+      };
+      try {
+        const { name, phone, pin } = JSON.parse(body || '{}');
+        const cleanName  = String(name || '').trim();
+        const cleanPhone = String(phone || '').replace(/^\+?237/, '').replace(/\D/g, '');
+        const cleanPin   = String(pin || '').replace(/\D/g, '');
+        if (!cleanName)            return send(400, { success: false, code: 'bad_request', message: 'Le nom est requis.' });
+        if (cleanPhone.length < 8) return send(400, { success: false, code: 'bad_request', message: 'Numéro de téléphone invalide.' });
+        if (!/^\d{4}$/.test(cleanPin)) return send(400, { success: false, code: 'bad_pin', message: 'Le PIN doit comporter 4 chiffres.' });
+        if (!DOZIE_JWT_SECRET || !DOZIE_SERVICE_KEY) {
+          return send(500, { success: false, code: 'server_misconfig', message: 'Auth not configured.' });
+        }
+        // Duplicate (phone, role=buyer) — tell them to sign in.
+        const existing = await supaRequestPrivileged('GET', 'ptn_users',
+          'phone=eq.' + encodeURIComponent(cleanPhone) + '&role=eq.buyer&select=id&limit=1');
+        if (Array.isArray(existing) && existing.length > 0) {
+          return send(409, { success: false, code: 'duplicate_phone',
+            message: 'Ce numéro a déjà un compte. Connectez-vous.' });
+        }
+        const dozie_pin_hash = await hashPin(cleanPin);
+        const inserted = await supaRequestPrivileged('POST', 'ptn_users', '', {
+          role: 'buyer', also_buyer: true, name: cleanName, phone: cleanPhone, dozie_pin_hash
+        });
+        const user = Array.isArray(inserted) ? inserted[0] : inserted;
+        if (!user || !user.id) {
+          // Unique-violation race or other PostgREST error.
+          const errStr = JSON.stringify(inserted || {});
+          if (/23505|duplicate/i.test(errStr)) {
+            return send(409, { success: false, code: 'duplicate_phone',
+              message: 'Ce numéro a déjà un compte. Connectez-vous.' });
+          }
+          return send(500, { success: false, code: 'insert_failed',
+            message: (inserted && inserted.message) || 'Échec de la création du compte.' });
+        }
+        const jwtToken = issueDozieJwt(user.id, 'buyer');
+        return send(200, {
+          success: true,
+          jwt: jwtToken,
+          user: { id: user.id, name: user.name, phone: user.phone, role: 'buyer',
+                  company: user.company, city: user.city, status: user.status }
+        });
+      } catch (e) {
+        send(500, { success: false, code: 'server_error', message: e.message });
+      }
+    });
+    return;
+  }
+
   // ── ADMIN IMPERSONATE EXCHANGE ─────────────────────────────────────────────
   //
   // Same-origin to PARTENAIRE_Buyer.html / PARTENAIRE_Seller.html so the
