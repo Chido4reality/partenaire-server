@@ -14,7 +14,14 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v20-20260528i';
+const CACHE = 'partenaire-dozie-v21-20260609a';
+// BUMP (2026-06-09): the buyer self-registration + guest-browsing deploys
+// changed PARTENAIRE_Buyer.html but didn't bump this version, so installed
+// Capacitor wrappers running an older (cache-first) SW never swapped to this
+// network-first SW and kept serving the stale buyer page. Bumping the version
+// (byte change to sw.js + new cache name) forces every client to install this
+// SW, evict all old caches in activate(), and skipWaiting/claim immediately —
+// after which network-first navigations serve the current /buyer.
 
 const STATIC = [
   '/',

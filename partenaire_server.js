@@ -1785,7 +1785,16 @@ http.createServer((req, res) => {
   const f = path.join(DIR, url.slice(1));
   fs.readFile(f, (e, d) => {
     if (e) { res.writeHead(404); res.end('Not found: ' + url); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'text/plain' });
+    const ext = path.extname(f);
+    const headers = { 'Content-Type': MIME[ext] || 'text/plain', 'Access-Control-Allow-Origin': '*' };
+    // ALWAYS-FRESH for app shells + the service worker so a deploy reaches
+    // installed Capacitor wrappers immediately — no stale WebView HTTP cache.
+    // The SW itself is network-first for navigations, so revalidated HTML is
+    // served fresh when online; assets stay cacheable (SW caches them).
+    if (ext === '.html' || url === '/sw.js' || url === '/manifest.json') {
+      headers['Cache-Control'] = 'no-cache, must-revalidate';
+    }
+    res.writeHead(200, headers);
     res.end(d);
   });
 
