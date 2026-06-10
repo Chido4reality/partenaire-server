@@ -14,7 +14,10 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v21-20260609a';
+const CACHE = 'partenaire-dozie-v22-20260610a';
+// BUMP (2026-06-10): buyer guest-entry fix — open to guest browse (no login
+// wall) + stop the session auto-resume from hijacking the "Créer un compte"
+// screen. Bumping evicts old precached buyer HTML on installed shells.
 // BUMP (2026-06-09): the buyer self-registration + guest-browsing deploys
 // changed PARTENAIRE_Buyer.html but didn't bump this version, so installed
 // Capacitor wrappers running an older (cache-first) SW never swapped to this

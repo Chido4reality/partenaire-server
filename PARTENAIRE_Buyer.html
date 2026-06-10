@@ -312,7 +312,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 <body>
 
 <!-- ══ PHONE LOGIN ══════════════════════════════════════════════ -->
-<div class="screen active" id="screen-phone">
+<div class="screen" id="screen-phone">
   <div class="auth-wrap">
     <div class="auth-box">
       <div class="auth-logo">PARTENAIRE <span>✦</span></div>
@@ -359,14 +359,14 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
         style="letter-spacing:8px;font-size:20px;text-align:center">
       <div class="auth-error" id="reg-error"></div>
       <button class="auth-btn gold" onclick="registerBuyer()">Créer le compte →</button>
-      <div class="auth-link">Vous avez déjà un compte ? <span onclick="showScreen('screen-phone')">Se connecter →</span></div>
+      <div class="auth-link">Vous avez déjà un compte ? <span onclick="openAuth('screen-phone')">Se connecter →</span></div>
       <div class="auth-link" style="margin-top:4px"><span onclick="enterGuestApp()">← Continuer sans compte</span></div>
     </div>
   </div>
 </div>
 
 <!-- ══ MAIN APP ═════════════════════════════════════════════════ -->
-<div class="screen" id="app-screen">
+<div class="screen active" id="app-screen">
   <!-- ══ HAMBURGER DRAWER ═══════════════════════════════════════ -->
   <div id="dz-drawer-backdrop" aria-hidden="true"></div>
   <aside id="dz-drawer" role="navigation" aria-label="Main menu" aria-hidden="true">
@@ -787,17 +787,26 @@ window.addEventListener('load', dzImpBootstrapB);
 async function restoreBuyerSession() {
   if (currentBuyer) return;            // impersonation/login already handled it
   const s = dozieSession();
-  if (!s) { enterGuestApp(); return; } // FEATURE 2: no token → public guest browse (not the login wall)
+  // GUEST-ENTRY FIX: ALWAYS land on guest browse first — never a login wall —
+  // even while a stored session resumes in the background. (Default markup
+  // screen is the app shell, so there's no login flash either.)
+  enterGuestApp();
+  if (!s) return;                      // no / expired token → stay on guest browse
   try {
     const res = await RPC('get_my_profile', { p_caller: s.uid });
-    if (!res || !res.ok) { dozieLogout(); return; }
+    if (!res || !res.ok) return;       // resume failed → stay on guest browse (NOT a login wall)
+    // Do NOT hijack the user if they deliberately opened Créer un compte /
+    // Se connecter while we were resolving, or if something already entered.
+    if (_authScreenOpen || currentBuyer) return;
     currentBuyer = res.user;
     // B.4: dual-role probe dropped — no RPC; see migration note
     currentBuyer._hasSeller = false;
     enterApp();
-  } catch (_) { /* leave on login screen */ }
+  } catch (_) { /* stay on guest browse */ }
 }
-window.addEventListener('load', restoreBuyerSession);
+// Run on DOMContentLoaded (earlier than load) so the guest marketplace fills in
+// immediately and the login screen is never the visible entry state.
+document.addEventListener('DOMContentLoaded', restoreBuyerSession);
 
 function apiUrl(table, params) {
   const base = (window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')
@@ -933,7 +942,9 @@ function dozieLogout() {
     sessionStorage.clear();
   } catch (_) {}
   currentBuyer = null;
-  if (typeof showScreen === 'function') showScreen('screen-phone');
+  // No login wall: sign-out (and any failed resume) returns to guest browse.
+  if (typeof enterGuestApp === 'function') enterGuestApp();
+  else if (typeof showScreen === 'function') showScreen('screen-phone');
 }
 let cart = [];
 let currentShop = null;
@@ -947,7 +958,12 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
-function goRegister() { showScreen('screen-register'); }
+// GUEST-ENTRY FIX: when the user DELIBERATELY opens "Créer un compte" or
+// "Se connecter", flag it so a background session auto-resume (restoreBuyerSession)
+// can't yank them off the registration/login screen into a stored account.
+let _authScreenOpen = false;
+function openAuth(id) { _authScreenOpen = true; showScreen(id); }
+function goRegister() { openAuth('screen-register'); }
 
 async function loginWithPIN() {
   const phone = document.getElementById('phone-input').value.trim().replace(/\s/g,'');
@@ -1028,6 +1044,7 @@ function enterApp() {
     dozieLogout();
     return;
   }
+  _authScreenOpen = false;
   setLang('fr');
   showScreen('app-screen');
   // #hdr-name lived in the slimmed-out header; the buyer name now lives
@@ -1070,6 +1087,7 @@ function enterApp() {
 function enterGuestApp() {
   isGuest = true;
   currentBuyer = null;
+  _authScreenOpen = false;
   setLang('fr');
   showScreen('app-screen');
   loadShops();
@@ -1085,7 +1103,7 @@ function showGuestBanner() {
     b.id = 'guest-banner';
     b.style.cssText = 'background:var(--navy);color:#fff;border-radius:12px;margin:12px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px';
     b.innerHTML = '<span>👋 Invité — connectez-vous pour commander ou discuter</span>'
-      + '<button onclick="showScreen(\'screen-register\')" style="background:var(--gold);color:var(--navy);border:none;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer;white-space:nowrap">Créer un compte</button>';
+      + '<button onclick="openAuth(\'screen-register\')" style="background:var(--gold);color:var(--navy);border:none;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer;white-space:nowrap">Créer un compte</button>';
     host.insertBefore(b, host.firstChild);
   }
   b.style.display = 'flex';
@@ -1099,7 +1117,7 @@ function requireAuth(actionLabel, pendingFn) {
   if (currentBuyer) return true;
   _pendingAuthAction = (typeof pendingFn === 'function') ? pendingFn : null;
   try { toast(actionLabel ? ('Créez un compte pour ' + actionLabel) : 'Créez un compte pour continuer', 'success'); } catch(_) {}
-  showScreen('screen-register');
+  openAuth('screen-register');
   return false;
 }
 function resumePendingAuthAction() {
