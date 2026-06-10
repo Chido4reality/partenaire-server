@@ -1101,9 +1101,14 @@ function showGuestBanner() {
   if (!b) {
     b = document.createElement('div');
     b.id = 'guest-banner';
-    b.style.cssText = 'background:var(--navy);color:#fff;border-radius:12px;margin:12px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px';
-    b.innerHTML = '<span>👋 Invité — connectez-vous pour commander ou discuter</span>'
-      + '<button onclick="openAuth(\'screen-register\')" style="background:var(--gold);color:var(--navy);border:none;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer;white-space:nowrap">Créer un compte</button>';
+    b.style.cssText = 'background:var(--navy);color:#fff;border-radius:12px;margin:12px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px';
+    // Persistent front-page CTA: BOTH "Créer un compte" and "Se connecter"
+    // so a brand-new (non-MP) buyer can self-register without any login wall.
+    b.innerHTML = '<span style="flex:1;min-width:120px">👋 Créez un compte pour commander ou discuter</span>'
+      + '<div style="display:flex;gap:8px;flex-shrink:0">'
+      +   '<button onclick="openAuth(\'screen-phone\')" style="background:transparent;color:var(--gold);border:1.5px solid var(--gold);border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer;white-space:nowrap">Se connecter</button>'
+      +   '<button onclick="openAuth(\'screen-register\')" style="background:var(--gold);color:var(--navy);border:none;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer;white-space:nowrap">Créer un compte</button>'
+      + '</div>';
     host.insertBefore(b, host.firstChild);
   }
   b.style.display = 'flex';
