@@ -348,7 +348,11 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 </div>
 
 <!-- ══ REGISTER ══════════════════════════════════════════════════ -->
-<div class="screen" id="screen-register">
+<!-- BUYER-REGISTER-DEFAULT: create-account is the default landing for a
+     guest / not-logged-in buyer (active here, removed from app-screen).
+     restoreBuyerSession() keeps a guest here and only swaps to the app
+     shell for a valid session — so register no longer flashes-and-redirects. -->
+<div class="screen active" id="screen-register">
   <div class="auth-wrap" style="align-items:flex-start;padding-top:40px">
     <div class="auth-box">
       <div class="auth-logo">PARTENAIRE <span>✦</span></div>
@@ -369,14 +373,22 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
         style="letter-spacing:8px;font-size:20px;text-align:center">
       <div class="auth-error" id="reg-error"></div>
       <button class="auth-btn gold" onclick="registerBuyer()">Créer le compte →</button>
-      <div class="auth-link">Vous avez déjà un compte ? <span onclick="openAuth('screen-phone')">Se connecter →</span></div>
+      <!-- BUYER-REGISTER-DEFAULT: existing users sign in from here. Prominent
+           outlined button (not just the faint link below) so it's unmissable. -->
+      <div style="display:flex;align-items:center;gap:10px;margin:14px 0 10px;color:var(--grey);font-size:12px">
+        <span style="flex:1;height:1px;background:#ddd"></span>Déjà un compte ?<span style="flex:1;height:1px;background:#ddd"></span>
+      </div>
+      <button class="auth-btn" onclick="openAuth('screen-phone')"
+        style="background:transparent;border:1.5px solid var(--gold);color:var(--gold)">
+        Se connecter / Sign in →
+      </button>
       <div class="auth-link" style="margin-top:4px"><span onclick="enterGuestApp()">← Continuer sans compte</span></div>
     </div>
   </div>
 </div>
 
 <!-- ══ MAIN APP ═════════════════════════════════════════════════ -->
-<div class="screen active" id="app-screen">
+<div class="screen" id="app-screen">
   <!-- ══ HAMBURGER DRAWER ═══════════════════════════════════════ -->
   <div id="dz-drawer-backdrop" aria-hidden="true"></div>
   <aside id="dz-drawer" role="navigation" aria-label="Main menu" aria-hidden="true">
@@ -797,14 +809,26 @@ window.addEventListener('load', dzImpBootstrapB);
 async function restoreBuyerSession() {
   if (currentBuyer) return;            // impersonation/login already handled it
   const s = dozieSession();
-  // GUEST-ENTRY FIX: ALWAYS land on guest browse first — never a login wall —
-  // even while a stored session resumes in the background. (Default markup
-  // screen is the app shell, so there's no login flash either.)
-  enterGuestApp();
-  if (!s) return;                      // no / expired token → stay on guest browse
+  // BUYER-REGISTER-DEFAULT: a guest (no valid token) lands on the create-account
+  // screen — which is the markup default, so we simply DON'T pull them off it.
+  // The previous code called enterGuestApp() unconditionally here, which ran
+  // showScreen('app-screen') on every load and yanked the user off
+  // screen-register ~1s after it appeared (the reported flash-then-redirect).
+  // Now: no token ⇒ stay on register (unless they deliberately opened another
+  // auth screen); valid token ⇒ resolve and enter the app shell.
+  if (!s) {
+    if (!_authScreenOpen) showScreen('screen-register');
+    return;
+  }
+  // Token holder: show the app shell immediately (no register flash) while the
+  // profile resolves in the background.
+  if (!_authScreenOpen && !currentBuyer) showScreen('app-screen');
   try {
     const res = await RPC('get_my_profile', { p_caller: s.uid });
-    if (!res || !res.ok) return;       // resume failed → stay on guest browse (NOT a login wall)
+    if (!res || !res.ok) {             // resume failed → fall back to register, not a dead app shell
+      if (!_authScreenOpen && !currentBuyer) showScreen('screen-register');
+      return;
+    }
     // Do NOT hijack the user if they deliberately opened Créer un compte /
     // Se connecter while we were resolving, or if something already entered.
     if (_authScreenOpen || currentBuyer) return;
@@ -812,10 +836,13 @@ async function restoreBuyerSession() {
     // B.4: dual-role probe dropped — no RPC; see migration note
     currentBuyer._hasSeller = false;
     enterApp();
-  } catch (_) { /* stay on guest browse */ }
+  } catch (_) {
+    // Network error resolving the token → fall back to the register default
+    // (don't strand the user on an empty app shell).
+    if (!_authScreenOpen && !currentBuyer) showScreen('screen-register');
+  }
 }
-// Run on DOMContentLoaded (earlier than load) so the guest marketplace fills in
-// immediately and the login screen is never the visible entry state.
+// Run on DOMContentLoaded so the create-account default is settled before paint.
 document.addEventListener('DOMContentLoaded', restoreBuyerSession);
 
 function apiUrl(table, params) {

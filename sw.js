@@ -14,7 +14,11 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v24-20260611b';
+const CACHE = 'partenaire-dozie-v25-20260612a';
+// BUMP (2026-06-12): create-account (screen-register) is now the DEFAULT guest
+// landing with a prominent Sign in button; removed the restoreBuyerSession
+// auto-redirect that flashed register then yanked the user to the app shell.
+// Bump evicts old cached buyer HTML.
 // BUMP (2026-06-11b): prominent "Créer un compte" button added to the buyer
 // Sign in screen (screen-phone) so a new buyer can self-register without
 // getting stuck at login. Bump evicts old cached buyer HTML.
