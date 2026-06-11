@@ -331,6 +331,16 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
       <div class="auth-hint">
         Entrez votre numero et votre PIN a 4 chiffres.
       </div>
+      <!-- BUYER-REGISTER-CTA: a brand-new buyer landing on Sign in needs an
+           unmistakable way to self-register (the faint text link below was
+           getting missed). Full-width outlined-gold button → screen-register. -->
+      <div style="display:flex;align-items:center;gap:10px;margin:14px 0 10px;color:var(--grey);font-size:12px">
+        <span style="flex:1;height:1px;background:#ddd"></span>Pas encore de compte ?<span style="flex:1;height:1px;background:#ddd"></span>
+      </div>
+      <button class="auth-btn" onclick="openAuth('screen-register')"
+        style="background:transparent;border:1.5px solid var(--gold);color:var(--gold)">
+        Créer un compte / Sign up →
+      </button>
       <div class="auth-link">Nouveau? / New buyer? <span onclick="goRegister()">Créer un compte →</span></div>
       <div class="auth-link" style="margin-top:4px">Vendeur? / Seller? <span onclick="window.location='/seller'">Portail vendeur →</span></div>
     </div>

@@ -14,7 +14,10 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v23-20260611a';
+const CACHE = 'partenaire-dozie-v24-20260611b';
+// BUMP (2026-06-11b): prominent "Créer un compte" button added to the buyer
+// Sign in screen (screen-phone) so a new buyer can self-register without
+// getting stuck at login. Bump evicts old cached buyer HTML.
 // BUMP (2026-06-11): front-page CTA now shows BOTH "Créer un compte" and
 // "Se connecter" buttons for guest buyers. Bump evicts old cached buyer HTML.
 // BUMP (2026-06-10): buyer guest-entry fix — open to guest browse (no login
