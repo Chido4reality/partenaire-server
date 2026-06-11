@@ -14,7 +14,12 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v25-20260612a';
+const CACHE = 'partenaire-dozie-v26-20260612b';
+// BUMP (2026-06-12b): REAL fix for buyer create-account. The /login mode-chooser
+// "Buy products" now hands a guest to /buyer?signup=1, and the buyer portal forces
+// the create-account screen on ?signup=1. (Previously "Buy products" showed the
+// chooser's own phone+PIN sign-in, which had no register option — the guest never
+// reached the buyer portal.) Bump evicts old cached buyer HTML.
 // BUMP (2026-06-12): create-account (screen-register) is now the DEFAULT guest
 // landing with a prominent Sign in button; removed the restoreBuyerSession
 // auto-redirect that flashed register then yanked the user to the app shell.

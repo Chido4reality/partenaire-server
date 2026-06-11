@@ -808,6 +808,18 @@ window.addEventListener('load', dzImpBootstrapB);
 // valid, rehydrate the user from its uid and re-enter the app.
 async function restoreBuyerSession() {
   if (currentBuyer) return;            // impersonation/login already handled it
+  // BUYER-REGISTER-FIRST: arriving from the /login mode-chooser's "Buy products"
+  // (which hands off to /buyer?signup=1). Force the create-account screen and
+  // mark the auth screen as deliberately open so nothing auto-enters over it.
+  // This is the path a logged-OUT guest actually takes — the markup default
+  // alone wasn't enough because the guest never reached this page before.
+  try {
+    if (new URLSearchParams(location.search).get('signup') === '1') {
+      _authScreenOpen = true;
+      showScreen('screen-register');
+      return;
+    }
+  } catch (_) {}
   const s = dozieSession();
   // BUYER-REGISTER-DEFAULT: a guest (no valid token) lands on the create-account
   // screen — which is the markup default, so we simply DON'T pull them off it.

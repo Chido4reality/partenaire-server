@@ -116,7 +116,7 @@
     </div>
     <div class="mode-sub" data-fr="Choisissez votre mode" data-en="Choose your mode">Choisissez votre mode</div>
 
-    <button class="mode-btn" onclick="pickMode('buyer')">
+    <button class="mode-btn" onclick="goBuyer()">
       <div class="ico">🛒</div>
       <div class="lbl" data-fr="Acheter des produits" data-en="Buy products">Acheter des produits</div>
       <div class="hint" data-fr="Commander chez les boutiques" data-en="Order from shops">Commander chez les boutiques</div>
@@ -200,7 +200,20 @@
   // ── MODE / PIN STATE ───────────────────────────────────────
   var selectedMode = null;  // 'buyer' or 'seller'
 
+  // BUYER-REGISTER-FIRST: a guest who chooses "Buy products" must be able to
+  // self-register. This local page only has a phone+PIN sign-in (screen-pin)
+  // and NO create-account form — so for buyers we hand off to the buyer portal
+  // at /buyer?signup=1, which lands on its create-account screen (with a
+  // "Se connecter / Sign in" link for existing buyers + "Continuer sans compte"
+  // to browse). pickMode() below is kept for the seller flow and the ?mode=
+  // pre-select (seller "Switch to Buyer" re-entry), which still uses screen-pin.
+  function goBuyer() {
+    try { localStorage.setItem('dozie_lang', currentLang); } catch (_) {}
+    location.href = '/buyer?signup=1';
+  }
+
   function pickMode(mode) {
+    if (mode === 'buyer') { goBuyer(); return; }
     selectedMode = mode;
     document.getElementById('screen-mode').classList.remove('active');
     document.getElementById('screen-pin').classList.add('active');
