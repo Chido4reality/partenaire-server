@@ -318,9 +318,21 @@ async function dozieGetCatalogue() {
   if (_dozieCatalogue.rows && (now - _dozieCatalogue.ts) < DOZIE_CATALOGUE_TTL_MS) {
     return _dozieCatalogue.rows;
   }
-  const rows = await supaRequest('GET', 'dozie_marketplace_products',
-    'published=eq.true&select=listing_id,seller_id,name,price,photo_url,stock_state,category,city,description&limit=5000');
-  const list = Array.isArray(rows) ? rows : [];
+  // MP-NO-SILENT-TRUNCATION (Part A, Dozie server): a single REST select is
+  // capped at PostgREST's ~1000-row limit, so a marketplace with >1000 published
+  // listings would lose the tail from search. Page through ALL rows in stable
+  // listing_id order. (PostgREST .offset via limit/offset query params.)
+  const PAGE = 1000;
+  let list = [];
+  for (let off = 0; ; off += PAGE) {
+    const batch = await supaRequest('GET', 'dozie_marketplace_products',
+      'published=eq.true&select=listing_id,seller_id,name,price,photo_url,stock_state,category,city,description'
+      + '&order=listing_id.asc,seller_id.asc&limit=' + PAGE + '&offset=' + off);
+    const arr = Array.isArray(batch) ? batch : [];
+    list = list.concat(arr);
+    if (arr.length < PAGE) break;
+    if (list.length >= 50000) break; // safety
+  }
   // Pre-normalize searchable text once per refresh (name + description; name_en
   // read defensively). Same normalize() the client uses, via the shared DS.
   for (const p of list) p._norm = DS.normalize((p.name || '') + ' ' + (p.name_en || '') + ' ' + (p.description || ''));
