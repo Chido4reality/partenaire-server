@@ -1287,9 +1287,21 @@ async function renderProductSearch(q, city) {
   const header = document.getElementById('products-header');
   grid.innerHTML = '<div class="loading" style="grid-column:1/-1"><div class="spinner"></div></div>';
   try {
-    const term = encodeURIComponent('*' + q + '*');
-    const products = await GET('dozie_marketplace_products',
-      `published=eq.true&name=ilike.${term}&select=listing_id,seller_id,name,price,photo_url,stock_state,category&limit=50`);
+    // DOZIE-BILINGUAL-SEARCH: prefer the server-side accent/case-insensitive
+    // + synonym/translation-bridged search. ADDITIVE — if the endpoint is
+    // unavailable it falls back to the legacy direct ILIKE, so results are
+    // never worse than before. (Server also logs zero-result misses.)
+    let products = null;
+    try {
+      const buyerRef = (currentBuyer && (currentBuyer.phone || currentBuyer.id)) || '';
+      const r = await xhr('GET', '/api/dozie/search-products?q=' + encodeURIComponent(q) + '&buyer_ref=' + encodeURIComponent(buyerRef));
+      if (r && r.success === true && Array.isArray(r.data)) products = r.data;
+    } catch (_) { products = null; }
+    if (products === null) {
+      const term = encodeURIComponent('*' + q + '*');
+      products = await GET('dozie_marketplace_products',
+        `published=eq.true&name=ilike.${term}&select=listing_id,seller_id,name,price,photo_url,stock_state,category&limit=50`);
+    }
     const rows = (products||[])
       .map(p => { const shop = allShops.find(s => s.id === p.seller_id); return shop ? { ...p, _shop: shop } : null; })
       .filter(Boolean)

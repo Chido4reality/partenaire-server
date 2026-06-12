@@ -284,6 +284,94 @@ function supaRpc(fn, args) {
 // state is only ever set after an authenticated, re-queried Campay
 // confirmation — never a client- or webhook-asserted "SUCCESS".
 
+// ── DOZIE-BILINGUAL-SEARCH ───────────────────────────────────────────
+// Accent/case-insensitive + synonym/translation-bridged product search.
+// 100% server-side, ADDITIVE: it only broadens results (raw matches are
+// always preserved) and never narrows the existing search. No LLM/API calls.
+//
+// normalize(): lowercase, strip accents/diacritics (NFD → drop combining
+// marks), collapse whitespace. Applied to BOTH the query and the product
+// searchable text so "Chambre à air" and "chambre a air" compare equal.
+function dozieNormalize(s) {
+  return String(s == null ? '' : s)
+    .toLowerCase()
+    .normalize(NFD).replace(/[̀-ͯ]/g, )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Load the synonym map ONCE and pre-normalize every term in every group.
+// SINGLE_INDEX: normalized single-word term → array of group indexes (fast
+// token trigger). PHRASE_TERMS: multiword normalized terms → group index
+// (matched as a phrase appearing anywhere in the normalized query).
+let DOZIE_SYN_GROUPS = [];     // array of arrays of normalized terms
+const DOZIE_SINGLE_INDEX = new Map();
+const DOZIE_PHRASE_TERMS = [];
+try {
+  const raw = require('./data/dozie_synonyms.json');
+  DOZIE_SYN_GROUPS = (raw.groups || []).map(g => {
+    const norm = [...new Set(g.map(dozieNormalize).filter(Boolean))];
+    return norm;
+  });
+  DOZIE_SYN_GROUPS.forEach((terms, gi) => {
+    for (const t of terms) {
+      if (t.includes(' ')) DOZIE_PHRASE_TERMS.push({ t, gi });
+      else {
+        if (!DOZIE_SINGLE_INDEX.has(t)) DOZIE_SINGLE_INDEX.set(t, []);
+        DOZIE_SINGLE_INDEX.get(t).push(gi);
+      }
+    }
+  });
+  console.log('[dozie-search] synonym map loaded: ' + DOZIE_SYN_GROUPS.length + ' groups');
+} catch (e) {
+  console.warn('[dozie-search] synonym map NOT loaded (' + (e && e.message) + ') — search still works on the raw query');
+}
+
+// Expand a raw query into the set of normalized terms to match against.
+// ALWAYS includes the raw normalized query + its tokens (additive: anything
+// that matched before still matches), then unions in every term of any group
+// triggered by an exact token, the full query, or a multiword phrase hit.
+function dozieExpandQuery(rawQ) {
+  const norm = dozieNormalize(rawQ);
+  const tokens = norm.split(' ').filter(Boolean);
+  const terms = new Set();
+  if (norm) terms.add(norm);
+  for (const tok of tokens) terms.add(tok);
+  const triggered = new Set();
+  // single-word triggers: full query or any token equal to a group term
+  for (const cand of [norm, ...tokens]) {
+    const gis = DOZIE_SINGLE_INDEX.get(cand);
+    if (gis) for (const gi of gis) triggered.add(gi);
+  }
+  // multiword phrase triggers: phrase appears within the normalized query
+  for (const { t, gi } of DOZIE_PHRASE_TERMS) {
+    if (norm === t || norm.includes(t)) triggered.add(gi);
+  }
+  for (const gi of triggered) for (const t of DOZIE_SYN_GROUPS[gi]) terms.add(t);
+  return { norm, terms: [...terms].filter(t => t && t.length >= 2) };
+}
+
+// In-process cache of the published marketplace catalogue (small at this
+// scale). Refreshed on a short TTL so a burst of debounced keystroke searches
+// hits Supabase at most once per window.
+let _dozieCatalogue = { rows: null, ts: 0 };
+const DOZIE_CATALOGUE_TTL_MS = 60 * 1000;
+async function dozieGetCatalogue() {
+  const now = Date.now();
+  if (_dozieCatalogue.rows && (now - _dozieCatalogue.ts) < DOZIE_CATALOGUE_TTL_MS) {
+    return _dozieCatalogue.rows;
+  }
+  const rows = await supaRequest('GET', 'dozie_marketplace_products',
+    'published=eq.true&select=listing_id,seller_id,name,price,photo_url,stock_state,category,city&limit=5000');
+  const list = Array.isArray(rows) ? rows : [];
+  // Pre-compute the normalized searchable text once per refresh. The Dozie
+  // catalogue currently has only `name` (no name_en column); name_en is read
+  // defensively in case it is added later.
+  for (const p of list) p._norm = dozieNormalize((p.name || '') + ' ' + (p.name_en || ''));
+  _dozieCatalogue = { rows: list, ts: now };
+  return list;
+}
+
 // â”€â”€ HTTP SERVER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1046,6 +1134,83 @@ http.createServer((req, res) => {
   //   • PATCH /api/ptn_orders?id=eq.<id>     when the patch "accepts" an order
   //   • POST  /api/ptn_products              new listing
   //   • PATCH /api/ptn_products?id=eq.<id>   listing update
+  // ── DOZIE-BILINGUAL-SEARCH: server-side product search ───────────────
+  //   GET /api/dozie/search-products?q=&buyer_ref=
+  // Accent/case-insensitive + synonym-bridged. ADDITIVE (raw query always in
+  // the term set). Logs zero-result searches to dozie_search_misses (STEP 3).
+  // Must run before the generic /api/ proxy. On ANY error returns 200 with
+  // success:false so the buyer client can fall back to the legacy search.
+  {
+    const p0 = req.url.split('?')[0];
+    if (p0 === '/api/dozie/search-products' && req.method === 'GET') {
+      (async () => {
+        const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+        try {
+          const u = new URL(req.url, 'http://x');
+          const rawQ = (u.searchParams.get('q') || '').trim();
+          const buyerRef = (u.searchParams.get('buyer_ref') || '').trim() || null;
+          if (!rawQ) return send(200, { success: true, data: [], count: 0, query_normalized: '', expanded: [] });
+          const { norm, terms } = dozieExpandQuery(rawQ);
+          const catalogue = await dozieGetCatalogue();
+          const matched = [];
+          for (const prod of catalogue) {
+            const text = prod._norm || '';
+            for (const t of terms) { if (text.includes(t)) { matched.push(prod); break; } }
+          }
+          const data = matched.map(p => ({
+            listing_id: p.listing_id, seller_id: p.seller_id, name: p.name,
+            price: p.price, photo_url: p.photo_url, stock_state: p.stock_state,
+            category: p.category, city: p.city,
+          }));
+          // STEP 3: best-effort zero-result logging. Never let it break search.
+          if (data.length === 0) {
+            try {
+              await supaRequestPrivileged('POST', 'dozie_search_misses', '', {
+                query_raw: rawQ, query_normalized: norm, buyer_ref: buyerRef, results_count: 0,
+              });
+            } catch (_) { /* swallow */ }
+          }
+          send(200, { success: true, data, count: data.length, query_normalized: norm, expanded: terms });
+        } catch (e) {
+          // Never break the buyer's search — client falls back to legacy on success:false.
+          send(200, { success: false, data: [], error: (e && e.message) || 'search error' });
+        }
+      })();
+      return;
+    }
+
+    // ── STEP 4: admin-only view of recent zero-result miss terms ────────
+    //   GET /api/dozie/search-misses   (admin JWT, same as /admin/* routes)
+    // Grouped by query_normalized, count desc, last 30 days. Tells Peter
+    // which words to add to data/dozie_synonyms.json next.
+    if (p0 === '/api/dozie/search-misses' && req.method === 'GET') {
+      (async () => {
+        const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+        try {
+          const j = requireAdmin();
+          if (!j) return send(401, { success: false, error: 'auth_required' });
+          const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+          const rows = await supaRequestPrivileged('GET', 'dozie_search_misses',
+            'select=query_normalized,query_raw,created_at&created_at=gte.' + encodeURIComponent(since) +
+            '&order=created_at.desc&limit=5000');
+          const list = Array.isArray(rows) ? rows : [];
+          const agg = new Map();
+          for (const r of list) {
+            const k = r.query_normalized || '(blank)';
+            const e = agg.get(k) || { query_normalized: k, count: 0, last_seen: r.created_at, example: r.query_raw };
+            e.count++; if (r.created_at > e.last_seen) e.last_seen = r.created_at;
+            agg.set(k, e);
+          }
+          const data = [...agg.values()].sort((a, b) => b.count - a.count).slice(0, 200);
+          send(200, { success: true, window_days: 30, total_misses: list.length, data });
+        } catch (e) {
+          send(500, { success: false, error: (e && e.message) || 'server_error' });
+        }
+      })();
+      return;
+    }
+  }
+
   // …and reject with a clear error if the seller's MP subscription is
   // anything other than active/trial. Buyers and read-only operations pass
   // through untouched. Full anon-key trust elimination is post-F.
