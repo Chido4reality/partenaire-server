@@ -295,7 +295,7 @@ function supaRpc(fn, args) {
 function dozieNormalize(s) {
   return String(s == null ? '' : s)
     .toLowerCase()
-    .normalize(NFD).replace(/[̀-ͯ]/g, )
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -1187,7 +1187,7 @@ http.createServer((req, res) => {
       (async () => {
         const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
         try {
-          const j = requireAdmin();
+          const j = readAdminJwt(req);  // module-level admin-JWT reader (same auth as the /admin/* routes)
           if (!j) return send(401, { success: false, error: 'auth_required' });
           const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
           const rows = await supaRequestPrivileged('GET', 'dozie_search_misses',
