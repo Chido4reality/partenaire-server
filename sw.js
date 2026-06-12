@@ -14,7 +14,11 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v27-20260612c';
+const CACHE = 'partenaire-dozie-v28-20260612d';
+// BUMP (2026-06-12d): bilingual search now runs CLIENT-SIDE on the buyer feed via
+// the shared /dozie_search.js module (against the always-up Supabase catalogue),
+// so FR<->EN translation no longer depends on the Render endpoint being awake.
+// Bump evicts old cached buyer HTML + picks up the new shared module.
 // BUMP (2026-06-12c): bilingual/synonym + accent-insensitive product search.
 // Buyer search now calls the server endpoint /api/dozie/search-products (with a
 // legacy ILIKE fallback), so "chambre à air" finds "Tube …" and "inner tube"/

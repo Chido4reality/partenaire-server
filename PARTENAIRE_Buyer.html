@@ -687,6 +687,10 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 
 <div id="toast"></div>
 
+<!-- DOZIE-BILINGUAL-SEARCH: shared search logic (normalize + synonym expansion),
+     the SAME module the server's /api/dozie/search-products uses, so the buyer
+     feed and the server can't drift. Loaded before the app script below. -->
+<script src="/dozie_search.js"></script>
 <script>
 // ══════════════════════════════════════════════════════════════
 //  CONFIG
@@ -1278,25 +1282,64 @@ async function doSearch() {
   }
 }
 
-// Product search hits the SAME dozie_marketplace_products view the shop
-// detail already reads, extended with an ILIKE on name. Attribution +
-// visibility come from the in-memory allShops map (blocked sellers are
-// already filtered out of allShops, so their products are dropped here too).
+// DOZIE-BILINGUAL-SEARCH: the buyer marketplace feed search. Runs the SHARED
+// normalize()+synonym expansion (window.DozieSearch, /dozie_search.js — the same
+// module the server endpoint uses) CLIENT-SIDE against the always-up Supabase
+// feed (dozie_marketplace_products). This is what makes a FR query like
+// 'chambre a air' expand to 'tube' and match Paul's 'Tube ...' listings, and
+// 'pneu' match 'Tyre' — without depending on the Render backend being awake.
+// ADDITIVE: the raw normalized query is always in the term set, so plain EN/FR
+// direct matches still work. Accent-insensitive (normalize strips diacritics).
+let _dozieSynIndex = null, _dozieSynLoading = null;
+async function dozieEnsureIndex() {
+  if (_dozieSynIndex) return _dozieSynIndex;
+  if (!window.DozieSearch) return null;
+  if (!_dozieSynLoading) {
+    _dozieSynLoading = (async () => {
+      try {
+        const map = await xhr('GET', '/data/dozie_synonyms.json');
+        _dozieSynIndex = window.DozieSearch.buildIndex((map && map.groups) || []);
+      } catch (e) { _dozieSynIndex = window.DozieSearch.buildIndex([]); }
+      return _dozieSynIndex;
+    })();
+  }
+  return _dozieSynLoading;
+}
+let _dozieCatCache = { rows: null, ts: 0 };
+async function dozieFetchCatalogue() {
+  const now = Date.now();
+  if (_dozieCatCache.rows && (now - _dozieCatCache.ts) < 60000) return _dozieCatCache.rows;
+  const rows = await GET('dozie_marketplace_products',
+    'published=eq.true&select=listing_id,seller_id,name,price,photo_url,stock_state,category,city,description&limit=2000');
+  const list = Array.isArray(rows) ? rows : [];
+  for (const p of list) p._n = window.DozieSearch.normalize((p.name||'') + ' ' + (p.description||''));
+  _dozieCatCache = { rows: list, ts: now };
+  return list;
+}
 async function renderProductSearch(q, city) {
   const grid = document.getElementById('product-results');
   const header = document.getElementById('products-header');
   grid.innerHTML = '<div class="loading" style="grid-column:1/-1"><div class="spinner"></div></div>';
   try {
-    // DOZIE-BILINGUAL-SEARCH: prefer the server-side accent/case-insensitive
-    // + synonym/translation-bridged search. ADDITIVE — if the endpoint is
-    // unavailable it falls back to the legacy direct ILIKE, so results are
-    // never worse than before. (Server also logs zero-result misses.)
     let products = null;
+    // PRIMARY: client-side shared expansion against the always-up Supabase feed.
     try {
-      const buyerRef = (currentBuyer && (currentBuyer.phone || currentBuyer.id)) || '';
-      const r = await xhr('GET', '/api/dozie/search-products?q=' + encodeURIComponent(q) + '&buyer_ref=' + encodeURIComponent(buyerRef));
-      if (r && r.success === true && Array.isArray(r.data)) products = r.data;
+      const idx = await dozieEnsureIndex();
+      if (window.DozieSearch && idx) {
+        const exp = window.DozieSearch.expand(q, idx);
+        const cat = await dozieFetchCatalogue();
+        products = cat.filter(p => window.DozieSearch.matchNorm(p._n || '', exp.terms));
+        // STEP 5: best-effort zero-result logging via the server (fire-and-forget).
+        if (products.length === 0) {
+          try {
+            const buyerRef = (currentBuyer && (currentBuyer.phone || currentBuyer.id)) || '';
+            xhr('GET', '/api/dozie/search-products?q=' + encodeURIComponent(q) + '&buyer_ref=' + encodeURIComponent(buyerRef)).catch(function(){});
+          } catch (_) {}
+        }
+      }
     } catch (_) { products = null; }
+    // FALLBACK (only if the shared module/feed fetch is unavailable): legacy
+    // direct ILIKE on name, so results are never worse than before.
     if (products === null) {
       const term = encodeURIComponent('*' + q + '*');
       products = await GET('dozie_marketplace_products',

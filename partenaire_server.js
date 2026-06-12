@@ -180,7 +180,7 @@ const DIR=__dirname;
 // payment processor. Its config, initiator, webhook handler and the
 // client-controlled sandbox-bypass route were deleted.
 
-const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.jpg':'image/jpeg' };
+const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.jpg':'image/jpeg', '.json':'application/json', '.svg':'image/svg+xml' };
 
 // DOZIE-UNIFIED-ENTRY: `/` no longer aliases the admin portal — it's
 // served by a dynamic auto-router (see the inline /-handler below the
@@ -292,64 +292,21 @@ function supaRpc(fn, args) {
 // normalize(): lowercase, strip accents/diacritics (NFD → drop combining
 // marks), collapse whitespace. Applied to BOTH the query and the product
 // searchable text so "Chambre à air" and "chambre a air" compare equal.
-function dozieNormalize(s) {
-  return String(s == null ? '' : s)
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// Load the synonym map ONCE and pre-normalize every term in every group.
-// SINGLE_INDEX: normalized single-word term → array of group indexes (fast
-// token trigger). PHRASE_TERMS: multiword normalized terms → group index
-// (matched as a phrase appearing anywhere in the normalized query).
-let DOZIE_SYN_GROUPS = [];     // array of arrays of normalized terms
-const DOZIE_SINGLE_INDEX = new Map();
-const DOZIE_PHRASE_TERMS = [];
+// The normalize() + synonym-expansion LOGIC lives in ONE shared module,
+// ./dozie_search.js, which the BUYER FEED also loads (PARTENAIRE_Buyer.html ->
+// <script src="/dozie_search.js">). Both paths therefore run identical search
+// behaviour and can't drift. The synonym groups are the single source
+// data/dozie_synonyms.json (served to the client at /data/dozie_synonyms.json).
+const DS = require('./dozie_search.js');
+let DOZIE_SYN_INDEX = DS.buildIndex([]);
 try {
   const raw = require('./data/dozie_synonyms.json');
-  DOZIE_SYN_GROUPS = (raw.groups || []).map(g => {
-    const norm = [...new Set(g.map(dozieNormalize).filter(Boolean))];
-    return norm;
-  });
-  DOZIE_SYN_GROUPS.forEach((terms, gi) => {
-    for (const t of terms) {
-      if (t.includes(' ')) DOZIE_PHRASE_TERMS.push({ t, gi });
-      else {
-        if (!DOZIE_SINGLE_INDEX.has(t)) DOZIE_SINGLE_INDEX.set(t, []);
-        DOZIE_SINGLE_INDEX.get(t).push(gi);
-      }
-    }
-  });
-  console.log('[dozie-search] synonym map loaded: ' + DOZIE_SYN_GROUPS.length + ' groups');
+  DOZIE_SYN_INDEX = DS.buildIndex(raw.groups || []);
+  console.log('[dozie-search] synonym map loaded: ' + DOZIE_SYN_INDEX.groups.length + ' groups');
 } catch (e) {
-  console.warn('[dozie-search] synonym map NOT loaded (' + (e && e.message) + ') — search still works on the raw query');
+  console.warn('[dozie-search] synonym map NOT loaded (' + (e && e.message) + ') - search still works on the raw query');
 }
-
-// Expand a raw query into the set of normalized terms to match against.
-// ALWAYS includes the raw normalized query + its tokens (additive: anything
-// that matched before still matches), then unions in every term of any group
-// triggered by an exact token, the full query, or a multiword phrase hit.
-function dozieExpandQuery(rawQ) {
-  const norm = dozieNormalize(rawQ);
-  const tokens = norm.split(' ').filter(Boolean);
-  const terms = new Set();
-  if (norm) terms.add(norm);
-  for (const tok of tokens) terms.add(tok);
-  const triggered = new Set();
-  // single-word triggers: full query or any token equal to a group term
-  for (const cand of [norm, ...tokens]) {
-    const gis = DOZIE_SINGLE_INDEX.get(cand);
-    if (gis) for (const gi of gis) triggered.add(gi);
-  }
-  // multiword phrase triggers: phrase appears within the normalized query
-  for (const { t, gi } of DOZIE_PHRASE_TERMS) {
-    if (norm === t || norm.includes(t)) triggered.add(gi);
-  }
-  for (const gi of triggered) for (const t of DOZIE_SYN_GROUPS[gi]) terms.add(t);
-  return { norm, terms: [...terms].filter(t => t && t.length >= 2) };
-}
+function dozieExpandQuery(rawQ) { return DS.expand(rawQ, DOZIE_SYN_INDEX); }
 
 // In-process cache of the published marketplace catalogue (small at this
 // scale). Refreshed on a short TTL so a burst of debounced keystroke searches
@@ -362,12 +319,11 @@ async function dozieGetCatalogue() {
     return _dozieCatalogue.rows;
   }
   const rows = await supaRequest('GET', 'dozie_marketplace_products',
-    'published=eq.true&select=listing_id,seller_id,name,price,photo_url,stock_state,category,city&limit=5000');
+    'published=eq.true&select=listing_id,seller_id,name,price,photo_url,stock_state,category,city,description&limit=5000');
   const list = Array.isArray(rows) ? rows : [];
-  // Pre-compute the normalized searchable text once per refresh. The Dozie
-  // catalogue currently has only `name` (no name_en column); name_en is read
-  // defensively in case it is added later.
-  for (const p of list) p._norm = dozieNormalize((p.name || '') + ' ' + (p.name_en || ''));
+  // Pre-normalize searchable text once per refresh (name + description; name_en
+  // read defensively). Same normalize() the client uses, via the shared DS.
+  for (const p of list) p._norm = DS.normalize((p.name || '') + ' ' + (p.name_en || '') + ' ' + (p.description || ''));
   _dozieCatalogue = { rows: list, ts: now };
   return list;
 }
