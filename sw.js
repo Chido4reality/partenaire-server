@@ -14,7 +14,18 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v28-20260612d';
+const CACHE = 'partenaire-dozie-v29-20260613';
+// BUMP (2026-06-13): FR↔EN buyer search still failed for real users ("chambre à
+// air" → 0 results, "tube" → ok). Root cause: devices were stuck on the 12c
+// cached buyer page, whose search calls the Dozie server endpoint /api/dozie/
+// search-products; the free Render service sleeps, so it fell back to a raw
+// ILIKE — EN "tube" substring-matches "Tube …" (looks fine) but FR "chambre à
+// air" matches nothing. The 12d build runs the bilingual expansion CLIENT-SIDE
+// (no server dependency) but those devices never received it. This bump forces
+// the new SW (skipWaiting + claim + cache eviction); ADDITIONALLY the search
+// engine + synonym data are now PRECACHED and served NETWORK-FIRST (below) so a
+// stale /dozie_search.js or /data/dozie_synonyms.json can never silently
+// disable bilingual search again.
 // BUMP (2026-06-12d): bilingual search now runs CLIENT-SIDE on the buyer feed via
 // the shared /dozie_search.js module (against the always-up Supabase catalogue),
 // so FR<->EN translation no longer depends on the Render endpoint being awake.
@@ -54,6 +65,8 @@ const STATIC = [
   '/PARTENAIRE_Login.html',
   '/PARTENAIRE_Seller.html',
   '/PARTENAIRE_Buyer.html',
+  '/dozie_search.js',
+  '/data/dozie_synonyms.json',
   '/icon.svg',
   '/manifest.json'
 ];
@@ -82,6 +95,20 @@ self.addEventListener('fetch', e => {
   // Network-first for API calls (unchanged).
   if (req.url.includes('/api/') || req.url.includes('supabase.co')) {
     e.respondWith(fetch(req).catch(() => caches.match(req)));
+    return;
+  }
+
+  // Network-first for the bilingual-search engine + synonym data. These are
+  // small and search-critical: a stale copy silently breaks FR↔EN search, so
+  // always try fresh and only fall back to cache offline.
+  if (req.url.includes('/dozie_search.js') || req.url.includes('/data/')) {
+    e.respondWith(
+      fetch(req).then(res => {
+        const clone = res.clone();
+        caches.open(CACHE).then(c => c.put(req, clone));
+        return res;
+      }).catch(() => caches.match(req))
+    );
     return;
   }
 
