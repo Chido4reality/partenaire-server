@@ -161,7 +161,7 @@ const https = require('https');
 // B.4.1: OTP login retired — AfricasTalking/SMS client removed (it was
 // used solely by the deleted sendOTP path; no notification path used it).
 
-const SUPA = 'ftxttdagpioieyzaijdc.supabase.co';
+const SUPA = process.env.SUPABASE_HOST || 'ftxttdagpioieyzaijdc.supabase.co';
 const KEY  = process.env.SUPABASE_KEY;
 // M-2.1 Phase B.4.1: service_role key for server-context privileged reads
 // that must bypass RLS (post-B.5 anon lockdown). NEVER expose its results
@@ -1247,6 +1247,64 @@ http.createServer((req, res) => {
             }));
           };
 
+          // ─── DOZIE SELL RESTRICTIONS ────────────────────────────────
+          // Port of the MP-side lib/dozieSellRules.js. Reads the admin
+          // allowlist (ptn_sell_categories / ptn_sell_towns) on the SAME shared
+          // Supabase and blocks a disallowed CATEGORY / TOWN. Semantics match
+          // MP EXACTLY: case-insensitive + trimmed; a NULL/empty city is NEVER
+          // enforced; only an explicit is_allowed=false blocks (lenient).
+          // FAIL-OPEN: if the allowlist tables are absent/unreadable (the prod
+          // migration is held), the read returns non-array → treated as "no
+          // rule" → allowed, so deploy order is irrelevant and no seller is ever
+          // blocked by a missing table. Response shape mirrors the MP route:
+          // 403 { success:false, code, message }.
+          // KEY CHOICE: read with supaRequestPrivileged (service_role) — the MP
+          // side reads the allowlist with its service client, and the new tables
+          // grant nothing to anon, so the anon `supaRequest` would read empty and
+          // silently fail-open in prod. Service read = decision only (never
+          // returned to the client) and resolves to [] if the key is unset
+          // (still fail-open). It bypasses RLS so the row is always seen.
+          const checkSellRules = async (category, city) => {
+            const cat = (category == null) ? '' : String(category).trim();
+            if (cat) {
+              let rows;
+              try {
+                rows = await supaRequestPrivileged('GET', 'ptn_sell_categories',
+                  'category_slug=eq.' + encodeURIComponent(cat) + '&select=is_allowed,label');
+              } catch (_) { rows = null; } // table missing/unreadable → fail open
+              if (Array.isArray(rows) && rows[0] && rows[0].is_allowed === false) {
+                return { ok: false, code: 'CATEGORY_NOT_ALLOWED',
+                  message: 'Selling in the "' + (rows[0].label || cat) + '" category is currently not permitted on Partenaire Dozie. Contact support.' };
+              }
+            }
+            const c = (city == null) ? '' : String(city).trim();
+            if (c) {
+              let rows;
+              try {
+                rows = await supaRequestPrivileged('GET', 'ptn_sell_towns',
+                  'town=ilike.' + encodeURIComponent(c) + '&select=is_allowed');
+              } catch (_) { rows = null; }
+              if (Array.isArray(rows) && rows[0] && rows[0].is_allowed === false) {
+                return { ok: false, code: 'TOWN_NOT_ALLOWED',
+                  message: 'Selling in ' + c + ' is currently not permitted on Partenaire Dozie. Contact support.' };
+              }
+            }
+            return { ok: true };
+          };
+          const sendSellDeny = (chk) => {
+            res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify({ success: false, code: chk.code, message: chk.message }));
+          };
+          // Check every item in the body (single object OR a bulk array).
+          const enforceSellRules = async () => {
+            const items = Array.isArray(parsedBody) ? parsedBody : (parsedBody ? [parsedBody] : []);
+            for (const it of items) {
+              const chk = await checkSellRules(it && it.category, it && it.city);
+              if (!chk.ok) { sendSellDeny(chk); return false; }
+            }
+            return true;
+          };
+
           // ─── ORDER ACCEPTANCE ───────────────────────────────────────
           if (isOrdersPatch) {
             const looksLikeAccept = parsedBody && (
@@ -1281,6 +1339,9 @@ http.createServer((req, res) => {
 
           // ─── LISTING CREATE ────────────────────────────────────────
           if (isProductsPost) {
+            // DOZIE-SELL-RESTRICTIONS: block disallowed category/town first
+            // (applies to ALL sellers, independent of plan/cap state).
+            if (!(await enforceSellRules())) return;
             const sellerId = parsedBody && (parsedBody.seller_id || (Array.isArray(parsedBody) && parsedBody[0] && parsedBody[0].seller_id));
             if (sellerId) {
               const acc = await fetchAccess(sellerId);
@@ -1304,6 +1365,9 @@ http.createServer((req, res) => {
 
           // ─── LISTING UPDATE ────────────────────────────────────────
           if (isProductsPatch) {
+            // DOZIE-SELL-RESTRICTIONS: if the update sets category/city, block a
+            // disallowed value (lenient — a patch that doesn't touch them passes).
+            if (!(await enforceSellRules())) return;
             const productId = extractIdFilter(req.url);
             if (productId) {
               const productRows = await supaRequest('GET', 'ptn_products',
