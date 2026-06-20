@@ -1366,6 +1366,29 @@ function selectPlan(el) {
 // ══════════════════════════════════════════════════════════════
 //  APP ENTRY
 // ══════════════════════════════════════════════════════════════
+// MP-DOZIE-SELLER-MIGRATION: MP-linked sellers manage their listings inside Mon
+// Partenaire (Phase 1). Hide the Products tab here and route them to MP. Orders /
+// messages / disputes stay in this portal for now. Standalone sellers are
+// unaffected (no linked_mp_org_id → full portal).
+function applyMpLinkedSellerUI() {
+  try {
+    if (!currentSeller || !currentSeller.linked_mp_org_id) return;
+    var tab = document.getElementById('tab-products');
+    if (tab) tab.style.display = 'none';
+    var page = document.getElementById('page-products');
+    if (page) {
+      page.innerHTML = '<div style="max-width:520px;margin:40px auto;text-align:center;padding:24px">'
+        + '<div style="font-size:44px;margin-bottom:12px">🛒</div>'
+        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Gérez vos annonces dans Mon Partenaire' : 'Manage your listings in Mon Partenaire') + '</div>'
+        + '<div style="color:#94a3b8;font-size:14px;line-height:1.6">' + (lang === 'fr'
+            ? 'Votre boutique est liée à Mon Partenaire. Créez et modifiez vos annonces Dozie là-bas : ouvrez l’app et allez dans <b>Annonces Dozie</b>. Les commandes et messages restent ici pour l’instant.'
+            : 'Your shop is linked to Mon Partenaire. Create and edit your Dozie listings there — open the app and go to <b>Dozie Listings</b>. Orders and messages stay here for now.')
+        + '</div></div>';
+    }
+    if (page && page.classList.contains('active') && typeof switchTab === 'function') switchTab('tab-dashboard');
+  } catch (_) {}
+}
+
 function enterApp() {
   // Single chokepoint: NEVER render authenticated content / fire
   // data fetches without a valid Dozie JWT.
@@ -1383,6 +1406,7 @@ function enterApp() {
   const hdrShop = document.getElementById('header-shop-name');
   if (hdrShop) hdrShop.textContent = currentSeller.company || 'My Shop';
   dzRenderDrawer();
+  applyMpLinkedSellerUI();
   document.getElementById('edit-company').value = currentSeller.company || '';
   document.getElementById('edit-name').value     = currentSeller.name || '';
   document.getElementById('edit-desc').value     = currentSeller.shop_desc || '';

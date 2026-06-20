@@ -609,7 +609,10 @@ http.createServer((req, res) => {
           user: {
             id: user.id, name: user.name, phone: user.phone, role: user.role,
             company: user.company, city: user.city, category: user.category,
-            status: user.status
+            status: user.status,
+            // MP-DOZIE-SELLER-MIGRATION: surface the MP link so the portal can
+            // route MP-linked sellers to Mon Partenaire for listing management.
+            linked_mp_org_id: user.linked_mp_org_id || null
           }
         });
       } catch (e) {
