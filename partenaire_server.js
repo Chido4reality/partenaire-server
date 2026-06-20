@@ -1251,13 +1251,12 @@ http.createServer((req, res) => {
           };
 
           // ─── DOZIE SELL RESTRICTIONS ────────────────────────────────
-          // Port of the MP-side lib/dozieSellRules.js. Reads the admin
-          // allowlist (ptn_sell_categories / ptn_sell_towns) on the SAME shared
-          // Supabase and blocks a disallowed CATEGORY / TOWN. Semantics match
-          // MP EXACTLY: case-insensitive + trimmed; a NULL/empty city is NEVER
-          // enforced; only an explicit is_allowed=false blocks (lenient).
-          // FAIL-OPEN: if the allowlist tables are absent/unreadable (the prod
-          // migration is held), the read returns non-array → treated as "no
+          // Port of the MP-side lib/dozieSellRules.js. Reads the admin BLOCK-RULES
+          // table (ptn_sell_blocks) on the SAME shared Supabase and blocks a
+          // disallowed CATEGORY × TOWN combination. Semantics match MP EXACTLY:
+          // case-insensitive + trimmed; default-allow; only a matching block rule
+          // denies (lenient). FAIL-OPEN: if the table is absent/unreadable (the
+          // prod migration is held), the read returns non-array → treated as "no
           // rule" → allowed, so deploy order is irrelevant and no seller is ever
           // blocked by a missing table. Response shape mirrors the MP route:
           // 403 { success:false, code, message }.
@@ -1282,35 +1281,41 @@ http.createServer((req, res) => {
               return (Array.isArray(o) && o[0] && o[0].country) || null;
             } catch (_) { return null; }
           };
+          // Enforcement now reads ONLY the ptn_sell_blocks block-rules table (a row
+          // BLOCKS a category × town combination; NULL = wildcard). BYTE-IDENTICAL
+          // logic to the MP copy (backend/src/lib/dozieSellRules.js) — both must
+          // return the same allow/block. Default-allow; FAIL-OPEN per dimension (a
+          // NULL/empty town or country only satisfies a wildcard rule on that
+          // dimension); FAIL-OPEN if the table is absent/unreadable → [] → allowed.
+          const _normSR = (s) => String(s == null ? '' : s).trim().toLowerCase();
           const checkSellRules = async (category, city, country) => {
-            const cat = (category == null) ? '' : String(category).trim();
-            if (cat) {
-              let rows;
-              try {
-                rows = await supaRequestPrivileged('GET', 'ptn_sell_categories',
-                  'category_slug=eq.' + encodeURIComponent(cat) + '&select=is_allowed,label');
-              } catch (_) { rows = null; } // table missing/unreadable → fail open
-              if (Array.isArray(rows) && rows[0] && rows[0].is_allowed === false) {
-                return { ok: false, code: 'CATEGORY_NOT_ALLOWED',
-                  message: 'Selling in the "' + (rows[0].label || cat) + '" category is currently not permitted on Partenaire Dozie. Contact support.' };
-              }
+            let rules;
+            try {
+              rules = await supaRequestPrivileged('GET', 'ptn_sell_blocks',
+                'select=category_slug,country,town');
+            } catch (_) { rules = null; } // table missing/unreadable → fail open
+            if (!Array.isArray(rules) || !rules.length) return { ok: true };
+            const nCat = _normSR(category), nCtry = _normSR(country), nTown = _normSR(city);
+            const hit = rules.find((r) =>
+              (r.category_slug == null || _normSR(r.category_slug) === nCat) &&
+              (r.country       == null || _normSR(r.country)       === nCtry) &&
+              (r.town          == null || _normSR(r.town)          === nTown)
+            );
+            if (!hit) return { ok: true };
+            if (hit.town != null) {
+              return { ok: false, code: hit.category_slug != null ? 'COMBINATION_NOT_ALLOWED' : 'TOWN_NOT_ALLOWED',
+                message: 'Selling in ' + hit.town + ' is currently not permitted on Partenaire Dozie. Contact support.' };
             }
-            // Town match is COUNTRY-SCOPED (a CM is_allowed=false row must never
-            // affect an NG seller in a same-named town). Fail-open: if country is
-            // unknown, skip the town block (allow) — same default-allow contract.
-            const c = (city == null) ? '' : String(city).trim();
-            if (c && country) {
-              let rows;
+            let label = hit.category_slug || category || '';
+            if (hit.category_slug) {
               try {
-                rows = await supaRequestPrivileged('GET', 'ptn_sell_towns',
-                  'country=eq.' + encodeURIComponent(country) + '&town=ilike.' + encodeURIComponent(c) + '&select=is_allowed');
-              } catch (_) { rows = null; }
-              if (Array.isArray(rows) && rows[0] && rows[0].is_allowed === false) {
-                return { ok: false, code: 'TOWN_NOT_ALLOWED',
-                  message: 'Selling in ' + c + ' is currently not permitted on Partenaire Dozie. Contact support.' };
-              }
+                const cr = await supaRequestPrivileged('GET', 'ptn_sell_categories',
+                  'category_slug=eq.' + encodeURIComponent(hit.category_slug) + '&select=label');
+                if (Array.isArray(cr) && cr[0] && cr[0].label) label = cr[0].label;
+              } catch (_) {}
             }
-            return { ok: true };
+            return { ok: false, code: 'CATEGORY_NOT_ALLOWED',
+              message: 'Selling in the "' + label + '" category is currently not permitted on Partenaire Dozie. Contact support.' };
           };
           const sendSellDeny = (chk) => {
             res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });

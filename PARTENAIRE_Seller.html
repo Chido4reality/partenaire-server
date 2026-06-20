@@ -438,7 +438,8 @@ function openWhatsApp(e, phone, text){
         <div>
           <label class="auth-label">Category</label>
           <select class="auth-input" id="reg-category" style="margin-bottom:0">
-            <option value="moto_parts">🏍️ Moto &amp; Vehicle Parts</option>
+            <option value="moto_parts">🏍️ Motorcycle Parts</option>
+            <option value="auto_parts">🚗 Auto / Vehicle Parts</option>
             <option value="electronics">📱 Electronics &amp; Accessories</option>
             <option value="general">🛒 General Trade</option>
             <option value="food">🌾 Food &amp; Grocery</option>
@@ -833,7 +834,8 @@ function openWhatsApp(e, phone, text){
       <div class="form-group">
         <label class="form-label">Category</label>
         <select class="form-select" id="p-category">
-          <option value="moto_parts">🏍️ Moto &amp; Vehicle Parts</option>
+          <option value="moto_parts">🏍️ Motorcycle Parts</option>
+          <option value="auto_parts">🚗 Auto / Vehicle Parts</option>
           <option value="electronics">📱 Electronics</option>
           <option value="general">🛒 General Trade</option>
           <option value="food">🌾 Food &amp; Grocery</option>
@@ -1107,7 +1109,7 @@ function xhr(method, url, body) {
 }
 
 const CATS = {
-  'moto_parts':'🏍️ Moto Parts','electronics':'📱 Electronics','general':'🛒 General Trade',
+  'moto_parts':'🏍️ Motorcycle Parts','auto_parts':'🚗 Auto / Vehicle Parts','electronics':'📱 Electronics','general':'🛒 General Trade',
   'food':'🌾 Food & Grocery','hardware':'🔧 Hardware','fashion':'👗 Fashion',
   'hair_cosmetics':'💄 Hair & Cosmetics','building':'🧱 Building Materials','pharmacy':'💊 Pharmacy',
   'furniture':'🛋️ Furniture','agriculture':'🌱 Agriculture','printing':'🖨️ Printing',
@@ -1116,7 +1118,7 @@ const CATS = {
   '1':'🏍️ Moto Parts','2':'🚗 Auto Parts','3':'📱 Electronics','4':'🔧 Hardware','5':'🌾 Agriculture','6':'👗 Textile'
 };
 const EMOJIS = {
-  'moto_parts':'⚙️','electronics':'📱','general':'🛒','food':'🌾','hardware':'🔧','fashion':'👗',
+  'moto_parts':'⚙️','auto_parts':'🚗','electronics':'📱','general':'🛒','food':'🌾','hardware':'🔧','fashion':'👗',
   'hair_cosmetics':'💄','building':'🧱','pharmacy':'💊','furniture':'🛋️','agriculture':'🌱',
   'printing':'🖨️','telecom':'📡','restaurant':'🍽️','transport':'🚛','other':'📦',
   // legacy numeric keys
