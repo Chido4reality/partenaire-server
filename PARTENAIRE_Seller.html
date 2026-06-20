@@ -1381,11 +1381,27 @@ function applyMpLinkedSellerUI() {
         + '<div style="font-size:44px;margin-bottom:12px">🛒</div>'
         + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Gérez vos annonces dans Mon Partenaire' : 'Manage your listings in Mon Partenaire') + '</div>'
         + '<div style="color:#94a3b8;font-size:14px;line-height:1.6">' + (lang === 'fr'
-            ? 'Votre boutique est liée à Mon Partenaire. Créez et modifiez vos annonces Dozie là-bas : ouvrez l’app et allez dans <b>Annonces Dozie</b>. Les commandes et messages restent ici pour l’instant.'
-            : 'Your shop is linked to Mon Partenaire. Create and edit your Dozie listings there — open the app and go to <b>Dozie Listings</b>. Orders and messages stay here for now.')
+            ? 'Votre boutique est liée à Mon Partenaire. Créez et modifiez vos annonces Dozie là-bas : ouvrez l’app et allez dans <b>Annonces Dozie</b>. Les messages restent ici pour l’instant.'
+            : 'Your shop is linked to Mon Partenaire. Create and edit your Dozie listings there — open the app and go to <b>Dozie Listings</b>. Messages stay here for now.')
         + '</div></div>';
     }
-    if (page && page.classList.contains('active') && typeof switchTab === 'function') switchTab('tab-dashboard');
+    // MP-DOZIE-SELLER-MIGRATION Phase 2 — Orders also move to MP for MP-linked sellers.
+    var oTab = document.getElementById('tab-orders');
+    if (oTab) oTab.style.display = 'none';
+    var oPage = document.getElementById('page-orders');
+    if (oPage) {
+      oPage.innerHTML = '<div style="max-width:520px;margin:40px auto;text-align:center;padding:24px">'
+        + '<div style="font-size:44px;margin-bottom:12px">📦</div>'
+        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Gérez vos commandes dans Mon Partenaire' : 'Manage your orders in Mon Partenaire') + '</div>'
+        + '<div style="color:#94a3b8;font-size:14px;line-height:1.6">' + (lang === 'fr'
+            ? 'Vos commandes Dozie arrivent désormais dans Mon Partenaire : ouvrez l’app et allez dans <b>Commandes Dozie</b> pour accepter, refuser et suivre. Les paiements restent gérés ici.'
+            : 'Your Dozie orders now arrive in Mon Partenaire — open the app and go to <b>Dozie Orders</b> to accept, reject and track. Payments are still handled here.')
+        + '</div></div>';
+    }
+    if (typeof switchTab === 'function'
+        && ((page && page.classList.contains('active')) || (oPage && oPage.classList.contains('active')))) {
+      switchTab('tab-dashboard');
+    }
   } catch (_) {}
 }
 
