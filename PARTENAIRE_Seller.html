@@ -1407,6 +1407,17 @@ function applyMpLinkedSellerUI() {
             : 'Your Dozie sales stats are now in Mon Partenaire — open the app and go to <b>Dozie Orders</b>.')
         + '</div></div>';
     }
+    // MP-DOZIE-SELLER-MIGRATION Phase 5 — Disputes also move to MP for MP-linked sellers.
+    var dPage = document.getElementById('page-disputes');
+    if (dPage) {
+      dPage.innerHTML = '<div style="max-width:520px;margin:40px auto;text-align:center;padding:24px">'
+        + '<div style="font-size:44px;margin-bottom:12px">⚠️</div>'
+        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Vos litiges sont dans Mon Partenaire' : 'Your disputes are in Mon Partenaire') + '</div>'
+        + '<div style="color:#94a3b8;font-size:14px;line-height:1.6">' + (lang === 'fr'
+            ? 'Répondez aux litiges des acheteurs depuis Mon Partenaire : ouvrez l’app et allez dans <b>Litiges Dozie</b>.'
+            : 'Respond to buyer disputes from Mon Partenaire — open the app and go to <b>Dozie Disputes</b>.')
+        + '</div></div>';
+    }
     // MP-DOZIE-SELLER-MIGRATION Phase 2 — Orders also move to MP for MP-linked sellers.
     var oTab = document.getElementById('tab-orders');
     if (oTab) oTab.style.display = 'none';
@@ -1421,7 +1432,7 @@ function applyMpLinkedSellerUI() {
         + '</div></div>';
     }
     if (typeof switchTab === 'function'
-        && ((page && page.classList.contains('active')) || (oPage && oPage.classList.contains('active')) || (mPage && mPage.classList.contains('active')) || (rPage && rPage.classList.contains('active')))) {
+        && ((page && page.classList.contains('active')) || (oPage && oPage.classList.contains('active')) || (mPage && mPage.classList.contains('active')) || (rPage && rPage.classList.contains('active')) || (dPage && dPage.classList.contains('active')))) {
       switchTab('tab-dashboard');
     }
   } catch (_) {}
@@ -3028,9 +3039,9 @@ function dzRenderDrawer() {
   const soonToast = esc(fr ? 'Bientôt disponible' : 'Coming soon');
   const list = document.getElementById('dz-drawer-list');
   // MP-DOZIE-SELLER-MIGRATION: MP-linked sellers manage Products/Orders/Messages/
-  // Reports in Mon Partenaire — drop those drawer entries (they're routed to MP).
+  // Reports/Disputes in Mon Partenaire — drop those drawer entries (routed to MP).
   const _mpHidden = (currentSeller && currentSeller.linked_mp_org_id)
-    ? new Set(['tab-products', 'tab-orders', 'tab-messages', 'tab-reports']) : null;
+    ? new Set(['tab-products', 'tab-orders', 'tab-messages', 'tab-reports', 'tab-disputes']) : null;
   list.innerHTML = items.filter(it => !(_mpHidden && _mpHidden.has(it.id))).map(it => {
     const label = fr ? it.fr : it.en;
     const badge = it.badge ? `<span class="dz-drawer-item-badge">${it.badge}</span>` : '';
