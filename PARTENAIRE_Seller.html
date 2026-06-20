@@ -1381,8 +1381,19 @@ function applyMpLinkedSellerUI() {
         + '<div style="font-size:44px;margin-bottom:12px">🛒</div>'
         + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Gérez vos annonces dans Mon Partenaire' : 'Manage your listings in Mon Partenaire') + '</div>'
         + '<div style="color:#94a3b8;font-size:14px;line-height:1.6">' + (lang === 'fr'
-            ? 'Votre boutique est liée à Mon Partenaire. Créez et modifiez vos annonces Dozie là-bas : ouvrez l’app et allez dans <b>Annonces Dozie</b>. Les messages restent ici pour l’instant.'
-            : 'Your shop is linked to Mon Partenaire. Create and edit your Dozie listings there — open the app and go to <b>Dozie Listings</b>. Messages stay here for now.')
+            ? 'Votre boutique est liée à Mon Partenaire. Créez et modifiez vos annonces Dozie là-bas : ouvrez l’app et allez dans <b>Annonces Dozie</b>.'
+            : 'Your shop is linked to Mon Partenaire. Create and edit your Dozie listings there — open the app and go to <b>Dozie Listings</b>.')
+        + '</div></div>';
+    }
+    // MP-DOZIE-SELLER-MIGRATION Phase 3 — Messages also move to MP for MP-linked sellers.
+    var mPage = document.getElementById('page-messages');
+    if (mPage) {
+      mPage.innerHTML = '<div style="max-width:520px;margin:40px auto;text-align:center;padding:24px">'
+        + '<div style="font-size:44px;margin-bottom:12px">💬</div>'
+        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Vos messages sont dans Mon Partenaire' : 'Your messages are in Mon Partenaire') + '</div>'
+        + '<div style="color:#94a3b8;font-size:14px;line-height:1.6">' + (lang === 'fr'
+            ? 'Discutez avec vos acheteurs depuis Mon Partenaire : ouvrez l’app et allez dans <b>Messages Dozie</b>.'
+            : 'Chat with your buyers from Mon Partenaire — open the app and go to <b>Dozie Messages</b>.')
         + '</div></div>';
     }
     // MP-DOZIE-SELLER-MIGRATION Phase 2 — Orders also move to MP for MP-linked sellers.
@@ -1399,7 +1410,7 @@ function applyMpLinkedSellerUI() {
         + '</div></div>';
     }
     if (typeof switchTab === 'function'
-        && ((page && page.classList.contains('active')) || (oPage && oPage.classList.contains('active')))) {
+        && ((page && page.classList.contains('active')) || (oPage && oPage.classList.contains('active')) || (mPage && mPage.classList.contains('active')))) {
       switchTab('tab-dashboard');
     }
   } catch (_) {}
@@ -3005,7 +3016,11 @@ function dzRenderDrawer() {
   const esc = (str) => String(str).replace(/'/g, "\\'");
   const soonToast = esc(fr ? 'Bientôt disponible' : 'Coming soon');
   const list = document.getElementById('dz-drawer-list');
-  list.innerHTML = items.map(it => {
+  // MP-DOZIE-SELLER-MIGRATION: MP-linked sellers manage Products/Orders/Messages
+  // in Mon Partenaire — drop those drawer entries (they're routed to MP).
+  const _mpHidden = (currentSeller && currentSeller.linked_mp_org_id)
+    ? new Set(['tab-products', 'tab-orders', 'tab-messages']) : null;
+  list.innerHTML = items.filter(it => !(_mpHidden && _mpHidden.has(it.id))).map(it => {
     const label = fr ? it.fr : it.en;
     const badge = it.badge ? `<span class="dz-drawer-item-badge">${it.badge}</span>` : '';
     const soon = it.soon ? `<span class="dz-drawer-item-soon">(${fr ? 'bientôt' : 'soon'})</span>` : '';
