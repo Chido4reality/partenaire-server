@@ -1264,7 +1264,22 @@ http.createServer((req, res) => {
           // silently fail-open in prod. Service read = decision only (never
           // returned to the client) and resolves to [] if the key is unset
           // (still fail-open). It bypasses RLS so the row is always seen.
-          const checkSellRules = async (category, city) => {
+          // MP-NIGERIA: resolve the seller's COUNTRY (for country-scoped town
+          // matching) from their linked MP org. Fail-open → null on any miss,
+          // which makes the town check below ALLOW (default-allow contract).
+          const resolveSellerCountry = async (sellerId) => {
+            if (!sellerId) return null;
+            try {
+              const u = await supaRequestPrivileged('GET', 'ptn_users',
+                'id=eq.' + encodeURIComponent(sellerId) + '&select=linked_mp_org_id');
+              const orgId = Array.isArray(u) && u[0] && u[0].linked_mp_org_id;
+              if (!orgId) return null;
+              const o = await supaRequestPrivileged('GET', 'pa_organisations',
+                'id=eq.' + encodeURIComponent(orgId) + '&select=country');
+              return (Array.isArray(o) && o[0] && o[0].country) || null;
+            } catch (_) { return null; }
+          };
+          const checkSellRules = async (category, city, country) => {
             const cat = (category == null) ? '' : String(category).trim();
             if (cat) {
               let rows;
@@ -1277,12 +1292,15 @@ http.createServer((req, res) => {
                   message: 'Selling in the "' + (rows[0].label || cat) + '" category is currently not permitted on Partenaire Dozie. Contact support.' };
               }
             }
+            // Town match is COUNTRY-SCOPED (a CM is_allowed=false row must never
+            // affect an NG seller in a same-named town). Fail-open: if country is
+            // unknown, skip the town block (allow) — same default-allow contract.
             const c = (city == null) ? '' : String(city).trim();
-            if (c) {
+            if (c && country) {
               let rows;
               try {
                 rows = await supaRequestPrivileged('GET', 'ptn_sell_towns',
-                  'town=ilike.' + encodeURIComponent(c) + '&select=is_allowed');
+                  'country=eq.' + encodeURIComponent(country) + '&town=ilike.' + encodeURIComponent(c) + '&select=is_allowed');
               } catch (_) { rows = null; }
               if (Array.isArray(rows) && rows[0] && rows[0].is_allowed === false) {
                 return { ok: false, code: 'TOWN_NOT_ALLOWED',
@@ -1296,10 +1314,10 @@ http.createServer((req, res) => {
             res.end(JSON.stringify({ success: false, code: chk.code, message: chk.message }));
           };
           // Check every item in the body (single object OR a bulk array).
-          const enforceSellRules = async () => {
+          const enforceSellRules = async (country) => {
             const items = Array.isArray(parsedBody) ? parsedBody : (parsedBody ? [parsedBody] : []);
             for (const it of items) {
-              const chk = await checkSellRules(it && it.category, it && it.city);
+              const chk = await checkSellRules(it && it.category, it && it.city, country);
               if (!chk.ok) { sendSellDeny(chk); return false; }
             }
             return true;
@@ -1340,9 +1358,10 @@ http.createServer((req, res) => {
           // ─── LISTING CREATE ────────────────────────────────────────
           if (isProductsPost) {
             // DOZIE-SELL-RESTRICTIONS: block disallowed category/town first
-            // (applies to ALL sellers, independent of plan/cap state).
-            if (!(await enforceSellRules())) return;
+            // (applies to ALL sellers). COUNTRY-SCOPED — resolve the seller's
+            // country before the (now country-aware) sell-rule check.
             const sellerId = parsedBody && (parsedBody.seller_id || (Array.isArray(parsedBody) && parsedBody[0] && parsedBody[0].seller_id));
+            if (!(await enforceSellRules(await resolveSellerCountry(sellerId)))) return;
             if (sellerId) {
               const acc = await fetchAccess(sellerId);
               if (!acc || acc.access_state === 'blocked') return denyResponse(acc, 'dozie_access');
@@ -1367,22 +1386,24 @@ http.createServer((req, res) => {
           if (isProductsPatch) {
             // DOZIE-SELL-RESTRICTIONS: if the update sets category/city, block a
             // disallowed value (lenient — a patch that doesn't touch them passes).
-            if (!(await enforceSellRules())) return;
+            // COUNTRY-SCOPED — resolve the product's seller country first.
             const productId = extractIdFilter(req.url);
+            let sellerId = null;
             if (productId) {
               const productRows = await supaRequest('GET', 'ptn_products',
                 'id=eq.' + encodeURIComponent(productId) + '&select=seller_id');
-              const sellerId = Array.isArray(productRows) && productRows[0] && productRows[0].seller_id;
-              if (sellerId) {
-                const acc = await fetchAccess(sellerId);
-                if (!acc || acc.access_state === 'blocked') return denyResponse(acc, 'dozie_access');
-                // Updates by a 'limited' seller stay allowed — they can
-                // edit existing listings without hitting the cap. Only the
-                // CREATE path enforces listing_cap.
-                if (acc.access_state === 'limited' && acc.city_cap === 1
-                    && parsedBody && parsedBody.city && parsedBody.city !== acc.seller_city) {
-                  return denyResponse(acc, 'city_cap', { seller_city: acc.seller_city, requested_city: parsedBody.city });
-                }
+              sellerId = Array.isArray(productRows) && productRows[0] && productRows[0].seller_id;
+            }
+            if (!(await enforceSellRules(await resolveSellerCountry(sellerId)))) return;
+            if (sellerId) {
+              const acc = await fetchAccess(sellerId);
+              if (!acc || acc.access_state === 'blocked') return denyResponse(acc, 'dozie_access');
+              // Updates by a 'limited' seller stay allowed — they can
+              // edit existing listings without hitting the cap. Only the
+              // CREATE path enforces listing_cap.
+              if (acc.access_state === 'limited' && acc.city_cap === 1
+                  && parsedBody && parsedBody.city && parsedBody.city !== acc.seller_city) {
+                return denyResponse(acc, 'city_cap', { seller_city: acc.seller_city, requested_city: parsedBody.city });
               }
             }
           }
