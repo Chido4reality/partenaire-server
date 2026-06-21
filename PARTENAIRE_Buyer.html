@@ -429,6 +429,13 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
         <option>Douala</option><option>Yaoundé</option><option>Bafoussam</option>
         <option>Garoua</option><option>Guangzhou</option>
       </select>
+      <!-- DOZIE-BUYER-COUNTRY: filter the feed by shop country. Defaults to the
+           buyer's own country (set in enterApp) when known; guests see all. -->
+      <select class="city-filter" id="country-filter" onchange="doSearch()" title="Country / Pays">
+        <option value="">🌍 All countries</option>
+        <option value="CM">🇨🇲 CM</option>
+        <option value="NG">🇳🇬 NG</option>
+      </select>
     </div>
   </div>
   <div class="tab-bar">
@@ -1152,6 +1159,12 @@ function enterApp() {
   }
   isGuest = false;
   hideGuestBanner();
+  // DOZIE-BUYER-COUNTRY: default the browse feed to the buyer's own country when
+  // known (they can switch to "All countries" anytime). Guests / unknown = all.
+  try {
+    const cf = document.getElementById('country-filter');
+    if (cf && (currentBuyer.country_code === 'CM' || currentBuyer.country_code === 'NG')) cf.value = currentBuyer.country_code;
+  } catch(e) {}
   loadShops();
   loadOrders();
   startSync();
@@ -1280,12 +1293,14 @@ function onSearchInput() {
 async function doSearch() {
   const q = (document.getElementById('search-input').value||'').trim().toLowerCase();
   const city = document.getElementById('city-filter').value;
-  // SHOPS — in-memory filter (unchanged behaviour: company/city/name match).
+  const country = (document.getElementById('country-filter')||{}).value || '';
+  // SHOPS — in-memory filter (company/city/name match + city + category + country).
   const shops = allShops.filter(s => {
     const matchQ = !q || s.company?.toLowerCase().includes(q) || s.city?.toLowerCase().includes(q) || s.name?.toLowerCase().includes(q);
     const matchCity = !city || s.city === city;
     const matchCat = !selectedCat || s.category === selectedCat;
-    return matchQ && matchCity && matchCat;
+    const matchCountry = !country || s.country_code === country;
+    return matchQ && matchCity && matchCat && matchCountry;
   });
 
   const prodSection = document.getElementById('search-products-section');
@@ -1294,7 +1309,7 @@ async function doSearch() {
 
   if (q) {
     // Products are the primary result while a text query is active.
-    await renderProductSearch(q, city);
+    await renderProductSearch(q, city, country);
     prodSection.style.display = 'block';
     shopsHeader.textContent = (currentLang==='fr'?'Boutiques':'Shops') + ` (${shops.length})`;
     shopsHeader.style.display = shops.length ? 'block' : 'none';
@@ -1344,7 +1359,7 @@ async function dozieFetchCatalogue() {
   _dozieCatCache = { rows: list, ts: now };
   return list;
 }
-async function renderProductSearch(q, city) {
+async function renderProductSearch(q, city, country) {
   const grid = document.getElementById('product-results');
   const header = document.getElementById('products-header');
   grid.innerHTML = '<div class="loading" style="grid-column:1/-1"><div class="spinner"></div></div>';
@@ -1389,7 +1404,7 @@ async function renderProductSearch(q, city) {
     const rows = (products||[])
       .map(p => { const shop = allShops.find(s => s.id === p.seller_id); return shop ? { ...p, _shop: shop } : null; })
       .filter(Boolean)
-      .filter(p => (!selectedCat || p._shop.category === selectedCat) && (!city || p._shop.city === city));
+      .filter(p => (!selectedCat || p._shop.category === selectedCat) && (!city || p._shop.city === city) && (!country || p._shop.country_code === country));
     header.textContent = (currentLang==='fr'?'Produits':'Products') + ` (${rows.length})`;
     grid.innerHTML = rows.length
       ? rows.map(buildSearchProductCard).join('')

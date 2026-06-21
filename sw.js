@@ -14,7 +14,12 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v36-20260621';
+const CACHE = 'partenaire-dozie-v37-20260621';
+// BUMP (2026-06-21h): buyer COUNTRY BROWSE FILTER — a country selector in the
+// search bar (🌍 All / 🇨🇲 CM / 🇳🇬 NG) filters shops + products by shop country
+// (shop.country_code from list_public_sellers). Defaults to the logged-in
+// buyer's own country (country_code now returned by login/register); guests see
+// all. Display-only filter on top of the existing feed.
 // BUMP (2026-06-21g): buyer auth supports BOTH countries — Cameroon (🇨🇲 +237)
 // and Nigeria (🇳🇬 +234). Register + login phone fields now have a country dial-
 // code selector; phone is normalised the SAME way on both (client prepends the

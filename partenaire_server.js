@@ -780,6 +780,7 @@ http.createServer((req, res) => {
             id: user.id, name: user.name, phone: user.phone, role: user.role,
             company: user.company, city: user.city, category: user.category,
             status: user.status,
+            country_code: user.country_code || null,
             // MP-DOZIE-SELLER-MIGRATION: surface the MP link so the portal can
             // route MP-linked sellers to Mon Partenaire for listing management.
             linked_mp_org_id: user.linked_mp_org_id || null
@@ -850,7 +851,8 @@ http.createServer((req, res) => {
           success: true,
           jwt: jwtToken,
           user: { id: user.id, name: user.name, phone: user.phone, role: 'buyer',
-                  company: user.company, city: user.city, status: user.status }
+                  company: user.company, city: user.city, status: user.status,
+                  country_code: user.country_code || null }
         });
       } catch (e) {
         send(500, { success: false, code: 'server_error', message: e.message });
