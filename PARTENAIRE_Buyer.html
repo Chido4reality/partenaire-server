@@ -74,12 +74,15 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .cart-btn{position:relative}
 .cart-count{position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;font-size:10px;font-weight:800;width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;display:none}
 .search-bar{background:#fff;padding:12px 16px;border-bottom:1px solid var(--lgrey);position:sticky;top:58px;z-index:99}
-.search-inner{display:flex;gap:8px;max-width:900px;margin:0 auto}
-.search-box{flex:1;position:relative;min-width:0}
+/* DOZIE-SEARCHBAR-FIX: input on its own full-width row (typed text always
+   visible), the country + city dropdowns wrap onto a clean row below — no
+   overlap, no clipping, works at narrow phone widths. */
+.search-inner{display:flex;flex-wrap:wrap;gap:8px;max-width:900px;margin:0 auto}
+.search-box{flex:1 1 100%;position:relative;min-width:0}
 .search-box input{width:100%;padding:10px 16px 10px 40px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:14px;color:var(--navy);background:#f8f7f4;outline:none;transition:border .2s}
 .search-box input:focus{border-color:var(--gold);background:#fff}
-.search-box::before{content:'🔍';position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px}
-.city-filter{padding:10px 14px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:13px;color:var(--navy);background:#f8f7f4;outline:none;cursor:pointer}
+.search-box::before{content:'🔍';position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none}
+.city-filter{flex:1 1 calc(50% - 4px);min-width:0;padding:10px 14px;border:1.5px solid var(--lgrey);border-radius:10px;font-size:13px;color:var(--navy);background:#f8f7f4;outline:none;cursor:pointer}
 .tab-bar{background:#fff;border-bottom:1px solid var(--lgrey);display:flex;padding:0 16px;gap:0;overflow-x:auto}
 .tab{flex:1;min-width:0;text-align:center;padding:13px 6px;font-size:13px;font-weight:600;color:var(--grey);cursor:pointer;border-bottom:2.5px solid transparent;white-space:nowrap;transition:all .15s}
 .tab:hover{color:var(--navy)}
@@ -431,7 +434,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
       </select>
       <!-- DOZIE-BUYER-COUNTRY: filter the feed by shop country. Defaults to the
            buyer's own country (set in enterApp) when known; guests see all. -->
-      <select class="city-filter" id="country-filter" onchange="doSearch()" title="Country / Pays">
+      <select class="city-filter" id="country-filter" onchange="onCountryFilterChange()" title="Country / Pays">
         <option value="">🌍 All countries</option>
         <option value="CM">🇨🇲 CM</option>
         <option value="NG">🇳🇬 NG</option>
@@ -1277,24 +1280,49 @@ async function loadShops() {
       if (a.has_premium_perks !== b.has_premium_perks) return a.has_premium_perks ? -1 : 1;
       return 0;
     });
+    await loadPublicCities();   // city catalog for the dropdown (cached)
     populateCityFilter();
     renderShops();
   } catch(e) { console.error('loadShops:', e); }
 }
 
-// DOZIE-CITY-FILTER: build the city dropdown from the DISTINCT shop cities
-// actually present in the feed (shop.city = MP shop location via city-unify),
-// so it only ever offers cities where shops exist. "All cities" resets. The
-// current selection is preserved if still present.
+// DOZIE-CITY-CASCADE: country → ALL ACTIVE cities → shop. The city dropdown is
+// built from the public city catalog (list_public_cities, cached once on load),
+// filtered by the SELECTED country (All → both deduped; CM/NG → that country).
+// NOT limited to cities that have shops, and NOT filtered by is_allowed (a
+// category-specific sell block must never drop a whole city). "All cities" first;
+// the current pick is kept if still valid, else reset to "All cities".
+let _publicCities = null;            // cached [{country_code, town}]
+let _publicCitiesLoading = null;
+async function loadPublicCities() {
+  if (_publicCities) return _publicCities;
+  if (!_publicCitiesLoading) {
+    _publicCitiesLoading = (async () => {
+      try { _publicCities = await RPC('list_public_cities') || []; }
+      catch (e) { _publicCities = []; }
+      return _publicCities;
+    })();
+  }
+  return _publicCitiesLoading;
+}
 function populateCityFilter() {
   const sel = document.getElementById('city-filter');
   if (!sel) return;
   const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const country = (document.getElementById('country-filter')||{}).value || '';
   const prev = sel.value;
-  const cities = [...new Set((allShops||[]).map(s => s.city).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
+  const towns = [...new Set((_publicCities||[])
+    .filter(c => !country || c.country_code === country)
+    .map(c => String(c.town || '').trim())
+    .filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   sel.innerHTML = '<option value="">' + (currentLang==='fr'?'Toutes les villes':'All cities') + '</option>'
-    + cities.map(c => '<option value="'+esc(c)+'"'+(c===prev?' selected':'')+'>'+esc(c)+'</option>').join('');
+    + towns.map(t => '<option value="'+esc(t)+'"'+(t===prev?' selected':'')+'>'+esc(t)+'</option>').join('');
+  if (prev && !towns.includes(prev)) sel.value = '';   // stale pick → reset to All
 }
+// Country dropdown changed → re-cascade the city list (+ reset stale pick) + search.
+function onCountryFilterChange() { populateCityFilter(); doSearch(); }
+// Tolerant city compare (trim + case-insensitive) for shop/product matching.
+function _eqCity(a, b) { return String(a||'').trim().toLowerCase() === String(b||'').trim().toLowerCase(); }
 
 function renderShops() { doSearch(); }
 
@@ -1312,7 +1340,7 @@ async function doSearch() {
   // SHOPS — in-memory filter (company/city/name match + city + category + country).
   const shops = allShops.filter(s => {
     const matchQ = !q || s.company?.toLowerCase().includes(q) || s.city?.toLowerCase().includes(q) || s.name?.toLowerCase().includes(q);
-    const matchCity = !city || s.city === city;
+    const matchCity = !city || _eqCity(s.city, city);
     const matchCat = !selectedCat || s.category === selectedCat;
     const matchCountry = !country || s.country_code === country;
     return matchQ && matchCity && matchCat && matchCountry;
@@ -1419,7 +1447,7 @@ async function renderProductSearch(q, city, country) {
     const rows = (products||[])
       .map(p => { const shop = allShops.find(s => s.id === p.seller_id); return shop ? { ...p, _shop: shop } : null; })
       .filter(Boolean)
-      .filter(p => (!selectedCat || p._shop.category === selectedCat) && (!city || p._shop.city === city) && (!country || p._shop.country_code === country));
+      .filter(p => (!selectedCat || p._shop.category === selectedCat) && (!city || _eqCity(p._shop.city, city)) && (!country || p._shop.country_code === country));
     header.textContent = (currentLang==='fr'?'Produits':'Products') + ` (${rows.length})`;
     grid.innerHTML = rows.length
       ? rows.map(buildSearchProductCard).join('')

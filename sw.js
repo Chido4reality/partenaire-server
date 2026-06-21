@@ -14,7 +14,13 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v38-20260621';
+const CACHE = 'partenaire-dozie-v39-20260621';
+// BUMP (2026-06-21j): search-bar UI fix (input on its own full-width row → typed
+// text visible; country+city dropdowns wrap cleanly below, no overlap) + CITY
+// CASCADE: city dropdown now built from the public city catalog
+// (list_public_cities = ALL active towns, NOT is_allowed-filtered) cascaded by
+// the selected country (CM 61 / NG 66 / All 127); switching country re-populates
+// + resets a stale city pick. Tolerant shop.city match. Display-only.
 // BUMP (2026-06-21i): make the CATEGORY chips + CITY filter actually filter.
 // Chips now carry the real signup category values (moto_parts/auto_parts/
 // electronics/hardware/agriculture/fashion[=Textile]) so s.category matches;
