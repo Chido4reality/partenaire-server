@@ -365,16 +365,17 @@ async function dozieGetCatalogue() {
   let list = [];
   for (let off = 0; ; off += PAGE) {
     const batch = await supaRequest('GET', 'dozie_marketplace_products',
-      'published=eq.true&select=listing_id,seller_id,name,price,photo_url,stock_state,category,city,description'
+      'published=eq.true&select=listing_id,seller_id,name,price,photo_url,stock_state,category,city,description,name_fr,name_en,description_fr,description_en'
       + '&order=listing_id.asc,seller_id.asc&limit=' + PAGE + '&offset=' + off);
     const arr = Array.isArray(batch) ? batch : [];
     list = list.concat(arr);
     if (arr.length < PAGE) break;
     if (list.length >= 50000) break; // safety
   }
-  // Pre-normalize searchable text once per refresh (name + description; name_en
-  // read defensively). Same normalize() the client uses, via the shared DS.
-  for (const p of list) p._norm = DS.normalize((p.name || '') + ' ' + (p.name_en || '') + ' ' + (p.description || ''));
+  // DOZIE-BILINGUAL: pre-normalize ALL FOUR language fields once per refresh so a
+  // query in either language matches. Field list lives in DS.searchableText so
+  // the server (_norm) and client (_n) can't drift.
+  for (const p of list) p._norm = DS.normalize(DS.searchableText(p));
   _dozieCatalogue = { rows: list, ts: now };
   return list;
 }
@@ -1184,6 +1185,7 @@ http.createServer((req, res) => {
           }
           const data = matched.map(p => ({
             listing_id: p.listing_id, seller_id: p.seller_id, name: p.name,
+            name_fr: p.name_fr, name_en: p.name_en,
             price: p.price, photo_url: p.photo_url, stock_state: p.stock_state,
             category: p.category, city: p.city,
           }));

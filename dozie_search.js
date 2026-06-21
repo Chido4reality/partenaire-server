@@ -81,6 +81,16 @@
     return { norm: norm, terms: arr };
   }
 
+  // DOZIE-BILINGUAL: the raw searchable text for a marketplace row — ALL FOUR
+  // language fields (FR + EN name + description), plus the legacy name/description
+  // as a fallback so a pre-backfill row still matches. ONE place so the server
+  // (_norm) and the client (_n) can't drift on which fields are searched.
+  function searchableText(p) {
+    if (!p) return '';
+    return [p.name_fr, p.name_en, p.description_fr, p.description_en, p.name, p.description]
+      .filter(Boolean).join(' ');
+  }
+
   // Does an ALREADY-normalized product text contain any expanded term?
   function matchNorm(normText, terms) {
     for (var i = 0; i < terms.length; i++) {
@@ -100,5 +110,6 @@
     expand: expand,
     matchNorm: matchNorm,
     productMatches: productMatches,
+    searchableText: searchableText,
   };
 });

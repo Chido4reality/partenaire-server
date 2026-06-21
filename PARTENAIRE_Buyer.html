@@ -1310,9 +1310,10 @@ async function dozieFetchCatalogue() {
   const now = Date.now();
   if (_dozieCatCache.rows && (now - _dozieCatCache.ts) < 60000) return _dozieCatCache.rows;
   const rows = await GET('dozie_marketplace_products',
-    'published=eq.true&select=listing_id,seller_id,name,price,photo_url,stock_state,category,city,description&limit=2000');
+    'published=eq.true&select=listing_id,seller_id,name,price,photo_url,stock_state,category,city,description,name_fr,name_en,description_fr,description_en&limit=2000');
   const list = Array.isArray(rows) ? rows : [];
-  for (const p of list) p._n = window.DozieSearch.normalize((p.name||'') + ' ' + (p.description||''));
+  // DOZIE-BILINGUAL: match across all four language fields (shared field list).
+  for (const p of list) p._n = window.DozieSearch.normalize(window.DozieSearch.searchableText(p));
   _dozieCatCache = { rows: list, ts: now };
   return list;
 }
@@ -1371,7 +1372,7 @@ function buildSearchProductCard(p) {
     <button onclick="event.stopPropagation();openReportModal('listing','${p.id||''}','${rptLabel}')" title="Signaler / Report" style="position:absolute;top:6px;right:6px;background:rgba(255,255,255,0.92);border:none;border-radius:8px;width:24px;height:24px;font-size:12px;line-height:1;cursor:pointer;color:#999;z-index:2">🚩</button>
     <button onclick="event.stopPropagation();shareProduct('${p.listing_id}','${rptLabel}',${p.price||0})" title="Partager" style="position:absolute;top:6px;right:36px;background:rgba(255,255,255,0.92);border:none;border-radius:8px;width:24px;height:24px;font-size:12px;line-height:1;cursor:pointer;color:#666;z-index:2">🔗</button>
     <div class="product-emoji">${photo}</div>
-    <div class="product-name">${p.name || ''}</div>
+    <div class="product-name">${dispName(p)}</div>
     <div class="product-price">${price}</div>
     <div class="product-shop">🏪 ${shop.company || shop.name || ''}</div>
   </div>`;
@@ -1523,7 +1524,7 @@ function renderShopProducts(products, shop) {
         : '<span style="font-size:10px;background:#FEECEC;color:#C62828;padding:2px 8px;border-radius:10px;font-weight:700">✗ Out of stock</span>';
     return `<div class="product-card">
       <div class="product-emoji">${photoSrc ? `<img src="${photoSrc}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">` : EMOJIS[p.category]||'📦'}</div>
-      <div class="product-name">${p.name}</div>
+      <div class="product-name">${dispName(p)}</div>
       <div class="product-price">${p.price ? p.price.toLocaleString()+' FCFA' : 'Ask for price'}</div>
       <div class="product-stock" style="margin-top:4px">${stockBadge}</div>
       <div style="display:flex;gap:6px;margin-top:8px;align-items:stretch">
@@ -2016,6 +2017,19 @@ function switchTab(tabId) {
 // ══════════════════════════════════════════════════════════════
 let currentLang = 'fr';
 function t(key) { return key; }
+// DOZIE-BILINGUAL: pick a listing's name/description in the buyer's chosen
+// language, falling back to the source so a pre-backfill row (or a missing
+// translation) still renders.
+function dispName(p) {
+  if (!p) return '';
+  const v = currentLang === 'en' ? (p.name_en || p.name) : (p.name_fr || p.name);
+  return v || p.name || '';
+}
+function dispDesc(p) {
+  if (!p) return '';
+  const v = currentLang === 'en' ? (p.description_en || p.description) : (p.description_fr || p.description);
+  return v || p.description || '';
+}
 function setLang(lang) {
   currentLang = lang;
   const en = document.getElementById('b-lang-en');
@@ -2023,6 +2037,9 @@ function setLang(lang) {
   if (en) { en.style.background = lang==='en'?'var(--gold)':'transparent'; en.style.color = lang==='en'?'var(--navy)':'rgba(255,255,255,0.6)'; }
   if (fr) { fr.style.background = lang==='fr'?'var(--gold)':'transparent'; fr.style.color = lang==='fr'?'var(--navy)':'rgba(255,255,255,0.6)'; }
   dzRenderDrawer();
+  // Re-render listings so the language switch takes effect immediately.
+  try { doSearch(); } catch (e) {}
+  try { if (typeof currentShopId !== 'undefined' && currentShopId) openShop(currentShopId); } catch (e) {}
 }
 
 // ══════════════════════════════════════════════════════════════
