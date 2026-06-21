@@ -727,7 +727,11 @@ http.createServer((req, res) => {
       };
       try {
         const { phone, pin, role } = JSON.parse(body || '{}');
-        const cleanPhone = String(phone || '').replace(/^\+?237/, '').replace(/\D/g, '');
+        // DOZIE-MULTI-COUNTRY: strip a leading dial code for Cameroon (+237) OR
+        // Nigeria (+234) → canonical bare number, the same form register stores
+        // and existing CM rows already use (CM/NG subscriber numbers never start
+        // with 237/234, so only a real dial code is removed).
+        const cleanPhone = String(phone || '').replace(/^\+?(237|234)/, '').replace(/\D/g, '');
         if (!cleanPhone || !pin || (role !== 'seller' && role !== 'buyer')) {
           return send(400, { success: false, code: 'bad_request',
             message: 'phone, pin and role (seller|buyer) are required' });
@@ -803,9 +807,14 @@ http.createServer((req, res) => {
         res.end(JSON.stringify(obj));
       };
       try {
-        const { name, phone, pin } = JSON.parse(body || '{}');
+        const { name, phone, pin, country_code } = JSON.parse(body || '{}');
         const cleanName  = String(name || '').trim();
-        const cleanPhone = String(phone || '').replace(/^\+?237/, '').replace(/\D/g, '');
+        // DOZIE-MULTI-COUNTRY: strip CM (+237) or NG (+234) dial code → canonical
+        // bare number (same as login). Capture the buyer's country from the
+        // explicit selector value (fallback: derive from the dial prefix).
+        const cleanPhone = String(phone || '').replace(/^\+?(237|234)/, '').replace(/\D/g, '');
+        const cc = (country_code === 'CM' || country_code === 'NG') ? country_code
+                 : (/^\+?234/.test(String(phone || '')) ? 'NG' : /^\+?237/.test(String(phone || '')) ? 'CM' : null);
         const cleanPin   = String(pin || '').replace(/\D/g, '');
         if (!cleanName)            return send(400, { success: false, code: 'bad_request', message: 'Le nom est requis.' });
         if (cleanPhone.length < 8) return send(400, { success: false, code: 'bad_request', message: 'Numéro de téléphone invalide.' });
@@ -822,7 +831,8 @@ http.createServer((req, res) => {
         }
         const dozie_pin_hash = await hashPin(cleanPin);
         const inserted = await supaRequestPrivileged('POST', 'ptn_users', '', {
-          role: 'buyer', also_buyer: true, name: cleanName, phone: cleanPhone, dozie_pin_hash
+          role: 'buyer', also_buyer: true, name: cleanName, phone: cleanPhone, dozie_pin_hash,
+          country_code: cc
         });
         const user = Array.isArray(inserted) ? inserted[0] : inserted;
         if (!user || !user.id) {

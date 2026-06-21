@@ -14,7 +14,12 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v35-20260621';
+const CACHE = 'partenaire-dozie-v36-20260621';
+// BUMP (2026-06-21g): buyer auth supports BOTH countries — Cameroon (🇨🇲 +237)
+// and Nigeria (🇳🇬 +234). Register + login phone fields now have a country dial-
+// code selector; phone is normalised the SAME way on both (client prepends the
+// dial code, server strips +237/+234 → bare canonical, so existing CM buyers
+// still work). Buyer's country_code stored on the ptn_users row at registration.
 // BUMP (2026-06-21f): show each shop's COUNTRY (flag + 2-letter code, e.g.
 // 🇨🇲 CM / 🇳🇬 NG) next to the shop name in shop cards, product cards, and the
 // shop detail header. Country comes from list_public_sellers() (seller's linked

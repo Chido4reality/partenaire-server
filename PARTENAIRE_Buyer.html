@@ -319,8 +319,11 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
       <div class="auth-sub">Portail Acheteur / Buyer Portal</div>
       <label class="auth-label">Phone Number</label>
       <div class="phone-row">
-        <div class="cc">🇨🇲 +237</div>
-        <input class="auth-input" id="phone-input" type="tel" placeholder="699 000 000" maxlength="9" style="margin-bottom:0;flex:1">
+        <select class="cc" id="login-cc" onchange="onCcChange('login')" style="border:none;background:#f8f6f0;font-weight:700;cursor:pointer">
+          <option value="237">🇨🇲 +237</option>
+          <option value="234">🇳🇬 +234</option>
+        </select>
+        <input class="auth-input" id="phone-input" type="tel" placeholder="699 000 000" maxlength="13" style="margin-bottom:0;flex:1">
       </div>
       <div style="height:8px"></div>
       <label class="auth-label">Code PIN (4 chiffres)</label>
@@ -361,8 +364,11 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
       <input class="auth-input" id="reg-name" placeholder="ex. Jean Dupont">
       <label class="auth-label">Numéro de téléphone</label>
       <div class="phone-row" style="margin-bottom:16px">
-        <div class="cc">🇨🇲 +237</div>
-        <input class="auth-input" id="reg-phone" type="tel" placeholder="699 000 000" maxlength="9" style="margin-bottom:0;flex:1">
+        <select class="cc" id="reg-cc" onchange="onCcChange('reg')" style="border:none;background:#f8f6f0;font-weight:700;cursor:pointer">
+          <option value="237">🇨🇲 +237</option>
+          <option value="234">🇳🇬 +234</option>
+        </select>
+        <input class="auth-input" id="reg-phone" type="tel" placeholder="699 000 000" maxlength="13" style="margin-bottom:0;flex:1">
       </div>
       <label class="auth-label">Choisir un code PIN (4 chiffres)</label>
       <input class="auth-input" id="reg-pin" type="password" placeholder="••••" maxlength="4" inputmode="numeric"
@@ -1018,10 +1024,30 @@ let _authScreenOpen = false;
 function openAuth(id) { _authScreenOpen = true; showScreen(id); }
 function goRegister() { openAuth('screen-register'); }
 
+// DOZIE-MULTI-COUNTRY: country dial-code selector for buyer auth (login +
+// register). Easy to extend: add an <option> to both selects + a CC_COUNTRY entry.
+const CC_COUNTRY = { '237': 'CM', '234': 'NG' };
+function ccDial(which) { const el = document.getElementById(which === 'reg' ? 'reg-cc' : 'login-cc'); return el ? el.value : '237'; }
+function onCcChange(which) {
+  const input = document.getElementById(which === 'reg' ? 'reg-phone' : 'phone-input');
+  if (input) input.placeholder = ccDial(which) === '234' ? '801 234 5678' : '699 000 000';
+}
+// Canonical submit phone = <dialcode><local>. NG: drop a leading 0 (national
+// format). The SERVER strips the dial code back to the bare number, so register
+// and login resolve to the SAME stored value for a given country + number.
+function buildAuthPhone(which) {
+  const dial = ccDial(which);
+  let local = String(document.getElementById(which === 'reg' ? 'reg-phone' : 'phone-input').value || '').replace(/\D/g, '');
+  if (local.startsWith(dial)) local = local.slice(dial.length);        // user typed the dial code
+  if (dial === '234' && local.startsWith('0')) local = local.slice(1); // NG national leading 0
+  return { dial: dial, local: local, full: dial + local, country: CC_COUNTRY[dial] || null };
+}
+
 async function loginWithPIN() {
-  const phone = document.getElementById('phone-input').value.trim().replace(/\s/g,'');
+  const ph = buildAuthPhone('login');
+  const phone = ph.full;
   const pin   = document.getElementById('pin-input') ? document.getElementById('pin-input').value.trim() : '';
-  if (phone.length < 8) { authErr('phone-error', 'Entrez votre numero de telephone'); return; }
+  if (ph.local.length < (ph.dial === '234' ? 9 : 8)) { authErr('phone-error', 'Entrez un numéro de téléphone valide / Enter a valid phone number'); return; }
   if (!pin || pin.length < 4) { authErr('phone-error', 'Entrez votre code PIN a 4 chiffres'); return; }
   loginPhone = phone;
   // M-1.5: PIN verified server-side (bcrypt vs dozie_pin_hash) — no
@@ -1053,11 +1079,12 @@ async function loginWithPIN() {
 
 async function registerBuyer() {
   const name  = document.getElementById('reg-name').value.trim();
-  const phone = document.getElementById('reg-phone').value.trim().replace(/\s/g,'');
+  const ph    = buildAuthPhone('reg');
+  const phone = ph.full;
   const pin   = (document.getElementById('reg-pin')  ? document.getElementById('reg-pin').value  : '').trim();
   const pin2  = (document.getElementById('reg-pin2') ? document.getElementById('reg-pin2').value : '').trim();
   if (!name)              { authErr('reg-error','Entrez votre nom'); return; }
-  if (phone.length < 8)   { authErr('reg-error','Entrez un numéro de téléphone valide'); return; }
+  if (ph.local.length < (ph.dial === '234' ? 9 : 8)) { authErr('reg-error','Entrez un numéro de téléphone valide / Enter a valid phone number'); return; }
   if (!/^\d{4}$/.test(pin)) { authErr('reg-error','Le PIN doit comporter 4 chiffres'); return; }
   if (pin !== pin2)       { authErr('reg-error','Les deux PIN ne correspondent pas'); return; }
   try {
@@ -1066,7 +1093,7 @@ async function registerBuyer() {
     // new user is logged in straight away. Independent of Mon Partenaire.
     const resp = await fetch('/auth/register-buyer', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, phone, pin })
+      body: JSON.stringify({ name, phone, pin, country_code: ph.country })
     });
     const result = await resp.json().catch(() => ({}));
     if (!resp.ok || !result.success) {
