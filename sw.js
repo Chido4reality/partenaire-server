@@ -14,7 +14,11 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v34-20260621';
+const CACHE = 'partenaire-dozie-v35-20260621';
+// BUMP (2026-06-21f): show each shop's COUNTRY (flag + 2-letter code, e.g.
+// 🇨🇲 CM / 🇳🇬 NG) next to the shop name in shop cards, product cards, and the
+// shop detail header. Country comes from list_public_sellers() (seller's linked
+// MP org country); standalone/unresolved → nothing. Display-only, not gated.
 // BUMP (2026-06-21e): payments Slice — buyer "Pay online vs Pay at shop" choice
 // at the confirmed+payment_requested step (gated behind PAYMENTS_ENABLED, dormant
 // on prod). "Pay online" → Flutterwave hosted checkout (escrow); "Pay at shop" →
