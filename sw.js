@@ -14,7 +14,13 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v33-20260621';
+const CACHE = 'partenaire-dozie-v34-20260621';
+// BUMP (2026-06-21e): payments Slice — buyer "Pay online vs Pay at shop" choice
+// at the confirmed+payment_requested step (gated behind PAYMENTS_ENABLED, dormant
+// on prod). "Pay online" → Flutterwave hosted checkout (escrow); "Pay at shop" →
+// at_shop. payment-choice-modal now shows the two options (was MoMo/Orange/cash).
+// (Server-side: XAF method order set mobile-money-first.) Bump so installed
+// clients pick up the new buyer flow when payments go live.
 // BUMP (2026-06-21d): prefix / as-you-type partial search in dozie_search.js.
 // A query token now (a) ranks as prefix-of-word against listing text and (b)
 // triggers synonym expansion when it is a PREFIX of a synonym term — so "cha"/

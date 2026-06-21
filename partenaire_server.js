@@ -346,10 +346,13 @@ async function resolveOrderCurrency(order) {
   }
 }
 
-// XAF → mobile-money set (mirrors MP). NGN → omit so the hosted page shows all
-// dashboard-enabled methods (card, bank transfer, USSD, OPay if enabled).
+// XAF → mobile money FIRST, card LAST (Cameroon buyers are mobile-money-first).
+// mobilemoneyfranco = MTN MoMo + Orange Money (francophone CM). NGN → omit so the
+// hosted page shows all dashboard-enabled methods (card, bank transfer, USSD,
+// OPay if enabled). NOTE: whether Flutterwave's hosted page actually honours this
+// order (and the MTN-vs-Orange sub-order) is Flutterwave's behaviour, not ours.
 function flwPaymentOptions(currency) {
-  return currency === 'XAF' ? 'card,mobilemoney,mobilemoneyfranco' : undefined;
+  return currency === 'XAF' ? 'mobilemoneyfranco,mobilemoney,card' : undefined;
 }
 
 function dozieBaseUrl(req) {
@@ -407,6 +410,11 @@ async function flwSettle({ verified, txRef, source }) {
   await supaRequestPrivileged('PATCH', 'ptn_campay_transactions', 'id=eq.' + txn.id, {
     status: 'successful', campay_response: verified, updated_at: new Date().toISOString()
   });
+  // TODO (later task, OUT OF SCOPE here): reconcile this ONLINE-paid order into
+  // MP's books — i.e. create the pa_sales record (like the seller's at-shop
+  // "record as sale" flow) so an online-paid Dozie order shows in the seller's
+  // MP sales/Day-Flow. This is the hook point: order is now paid + escrow_held,
+  // payment_method='flutterwave'; map seller_id→MP org/location + items→pa_sale_items.
   await supaRequest('POST', 'ptn_notifications', null, {
     user_id: order.seller_id, type: 'payment', order_id: order.id,
     title_en: 'Payment Received', title_fr: 'Paiement reçu',

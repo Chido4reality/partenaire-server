@@ -2283,11 +2283,11 @@ window.addEventListener('load', function () { try { flwHandleReturn(); } catch (
 function openMomoModal(context) {
   // v1: never open the mobile-money modal — payment happens at the shop.
   if (!PAYMENTS_ENABLED) { toast('📋 ' + payAtShopMsg(), 'success'); return; }
-  // FLW-COLLECT: when payments are ON, order payments go through Flutterwave
-  // hosted checkout (redirect), NOT the Campay momo modal. Single chokepoint —
-  // every order-pay entry point funnels through here. (Dormant while the flag
-  // above is false.) Non-order contexts keep the legacy modal.
-  if (context && context.order_id) { flwStartCheckout(context.order_id); return; }
+  // FLW-COLLECT: when payments are ON, every order-pay entry point funnels
+  // through the Online-vs-Pay-at-shop choice (openPaymentChoice). "Pay online"
+  // → Flutterwave hosted checkout; "Pay at shop" → at_shop. Single chokepoint.
+  // (Dormant while the flag above is false.) Non-order contexts keep the modal.
+  if (context && context.order_id) { openPaymentChoice({ order_id: context.order_id, ref: context.ref, total: context.amount }); return; }
   momoContext = context;
   console.log('openMomoModal called with:', JSON.stringify(context));
   document.getElementById('momo-title').textContent = context.title || 'Pay with Mobile Money';
@@ -2431,36 +2431,16 @@ async function choosePaymentMethod(method, operator) {
     }
     return;
   }
-  // MoMo / Orange: flip pay_option to 'full' then hand off to the existing
-  // Campay modal. Campay onSuccess flips payment_status to 'paid' and
-  // captures escrow — same as the legacy momo flow.
+  // 'online' → Flutterwave hosted checkout (card / MoMo / Orange on FLW's page),
+  // held in escrow. Mark the order as an online-escrow pay, then redirect.
+  // payment_status flips to 'paid' ONLY on the server after a verified webhook/
+  // return — never here.
   try {
     await PATCH('ptn_orders', 'id', o.order_id, {
-      pay_option: 'full',
-      payment_method: 'mobile_money',
-      updated_at: new Date().toISOString()
+      pay_option: 'full', payment_method: 'flutterwave', updated_at: new Date().toISOString()
     });
-  } catch(e) {
-    toast((fr ? 'Erreur : ' : 'Error: ') + (e.message || 'Update failed'), 'error');
-    return;
-  }
-  selectOperator(operator || 'mtn');
-  openMomoModal({
-    type: 'order',
-    title: '💳 Pay for Order ' + (o.ref || ''),
-    subtitle: fr ? 'Confirmé — paiement requis' : 'Confirmed — please pay to proceed',
-    amount: o.total || 0, order_id: o.order_id, ref: o.ref,
-    onSuccess: async () => {
-      await PATCH('ptn_orders', 'id', o.order_id, {
-        escrow_held: o.total || 0,
-        payment_requested: false,
-        payment_status: 'paid',
-        updated_at: new Date().toISOString()
-      });
-      await loadOrders();
-      toast('✅ Payment confirmed!', 'success');
-    }
-  });
+  } catch(e) { /* non-fatal: /flw/initiate still works without this */ }
+  flwStartCheckout(o.order_id);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -3409,11 +3389,10 @@ async function simulateCampaySuccess() {
     <div class="momo-amount" id="pc-amount">0 FCFA</div>
     <div class="momo-sub">Your order is confirmed by the seller</div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
-      <button class="btn btn-gold btn-block" style="padding:14px;font-size:14px" onclick="choosePaymentMethod('momo','mtn')">📱 MTN MoMo</button>
-      <button class="btn btn-block" style="padding:14px;font-size:14px;background:#FF6D00;color:#fff;border-color:#FF6D00" onclick="choosePaymentMethod('momo','orange')">🟠 Orange Money</button>
+      <button class="btn btn-gold btn-block" style="padding:14px;font-size:14px;font-weight:800" onclick="choosePaymentMethod('online')">💳 Pay online (Mobile Money / Card)</button>
       <button class="btn btn-block" style="padding:14px;font-size:14px;background:#f8f6f0;color:var(--grey);border:1.5px dashed var(--lgrey)" onclick="choosePaymentMethod('cash')">📋 Pay at Shop (cash on pickup)</button>
     </div>
-    <div style="font-size:11px;color:var(--grey);text-align:center;margin-top:14px">🔒 MoMo payments held in escrow until delivery</div>
+    <div style="font-size:11px;color:var(--grey);text-align:center;margin-top:14px">🔒 Online payments held in escrow until delivery</div>
   </div>
 </div>
 
