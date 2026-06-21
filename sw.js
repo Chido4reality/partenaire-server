@@ -14,7 +14,11 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v30-20260621';
+const CACHE = 'partenaire-dozie-v31-20260621';
+// BUMP (2026-06-21b): buyer-search fixes — bilingual degraded-fallback (ILIKE
+// name+name_en+name_fr+description) + "chambre" added to the tube synonym group
+// so a single-word "chambre" finds inner-tube/"Tube …" listings. Forces phones
+// onto the new buyer client + synonym map.
 // BUMP (2026-06-21): Dozie bilingual Part 2 shipped — PARTENAIRE_Buyer.html now
 // renders listing names in the chosen FR/EN language (dispName) + re-renders on
 // the language toggle, and the client search-fallback + /dozie_search.js match

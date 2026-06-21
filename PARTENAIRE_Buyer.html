@@ -1342,9 +1342,13 @@ async function renderProductSearch(q, city) {
     // FALLBACK (only if the shared module/feed fetch is unavailable): legacy
     // direct ILIKE on name, so results are never worse than before.
     if (products === null) {
+      // DOZIE-BILINGUAL: degraded fallback (shared module/feed unavailable) — ILIKE
+      // across BOTH languages (name + name_en + name_fr + description) so a query
+      // like "helmet" still finds a French-named listing via name_en. (Synonyms
+      // need the primary client path above; this is a last resort.)
       const term = encodeURIComponent('*' + q + '*');
       products = await GET('dozie_marketplace_products',
-        `published=eq.true&name=ilike.${term}&select=listing_id,seller_id,name,price,photo_url,stock_state,category&limit=50`);
+        `published=eq.true&or=(name.ilike.${term},name_en.ilike.${term},name_fr.ilike.${term},description.ilike.${term})&select=listing_id,seller_id,name,name_fr,name_en,price,photo_url,stock_state,category,city,description&limit=50`);
     }
     const rows = (products||[])
       .map(p => { const shop = allShops.find(s => s.id === p.seller_id); return shop ? { ...p, _shop: shop } : null; })

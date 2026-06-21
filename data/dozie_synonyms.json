@@ -9,7 +9,7 @@
     ]
   },
   "groups": [
-    ["tube", "chambre a air", "chambre à air", "inner tube", "tube velo", "tube vélo"],
+    ["tube", "chambre", "chambre a air", "chambre à air", "inner tube", "tube velo", "tube vélo"],
     ["pneu", "pneu moto", "tyre", "tire"],
     ["soupape", "engine valve"],
     ["huile", "huile moteur", "oil", "engine oil", "motor oil"],
