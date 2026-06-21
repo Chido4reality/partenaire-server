@@ -14,7 +14,12 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v29-20260613';
+const CACHE = 'partenaire-dozie-v30-20260621';
+// BUMP (2026-06-21): Dozie bilingual Part 2 shipped — PARTENAIRE_Buyer.html now
+// renders listing names in the chosen FR/EN language (dispName) + re-renders on
+// the language toggle, and the client search-fallback + /dozie_search.js match
+// across all four language fields (name_fr/name_en/description_fr/description_en).
+// Bump forces installed phones onto the new buyer app + search module.
 // BUMP (2026-06-13): FR↔EN buyer search still failed for real users ("chambre à
 // air" → 0 results, "tube" → ok). Root cause: devices were stuck on the 12c
 // cached buyer page, whose search calls the Dozie server endpoint /api/dozie/
