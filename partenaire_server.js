@@ -298,6 +298,45 @@ function supaRpc(fn, args) {
 // behaviour and can't drift. The synonym groups are the single source
 // data/dozie_synonyms.json (served to the client at /data/dozie_synonyms.json).
 const DS = require('./dozie_search.js');
+// DOZIE-BILINGUAL: Azure FR<->EN translate helper (fail-open). Lockstep with the
+// MP backend's backend/src/lib/azureTranslate.js.
+const DT = require('./dozie_translate.js');
+
+// Translate one ptn_products row's name + description to FR + EN and store both.
+// Loads the row fresh by id (current DB state). FAIL-OPEN: never throws.
+async function dozieTranslateProductById(id) {
+  try {
+    if (!id) return;
+    const rows = await supaRequestPrivileged('GET', 'ptn_products',
+      'id=eq.' + encodeURIComponent(id) + '&select=name,description');
+    const row = Array.isArray(rows) && rows[0];
+    if (!row) return;
+    const tr = await DT.translateToFrEn([row.name || '', row.description || '']);
+    const nm = tr[0], ds = tr[1];
+    await supaRequestPrivileged('PATCH', 'ptn_products', 'id=eq.' + encodeURIComponent(id), {
+      name_fr: nm.fr, name_en: nm.en, description_fr: ds.fr, description_en: ds.en,
+    });
+  } catch (e) {
+    console.warn('[dozie-translate] product ' + id + ' refresh failed: ' + (e && e.message));
+  }
+}
+
+// From a Supabase REST representation body (array of affected rows) — used by the
+// proxy path when a ptn_products write DOES route through this server (dev /
+// localhost). In production the Dozie apps write straight to Supabase, so the
+// dedicated POST /api/dozie/translate-product endpoint (called by the seller form
+// after a save) is the path that actually fires. Both are fail-open + idempotent.
+async function dozieRefreshProductTranslations(responseBody) {
+  try {
+    let rows;
+    try { rows = JSON.parse(responseBody); } catch (_) { return; }
+    if (!Array.isArray(rows)) rows = (rows && rows.id) ? [rows] : [];
+    for (const row of rows) { if (row && row.id) await dozieTranslateProductById(row.id); }
+  } catch (e) {
+    console.warn('[dozie-translate] product refresh failed: ' + (e && e.message));
+  }
+}
+
 let DOZIE_SYN_INDEX = DS.buildIndex([]);
 try {
   const raw = require('./data/dozie_synonyms.json');
@@ -1113,6 +1152,21 @@ http.createServer((req, res) => {
   // success:false so the buyer client can fall back to the legacy search.
   {
     const p0 = req.url.split('?')[0];
+    // DOZIE-BILINGUAL: seller form pings this after a ptn_products create/edit
+    // (the writes go straight to Supabase, not through this server, so this is
+    // the reliable hook). Fire-and-forget; fail-open; never blocks the save.
+    if (p0 === '/api/dozie/translate-product' && req.method === 'POST') {
+      let body = '';
+      req.on('data', c => { body += c; });
+      req.on('end', () => {
+        let id = null;
+        try { id = (JSON.parse(body || '{}') || {}).id || null; } catch (_) {}
+        if (id) dozieTranslateProductById(String(id));
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: true }));
+      });
+      return;
+    }
     if (p0 === '/api/dozie/search-products' && req.method === 'GET') {
       (async () => {
         const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
@@ -1424,6 +1478,12 @@ http.createServer((req, res) => {
       }
 
       // ── Forward to Supabase REST (existing behaviour) ────────────────
+      // DOZIE-BILINGUAL: recompute the ptn_products write flag in THIS scope —
+      // the gate's isProductsPost/isProductsPatch are const-scoped to the try
+      // block above and aren't visible here.
+      const isProdWrite =
+        (req.method === 'POST'  && /^\/api\/ptn_products(\?|$)/.test(req.url)) ||
+        (req.method === 'PATCH' && /^\/api\/ptn_products\b/.test(req.url));
       const options = {
         hostname: SUPA, path: supaPath, method: req.method,
         headers: {
@@ -1433,6 +1493,20 @@ http.createServer((req, res) => {
         }
       };
       const pr = https.request(options, r => {
+        // DOZIE-BILINGUAL: for a ptn_products create/edit, buffer the response so
+        // we can read back the affected row and refresh its FR/EN (fire-and-forget,
+        // fail-open) — every other proxied request still pipes straight through.
+        if (isProdWrite) {
+          let buf = '';
+          r.on('data', d => { buf += d; });
+          r.on('end', () => {
+            res.writeHead(r.statusCode, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(buf);
+            if (r.statusCode >= 200 && r.statusCode < 300) dozieRefreshProductTranslations(buf);
+          });
+          r.on('error', () => { try { res.writeHead(502); res.end(); } catch (_) {} });
+          return;
+        }
         res.writeHead(r.statusCode, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         r.pipe(res);
       });

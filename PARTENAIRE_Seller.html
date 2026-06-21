@@ -820,6 +820,10 @@ function openWhatsApp(e, phone, text){
       <label class="form-label">Product Name *</label>
       <input class="form-input" id="p-name" placeholder="e.g. Piston Bajaj Boxer 150cc">
     </div>
+    <div class="form-group">
+      <label class="form-label">Description</label>
+      <textarea class="form-input" id="p-desc" rows="3" placeholder="e.g. Genuine Bajaj Boxer 150cc piston — brand new"></textarea>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group">
         <label class="form-label">Price (FCFA)</label>
@@ -1988,6 +1992,7 @@ function openAddProduct() {
   document.getElementById('save-product-btn').textContent = '🚀 Publish Product Now';
   document.getElementById('edit-product-id').value = '';
   document.getElementById('p-name').value = '';
+  document.getElementById('p-desc').value = '';
   document.getElementById('p-price').value = '';
   document.getElementById('p-stock').value = '';
   document.getElementById('p-category').value = 'moto_parts';
@@ -2010,6 +2015,7 @@ function openEditProduct(id) {
   document.getElementById('save-product-btn').textContent = '✓ Save Changes';
   document.getElementById('edit-product-id').value = id;
   document.getElementById('p-name').value = p.name;
+  document.getElementById('p-desc').value = p.description || '';
   document.getElementById('p-price').value = p.price || '';
   document.getElementById('p-stock').value = p.stock || '';
   document.getElementById('p-category').value = p.category || '1';
@@ -2023,9 +2029,23 @@ function openEditProduct(id) {
   openModal('modal-product');
 }
 
+// DOZIE-BILINGUAL: ask the Dozie server to translate this listing's name +
+// description to FR/EN (fire-and-forget, fail-open — never blocks the save).
+// This page is served by the Dozie server, so the endpoint is same-origin.
+function translateListing(id) {
+  try {
+    fetch('/api/dozie/translate-product', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id }),
+    }).catch(function () {});
+  } catch (e) { /* never block the save */ }
+}
+
 async function saveProduct() {
   const id    = document.getElementById('edit-product-id').value;
   const name  = document.getElementById('p-name').value.trim();
+  const desc  = document.getElementById('p-desc').value.trim();
   const price = parseFloat(document.getElementById('p-price').value) || null;
   const stock = parseInt(document.getElementById('p-stock').value) || 0;
   const cat   = document.getElementById('p-category').value;
@@ -2041,12 +2061,14 @@ async function saveProduct() {
 
   try {
     if (id) {
-      await PATCH('ptn_products','id',id,{ name, price, stock, category: cat, published: pub, photo_url: photoUrl });
-      allProducts = allProducts.map(p => p.id===id ? {...p,name,price,stock,category:cat,published:pub,photo_url:photoUrl} : p);
+      await PATCH('ptn_products','id',id,{ name, description: desc, price, stock, category: cat, published: pub, photo_url: photoUrl });
+      allProducts = allProducts.map(p => p.id===id ? {...p,name,description:desc,price,stock,category:cat,published:pub,photo_url:photoUrl} : p);
+      translateListing(id);
       toast('✓ Product updated', 'success');
     } else {
-      const saved = await POST('ptn_products',{ seller_id:currentSeller.id, name, price, stock, category:cat, published:pub, photo_url:photoUrl });
+      const saved = await POST('ptn_products',{ seller_id:currentSeller.id, name, description: desc, price, stock, category:cat, published:pub, photo_url:photoUrl });
       allProducts.unshift(saved);
+      if (saved && saved.id) translateListing(saved.id);
       if (pub) toast('🚀 Product published — buyers can see it now!', 'success');
       else toast('✓ Product saved as draft', 'success');
     }
