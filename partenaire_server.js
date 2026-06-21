@@ -370,8 +370,10 @@ function orderEscrowAmount(order) {
 // by FLW.verifyTransaction(). Idempotent on the order + transaction row.
 async function flwSettle({ verified, txRef, source }) {
   if (!verified || !txRef) return { ok: false, reason: 'missing_input' };
-  // Find the transaction row written at /flw/initiate → order_id + expected currency.
-  const txns = await supaRequest('GET', 'ptn_campay_transactions',
+  // Find the transaction row written at /flw/initiate → order_id + expected
+  // currency. PRIVILEGED: ptn_campay_transactions has RLS (authenticated-only
+  // SELECT), so the anon key can't read/write it — use the service role.
+  const txns = await supaRequestPrivileged('GET', 'ptn_campay_transactions',
     'reference=eq.' + encodeURIComponent(txRef) + '&select=id,order_id,currency,status&limit=1');
   const txn = Array.isArray(txns) && txns[0];
   if (!txn || !txn.order_id) return { ok: false, reason: 'unknown_tx_ref' };
@@ -402,7 +404,7 @@ async function flwSettle({ verified, txRef, source }) {
     payment_method: 'flutterwave', campay_status: 'successful',
     campay_paid_at: new Date().toISOString(), updated_at: new Date().toISOString()
   });
-  await supaRequest('PATCH', 'ptn_campay_transactions', 'id=eq.' + txn.id, {
+  await supaRequestPrivileged('PATCH', 'ptn_campay_transactions', 'id=eq.' + txn.id, {
     status: 'successful', campay_response: verified, updated_at: new Date().toISOString()
   });
   await supaRequest('POST', 'ptn_notifications', null, {
@@ -1765,13 +1767,13 @@ http.createServer((req, res) => {
             payment_options: flwPaymentOptions(cur.currency),
           }));
         } catch (e) {
-          await supaRequest('POST', 'ptn_campay_transactions', null, { reference: txRef, order_id: order.id, transaction_type: 'flutterwave_collect', amount: amt, currency: cur.currency, payer_phone: phone, status: 'failed' }).catch(() => {});
+          await supaRequestPrivileged('POST', 'ptn_campay_transactions', null, { reference: txRef, order_id: order.id, transaction_type: 'flutterwave_collect', amount: amt, currency: cur.currency, payer_phone: phone, status: 'failed' }).catch(() => {});
           console.error('[flw initiate]', e.message, e.flw || '');
           return send(502, { success: false, error_code: 'flw_init_failed', message: 'Could not start the online payment. Please try again.' });
         }
 
         // Record the attempt so the webhook/return can find the order by tx_ref.
-        await supaRequest('POST', 'ptn_campay_transactions', null, { reference: txRef, order_id: order.id, transaction_type: 'flutterwave_collect', amount: amt, currency: cur.currency, payer_phone: phone, status: 'initiated' });
+        await supaRequestPrivileged('POST', 'ptn_campay_transactions', null, { reference: txRef, order_id: order.id, transaction_type: 'flutterwave_collect', amount: amt, currency: cur.currency, payer_phone: phone, status: 'initiated' });
         await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order.id, { campay_reference: txRef, campay_status: 'initiated', payment_method: 'flutterwave', updated_at: new Date().toISOString() }).catch(() => {});
         return send(200, { success: true, link, tx_ref: txRef, amount: amt, currency: cur.currency });
       } catch (e) { send(500, { success: false, error_code: 'error', message: e.message }); }
@@ -1802,7 +1804,7 @@ http.createServer((req, res) => {
 
         if (chargeStatus !== 'successful') {
           if (chargeStatus === 'failed' || chargeStatus === 'cancelled')
-            await supaRequest('PATCH', 'ptn_campay_transactions', 'reference=eq.' + encodeURIComponent(txRef), { status: chargeStatus, updated_at: new Date().toISOString() }).catch(() => {});
+            await supaRequestPrivileged('PATCH', 'ptn_campay_transactions', 'reference=eq.' + encodeURIComponent(txRef), { status: chargeStatus, updated_at: new Date().toISOString() }).catch(() => {});
           return send(200, { ok: true, status: chargeStatus });
         }
 
