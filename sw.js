@@ -14,7 +14,17 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v31-20260621';
+const CACHE = 'partenaire-dozie-v32-20260621';
+// BUMP (2026-06-21c): tube↔chambre cross-language search. ROOT CAUSE was NOT a
+// missing synonym (the tube/chambre/"chambre a air"/inner-tube cluster was
+// already present and the shared module already bridged both directions) — it
+// was STALE CLIENT CACHE: installs predating the network-first-for-/data/ SW
+// served an old cached dozie_synonyms.json with no "chambre", so the client-side
+// expansion couldn't bridge. This bump evicts ALL old caches (activate()) and
+// reloads the current dozie_search.js + dozie_synonyms.json so the bridge goes
+// live on every installed/web client. Also strengthened the cluster: added
+// plurals "tubes"/"chambres" + hyphen "inner-tube" (plural/hyphen queries
+// previously missed the "Tube …" listings entirely).
 // BUMP (2026-06-21b): buyer-search fixes — bilingual degraded-fallback (ILIKE
 // name+name_en+name_fr+description) + "chambre" added to the tube synonym group
 // so a single-word "chambre" finds inner-tube/"Tube …" listings. Forces phones
