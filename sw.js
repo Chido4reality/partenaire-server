@@ -14,7 +14,13 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v37-20260621';
+const CACHE = 'partenaire-dozie-v38-20260621';
+// BUMP (2026-06-21i): make the CATEGORY chips + CITY filter actually filter.
+// Chips now carry the real signup category values (moto_parts/auto_parts/
+// electronics/hardware/agriculture/fashion[=Textile]) so s.category matches;
+// the city dropdown is rebuilt from the DISTINCT shop cities in the feed. All
+// three dims (country + city + category) compose in doSearch/renderProductSearch.
+// Pure client-side; no backend/RPC/migration. Payments untouched.
 // BUMP (2026-06-21h): buyer COUNTRY BROWSE FILTER — a country selector in the
 // search bar (🌍 All / 🇨🇲 CM / 🇳🇬 NG) filters shops + products by shop country
 // (shop.country_code from list_public_sellers). Defaults to the logged-in

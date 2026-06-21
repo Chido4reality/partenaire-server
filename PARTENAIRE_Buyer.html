@@ -447,12 +447,12 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
   <div class="tab-page active" id="page-shops">
     <div class="cat-row" id="cat-row">
       <div class="cat-chip active" onclick="filterCat('',this)">All</div>
-      <div class="cat-chip" onclick="filterCat('1',this)">🏍️ Moto Parts</div>
-      <div class="cat-chip" onclick="filterCat('2',this)">🚗 Auto Parts</div>
-      <div class="cat-chip" onclick="filterCat('3',this)">📱 Electronics</div>
-      <div class="cat-chip" onclick="filterCat('4',this)">🔧 Hardware</div>
-      <div class="cat-chip" onclick="filterCat('5',this)">🌾 Agriculture</div>
-      <div class="cat-chip" onclick="filterCat('6',this)">👗 Textile</div>
+      <div class="cat-chip" onclick="filterCat('moto_parts',this)">🏍️ Moto Parts</div>
+      <div class="cat-chip" onclick="filterCat('auto_parts',this)">🚗 Auto Parts</div>
+      <div class="cat-chip" onclick="filterCat('electronics',this)">📱 Electronics</div>
+      <div class="cat-chip" onclick="filterCat('hardware',this)">🔧 Hardware</div>
+      <div class="cat-chip" onclick="filterCat('agriculture',this)">🌾 Agriculture</div>
+      <div class="cat-chip" onclick="filterCat('fashion',this)">👗 Textile</div>
     </div>
     <!-- Product search results (shown only when a text query is active) -->
     <div id="search-products-section" style="display:none">
@@ -1277,8 +1277,23 @@ async function loadShops() {
       if (a.has_premium_perks !== b.has_premium_perks) return a.has_premium_perks ? -1 : 1;
       return 0;
     });
+    populateCityFilter();
     renderShops();
   } catch(e) { console.error('loadShops:', e); }
+}
+
+// DOZIE-CITY-FILTER: build the city dropdown from the DISTINCT shop cities
+// actually present in the feed (shop.city = MP shop location via city-unify),
+// so it only ever offers cities where shops exist. "All cities" resets. The
+// current selection is preserved if still present.
+function populateCityFilter() {
+  const sel = document.getElementById('city-filter');
+  if (!sel) return;
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const prev = sel.value;
+  const cities = [...new Set((allShops||[]).map(s => s.city).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
+  sel.innerHTML = '<option value="">' + (currentLang==='fr'?'Toutes les villes':'All cities') + '</option>'
+    + cities.map(c => '<option value="'+esc(c)+'"'+(c===prev?' selected':'')+'>'+esc(c)+'</option>').join('');
 }
 
 function renderShops() { doSearch(); }
