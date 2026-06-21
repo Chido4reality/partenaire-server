@@ -1329,7 +1329,16 @@ async function renderProductSearch(q, city) {
       if (window.DozieSearch && idx) {
         const exp = window.DozieSearch.expand(q, idx);
         const cat = await dozieFetchCatalogue();
-        products = cat.filter(p => window.DozieSearch.matchNorm(p._n || '', exp.terms));
+        // Prefix-aware + ranked: score each listing (0 = no match), keep hits,
+        // sort by relevance tier desc (exact > prefix > substring > synonym),
+        // stable on the original catalogue order for equal scores.
+        const _scored = [];
+        for (let _i = 0; _i < cat.length; _i++) {
+          const _s = window.DozieSearch.score(cat[_i]._n || '', exp);
+          if (_s > 0) _scored.push({ p: cat[_i], s: _s, i: _i });
+        }
+        _scored.sort((a, b) => (b.s - a.s) || (a.i - b.i));
+        products = _scored.map(x => x.p);
         // STEP 5: best-effort zero-result logging via the server (fire-and-forget).
         if (products.length === 0) {
           try {

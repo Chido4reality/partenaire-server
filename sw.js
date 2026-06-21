@@ -14,7 +14,15 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v32-20260621';
+const CACHE = 'partenaire-dozie-v33-20260621';
+// BUMP (2026-06-21d): prefix / as-you-type partial search in dozie_search.js.
+// A query token now (a) ranks as prefix-of-word against listing text and (b)
+// triggers synonym expansion when it is a PREFIX of a synonym term — so "cha"/
+// "cham" reach the chambre→tube cluster before the whole word "chambre" (was a
+// MISS). New score() ranks exact(100) > prefix(80) > substring(60) > synonym-
+// exact(40) > synonym-prefix(20); 1-letter tokens stay whole-word (no flood).
+// Buyer + server both consume score() via the shared module. Bump forces
+// installed/web clients to reload the new dozie_search.js.
 // BUMP (2026-06-21c): tube↔chambre cross-language search. ROOT CAUSE was NOT a
 // missing synonym (the tube/chambre/"chambre a air"/inner-tube cluster was
 // already present and the shared module already bridged both directions) — it

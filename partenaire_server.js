@@ -1176,13 +1176,19 @@ http.createServer((req, res) => {
           const rawQ = (u.searchParams.get('q') || '').trim();
           const buyerRef = (u.searchParams.get('buyer_ref') || '').trim() || null;
           if (!rawQ) return send(200, { success: true, data: [], count: 0, query_normalized: '', expanded: [] });
-          const { norm, terms } = dozieExpandQuery(rawQ);
+          const exp = dozieExpandQuery(rawQ);
+          const norm = exp.norm, terms = exp.terms;
           const catalogue = await dozieGetCatalogue();
-          const matched = [];
-          for (const prod of catalogue) {
-            const text = prod._norm || '';
-            for (const t of terms) { if (text.includes(t)) { matched.push(prod); break; } }
+          // Prefix-aware + ranked (same shared module as the client): score each
+          // listing, keep hits, sort by relevance tier desc (exact > prefix >
+          // substring > synonym), stable on catalogue order for equal scores.
+          const scored = [];
+          for (let i = 0; i < catalogue.length; i++) {
+            const s = DS.score(catalogue[i]._norm || '', exp);
+            if (s > 0) scored.push({ p: catalogue[i], s: s, i: i });
           }
+          scored.sort((a, b) => (b.s - a.s) || (a.i - b.i));
+          const matched = scored.map(x => x.p);
           const data = matched.map(p => ({
             listing_id: p.listing_id, seller_id: p.seller_id, name: p.name,
             name_fr: p.name_fr, name_en: p.name_en,
