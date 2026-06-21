@@ -2250,9 +2250,44 @@ function payAtShopMsg() {
     : 'Payment is made at the shop';
 }
 
+// FLW-COLLECT (Slice 1): start a Flutterwave hosted-checkout for an order and
+// redirect the buyer to the secure payment page. payment_status is set ONLY by
+// the server after a verified webhook/return — never here.
+async function flwStartCheckout(order_id) {
+  try {
+    toast((typeof currentLang!=='undefined'&&currentLang==='fr')?'Redirection vers le paiement sécurisé…':'Redirecting to secure payment…', '');
+    const data = await apiAuth('/flw/initiate', { order_id });
+    if (data && data.success && data.link) { window.location.href = data.link; return; }
+    toast((data && data.message) || 'Could not start payment', 'error');
+  } catch (e) { toast('Payment error: ' + (e.message || e), 'error'); }
+}
+
+// FLW-COLLECT: on redirect-return (/buyer?flw_tx=…&transaction_id=…&status=…),
+// ask the server to verify + settle (fallback to the webhook). The redirect
+// itself never marks anything paid. No-op when there's no flw_tx in the URL.
+async function flwHandleReturn() {
+  try {
+    const p = new URLSearchParams(location.search);
+    const txRef = p.get('flw_tx') || p.get('tx_ref');
+    const txId = p.get('transaction_id');
+    const status = (p.get('status') || '').toLowerCase();
+    if (!txRef) return;
+    history.replaceState({}, '', location.pathname);   // don't re-trigger on refresh
+    if (!txId || (status && status !== 'successful' && status !== 'completed')) { toast('Payment not completed', 'error'); return; }
+    const r = await apiAuth('/flw/verify-return', { tx_ref: txRef, transaction_id: txId });
+    if (r && (r.success || r.paid)) { toast('✅ Payment confirmed!', 'success'); if (typeof loadOrders === 'function') await loadOrders(); }
+  } catch (e) { /* the webhook will still settle server-side */ }
+}
+window.addEventListener('load', function () { try { flwHandleReturn(); } catch (e) {} });
+
 function openMomoModal(context) {
   // v1: never open the mobile-money modal — payment happens at the shop.
   if (!PAYMENTS_ENABLED) { toast('📋 ' + payAtShopMsg(), 'success'); return; }
+  // FLW-COLLECT: when payments are ON, order payments go through Flutterwave
+  // hosted checkout (redirect), NOT the Campay momo modal. Single chokepoint —
+  // every order-pay entry point funnels through here. (Dormant while the flag
+  // above is false.) Non-order contexts keep the legacy modal.
+  if (context && context.order_id) { flwStartCheckout(context.order_id); return; }
   momoContext = context;
   console.log('openMomoModal called with:', JSON.stringify(context));
   document.getElementById('momo-title').textContent = context.title || 'Pay with Mobile Money';

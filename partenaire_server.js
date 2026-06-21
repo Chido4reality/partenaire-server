@@ -93,17 +93,30 @@ const CAMPAY_WEBHOOK_SECRET = process.env.CAMPAY_WEBHOOK_SECRET || '';
 // (env) and providing real Campay credentials.
 const PAYMENTS_ENABLED = process.env.PAYMENTS_ENABLED === 'true';
 
-// Fail loud, not silent-sandbox: in production, refuse to boot unless the
-// Campay config is real. Only enforced when payments are ENABLED — a
-// payments-off v1 must boot without any Campay credentials.
+// FLW-COLLECT (Slice 0/1): Flutterwave is the in-app collect provider. TEST vs
+// LIVE is the key prefix (FLWSECK_TEST- vs FLWSECK-); identical code either way.
+const FLW_IS_TEST = String(process.env.FLW_SECRET_KEY || '').startsWith('FLWSECK_TEST-');
+// The Flutterwave collect routes (/flw/initiate, /flw/verify-return) are gated
+// STRICTLY on PAYMENTS_ENABLED — so prod (flag OFF) is fully dormant and no real
+// order can be touched via FLW until the deliberate flip, regardless of key
+// type. Test-mode validation is done by running LOCALLY with PAYMENTS_ENABLED=
+// true + TEST keys against a throwaway order. (/flw/webhook stays reachable for
+// Flutterwave to call but is self-protecting: verif-hash + it only settles an
+// order that has a matching DZORD transaction row, which only /flw/initiate
+// creates — so with the flag off there is nothing for it to settle.)
+const FLW_ROUTES_ACTIVE = PAYMENTS_ENABLED;
+
+// Fail loud, not silent-sandbox: in production with payments ENABLED, refuse to
+// boot unless the Flutterwave collect env is present. (The Campay helpers below
+// stay for the legacy XAF payout path but are NO LONGER a boot requirement —
+// Dozie seller payout is MANUAL this slice.)
 if (PAYMENTS_ENABLED && process.env.NODE_ENV === 'production') {
   const _fail = (m) => { console.error('CRITICAL: ' + m); process.exit(1); };
-  if (process.env.CAMPAY_ENV !== 'production')
-    _fail('CAMPAY_ENV must be "production" in a production deployment');
-  if (!process.env.CAMPAY_TOKEN && !(process.env.CAMPAY_USERNAME && process.env.CAMPAY_PASSWORD))
-    _fail('Campay credentials missing (set CAMPAY_TOKEN, or CAMPAY_USERNAME + CAMPAY_PASSWORD)');
-  if (!CAMPAY_WEBHOOK_SECRET)
-    _fail('CAMPAY_WEBHOOK_SECRET missing');
+  if (!process.env.FLW_SECRET_KEY)
+    _fail('FLW_SECRET_KEY missing (Flutterwave secret key) — payments enabled but no collect provider');
+  if (!process.env.FLW_SECRET_HASH)
+    _fail('FLW_SECRET_HASH missing (Flutterwave webhook verif-hash)');
+  console.log('[payments] Flutterwave collect ENABLED — mode: ' + (FLW_IS_TEST ? 'TEST' : 'LIVE'));
 }
 
 let campayToken = null;
@@ -301,6 +314,109 @@ const DS = require('./dozie_search.js');
 // DOZIE-BILINGUAL: Azure FR<->EN translate helper (fail-open). Lockstep with the
 // MP backend's backend/src/lib/azureTranslate.js.
 const DT = require('./dozie_translate.js');
+
+// ── FLW-COLLECT (Dozie Slice 0/1) — Flutterwave hosted-checkout helpers ──────
+const FLW = require('./flutterwave.js');
+
+// Resolve an order's settlement currency from the SELLER's linked MP org
+// (ptn_users.linked_mp_org_id → pa_organisations.country). CM→XAF, NG→NGN.
+// FAIL CLOSED: returns { currency:null, reason } when unresolvable (e.g. a
+// standalone seller with no linked MP org); callers MUST refuse to start a pay.
+function _currencyForCountry(country) {
+  const c = String(country || '').trim().toUpperCase();
+  if (['CM', 'CMR', 'CAMEROON', 'CAMEROUN'].includes(c)) return 'XAF';
+  if (['NG', 'NGA', 'NIGERIA'].includes(c)) return 'NGN';
+  return null;
+}
+async function resolveOrderCurrency(order) {
+  try {
+    if (!order || !order.seller_id) return { currency: null, reason: 'no_seller' };
+    const sellers = await supaRequestPrivileged('GET', 'ptn_users',
+      'id=eq.' + order.seller_id + '&select=id,linked_mp_org_id');
+    const seller = Array.isArray(sellers) && sellers[0];
+    if (!seller || !seller.linked_mp_org_id) return { currency: null, reason: 'no_linked_org' };
+    const orgs = await supaRequestPrivileged('GET', 'pa_organisations',
+      'id=eq.' + seller.linked_mp_org_id + '&select=id,country');
+    const org = Array.isArray(orgs) && orgs[0];
+    const currency = _currencyForCountry(org && org.country);
+    if (!currency) return { currency: null, reason: 'unknown_country', country: org && org.country };
+    return { currency, country: org.country, source: 'mp_org' };
+  } catch (e) {
+    return { currency: null, reason: 'error', message: e.message };
+  }
+}
+
+// XAF → mobile-money set (mirrors MP). NGN → omit so the hosted page shows all
+// dashboard-enabled methods (card, bank transfer, USSD, OPay if enabled).
+function flwPaymentOptions(currency) {
+  return currency === 'XAF' ? 'card,mobilemoney,mobilemoneyfranco' : undefined;
+}
+
+function dozieBaseUrl(req) {
+  if (process.env.DOZIE_PUBLIC_URL) return process.env.DOZIE_PUBLIC_URL.replace(/\/+$/, '');
+  const proto = (req && String(req.headers['x-forwarded-proto'] || '').split(',')[0]) || 'https';
+  const host = (req && req.headers['host']) || 'partenaire-server.onrender.com';
+  return proto + '://' + host;
+}
+
+// The order amount to collect/hold (an accepted counter-offer overrides total).
+function orderEscrowAmount(order) {
+  return order && order.counter_status === 'accepted' ? order.counter_total : order && order.total;
+}
+
+// Settle a Flutterwave-collected order from a SERVER-SIDE VERIFIED transaction.
+// Shared by /flw/webhook (primary) and /flw/verify-return (fallback). NEVER
+// trusts a client/redirect assertion: the caller must pass the object returned
+// by FLW.verifyTransaction(). Idempotent on the order + transaction row.
+async function flwSettle({ verified, txRef, source }) {
+  if (!verified || !txRef) return { ok: false, reason: 'missing_input' };
+  // Find the transaction row written at /flw/initiate → order_id + expected currency.
+  const txns = await supaRequest('GET', 'ptn_campay_transactions',
+    'reference=eq.' + encodeURIComponent(txRef) + '&select=id,order_id,currency,status&limit=1');
+  const txn = Array.isArray(txns) && txns[0];
+  if (!txn || !txn.order_id) return { ok: false, reason: 'unknown_tx_ref' };
+  if (txn.status === 'successful') return { ok: true, idempotent: true, order_id: txn.order_id };
+
+  const orders = await supaRequest('GET', 'ptn_orders', 'id=eq.' + txn.order_id + '&select=*');
+  const order = Array.isArray(orders) && orders[0];
+  if (!order) return { ok: false, reason: 'order_not_found' };
+  if (order.payment_status === 'paid') return { ok: true, idempotent: true, order_id: order.id };
+
+  const amt = Number(orderEscrowAmount(order));
+  const okStatus = String(verified.status || '').toLowerCase() === 'successful';
+  const okAmount = Number(verified.amount) >= amt;                 // >= tolerates over-pay/rounding
+  const okCurrency = String(verified.currency || '').toUpperCase() === String(txn.currency || '').toUpperCase();
+  const okRef = verified.tx_ref === txRef;
+  if (!(okStatus && okAmount && okCurrency && okRef)) {
+    await supaRequest('POST', 'ptn_audit_log', null, {
+      action: 'flw_settle_mismatch', target_type: 'ptn_orders', target_id: order.id,
+      details: { source, tx_ref: txRef, okStatus, okAmount, okCurrency, okRef,
+        expected_amount: amt, expected_currency: txn.currency,
+        got: { amount: verified.amount, currency: verified.currency, status: verified.status, tx_ref: verified.tx_ref } }
+    }).catch(() => {});
+    return { ok: false, reason: 'verify_mismatch' };
+  }
+
+  await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order.id, {
+    payment_status: 'paid', escrow_held: amt, status: 'confirmed',
+    payment_method: 'flutterwave', campay_status: 'successful',
+    campay_paid_at: new Date().toISOString(), updated_at: new Date().toISOString()
+  });
+  await supaRequest('PATCH', 'ptn_campay_transactions', 'id=eq.' + txn.id, {
+    status: 'successful', campay_response: verified, updated_at: new Date().toISOString()
+  });
+  await supaRequest('POST', 'ptn_notifications', null, {
+    user_id: order.seller_id, type: 'payment', order_id: order.id,
+    title_en: 'Payment Received', title_fr: 'Paiement reçu',
+    body_en: 'Order ' + order.order_ref + ' paid online. Funds held in escrow.',
+    body_fr: 'Commande ' + order.order_ref + ' payée en ligne. Fonds en séquestre.', read: false
+  }).catch(() => {});
+  await supaRequest('POST', 'ptn_audit_log', null, {
+    action: 'flw_settle_success', target_type: 'ptn_orders', target_id: order.id,
+    details: { source, tx_ref: txRef, amount: amt, currency: txn.currency, flw_id: verified.id }
+  }).catch(() => {});
+  return { ok: true, order_id: order.id, amount: amt };
+}
 
 // Translate one ptn_products row's name + description to FR + EN and store both.
 // Loads the row fresh by id (current DB state). FAIL-OPEN: never throws.
@@ -1601,6 +1717,161 @@ http.createServer((req, res) => {
   // TODO STAGE-2: legacy unauthenticated path kept functional until the
   // buyer flow fully cuts over; secured replacement is
   // /api/orders/:id/retry-payment above.
+  // ── FLUTTERWAVE: INITIATE (Slice 1 collect) ──────────────────
+  // Buyer starts a hosted-checkout payment for a confirmed, payment-requested
+  // order. Returns { link } to redirect to. payment_status is NOT set here —
+  // only a verified webhook/return settles it.
+  if (req.url === '/flw/initiate' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        if (!FLW_ROUTES_ACTIVE) return send(503, { success: false, error_code: 'payments_disabled', message: 'Online payment is not enabled' });
+        const idn = resolveDozieIdentity(req, 'buyer');
+        if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+        const { order_id } = JSON.parse(body || '{}');
+        if (!order_id) return send(400, { success: false, error_code: 'validation', message: 'order_id required' });
+
+        const orders = await supaRequest('GET', 'ptn_orders', 'id=eq.' + order_id + '&select=*');
+        const order = Array.isArray(orders) && orders[0];
+        if (!order) return send(404, { success: false, error_code: 'not_found', message: 'Order not found' });
+        if (order.buyer_id !== idn.uid) return send(403, { success: false, error_code: 'forbidden', message: 'Not your order' });
+        if (order.payment_status === 'paid') return send(409, { success: false, error_code: 'already_paid', message: 'Order already paid' });
+        if (!(order.status === 'confirmed' && order.payment_requested)) return send(409, { success: false, error_code: 'not_payable', message: 'Order is not awaiting payment (status: ' + order.status + ')' });
+
+        const cur = await resolveOrderCurrency(order);
+        if (!cur.currency) return send(422, { success: false, error_code: 'currency_unresolved', message: 'Could not resolve the order currency (seller has no linked country). Online payment unavailable for this seller.', reason: cur.reason });
+
+        const amt = Number(orderEscrowAmount(order));
+        if (!(amt > 0)) return send(422, { success: false, error_code: 'bad_amount', message: 'Order amount is not payable' });
+
+        // Buyer contact (email synthesized from phone, like MP).
+        const buyers = await supaRequestPrivileged('GET', 'ptn_users', 'id=eq.' + idn.uid + '&select=id,phone,name');
+        const buyer = (Array.isArray(buyers) && buyers[0]) || {};
+        const phone = buyer.phone || order.payer_phone || '';
+        const email = (phone ? String(phone).replace(/[^0-9]/g, '') : order.order_ref) + '@nomail.partenaire.app';
+
+        const txRef = 'DZORD-' + order.order_ref + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+        const redirect_url = dozieBaseUrl(req) + '/buyer?flw_tx=' + encodeURIComponent(txRef);
+
+        let link;
+        try {
+          ({ link } = await FLW.createPayment({
+            tx_ref: txRef, amount: amt, currency: cur.currency, redirect_url,
+            customer: { email, name: buyer.name || 'Buyer', phonenumber: phone || '' },
+            meta: { order_id: order.id, order_ref: order.order_ref, seller_id: order.seller_id, buyer_id: order.buyer_id },
+            title: 'Partenaire Dozie — ' + order.order_ref,
+            payment_options: flwPaymentOptions(cur.currency),
+          }));
+        } catch (e) {
+          await supaRequest('POST', 'ptn_campay_transactions', null, { reference: txRef, order_id: order.id, transaction_type: 'flutterwave_collect', amount: amt, currency: cur.currency, payer_phone: phone, status: 'failed' }).catch(() => {});
+          console.error('[flw initiate]', e.message, e.flw || '');
+          return send(502, { success: false, error_code: 'flw_init_failed', message: 'Could not start the online payment. Please try again.' });
+        }
+
+        // Record the attempt so the webhook/return can find the order by tx_ref.
+        await supaRequest('POST', 'ptn_campay_transactions', null, { reference: txRef, order_id: order.id, transaction_type: 'flutterwave_collect', amount: amt, currency: cur.currency, payer_phone: phone, status: 'initiated' });
+        await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order.id, { campay_reference: txRef, campay_status: 'initiated', payment_method: 'flutterwave', updated_at: new Date().toISOString() }).catch(() => {});
+        return send(200, { success: true, link, tx_ref: txRef, amount: amt, currency: cur.currency });
+      } catch (e) { send(500, { success: false, error_code: 'error', message: e.message }); }
+    });
+    return;
+  }
+
+  // ── FLUTTERWAVE: WEBHOOK (primary settle) ────────────────────
+  // Cloned from MP: header verif-hash === FLW_SECRET_HASH → else 401 (503 if
+  // unset); then a server-side verify decides — never the webhook's own claim.
+  if (req.url === '/flw/webhook' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        const secret = process.env.FLW_SECRET_HASH;
+        if (!secret) { console.error('[flw webhook] FLW_SECRET_HASH not set — rejecting'); return send(503, { ok: false, error: 'webhook_not_configured' }); }
+        const sent = req.headers['verif-hash'];
+        if (!sent || sent !== secret) return send(401, { ok: false, error: 'invalid_hash' });
+
+        const payload = JSON.parse(body || '{}');
+        const data = payload.data || {};
+        const txRef = data.tx_ref, txId = data.id;
+        const chargeStatus = String(data.status || '').toLowerCase();
+        if (!txRef) return send(200, { ok: true, skipped: 'no_tx_ref' });
+        if (!String(txRef).startsWith('DZORD-')) return send(200, { ok: true, skipped: 'not_dozie_order' });
+
+        if (chargeStatus !== 'successful') {
+          if (chargeStatus === 'failed' || chargeStatus === 'cancelled')
+            await supaRequest('PATCH', 'ptn_campay_transactions', 'reference=eq.' + encodeURIComponent(txRef), { status: chargeStatus, updated_at: new Date().toISOString() }).catch(() => {});
+          return send(200, { ok: true, status: chargeStatus });
+        }
+
+        let verified;
+        try { verified = await FLW.verifyTransaction(txId); }
+        catch (e) { console.error('[flw webhook] verify failed:', e.message); return send(200, { ok: true, verified: false, reason: 'verify_error' }); }
+
+        const r = await flwSettle({ verified, txRef, source: 'webhook' });
+        return send(200, { ok: true, settled: r.ok, idempotent: !!r.idempotent, reason: r.reason || null });
+      } catch (e) { send(200, { ok: false, error: e.message }); }
+    });
+    return;
+  }
+
+  // ── FLUTTERWAVE: VERIFY-RETURN (redirect fallback) ───────────
+  // FLW redirects the buyer to /buyer?flw_tx=<ref>&transaction_id=<id>. The
+  // buyer page posts here so a missed webhook still settles. Same verify +
+  // idempotency as the webhook — the redirect itself never settles anything.
+  if (req.url === '/flw/verify-return' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        if (!FLW_ROUTES_ACTIVE) return send(503, { success: false, message: 'Online payment is not enabled' });
+        const idn = resolveDozieIdentity(req, 'buyer');
+        if (idn.error || !idn.uid) return send(401, { success: false, message: 'Authentication required' });
+        const { tx_ref, transaction_id } = JSON.parse(body || '{}');
+        if (!tx_ref || !transaction_id) return send(400, { success: false, message: 'tx_ref and transaction_id required' });
+        if (!String(tx_ref).startsWith('DZORD-')) return send(400, { success: false, message: 'bad tx_ref' });
+
+        let verified;
+        try { verified = await FLW.verifyTransaction(transaction_id); }
+        catch (e) { return send(200, { success: false, verified: false, reason: 'verify_error' }); }
+
+        const r = await flwSettle({ verified, txRef: tx_ref, source: 'return' });
+        return send(200, { success: r.ok, paid: r.ok, idempotent: !!r.idempotent, order_id: r.order_id || null, reason: r.reason || null });
+      } catch (e) { send(500, { success: false, message: e.message }); }
+    });
+    return;
+  }
+
+  // ── FLUTTERWAVE: MARK PAID OUT (admin, MANUAL payout this slice) ──
+  // No automated FLW Transfers yet. Peter records an out-of-band seller payment
+  // here: sets escrow_released=true + a manual payout ref + status delivered.
+  if (req.url === '/flw/mark-paid-out' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        const { order_id, admin_pin, payout_ref } = JSON.parse(body || '{}');
+        if (!process.env.ADMIN_PIN || admin_pin !== process.env.ADMIN_PIN) return send(200, { success: false, message: 'Non autorisé' });
+        if (!order_id) return send(400, { success: false, message: 'order_id required' });
+        const orders = await supaRequest('GET', 'ptn_orders', 'id=eq.' + order_id + '&select=*');
+        const order = Array.isArray(orders) && orders[0];
+        if (!order) return send(404, { success: false, message: 'Order not found' });
+        if (order.escrow_released) return send(200, { success: false, message: 'Already released' });
+        if (order.payment_status !== 'paid' || !order.escrow_held) return send(200, { success: false, message: 'No escrow to release' });
+        const ref = payout_ref || ('MANUAL-' + order.order_ref + '-' + Date.now());
+        await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { escrow_released: true, campay_payout_ref: ref, campay_payout_at: new Date().toISOString(), status: 'delivered', updated_at: new Date().toISOString() });
+        await supaRequest('POST', 'ptn_audit_log', null, { action: 'flw_manual_payout_recorded', target_type: 'ptn_orders', target_id: order_id, details: { order_ref: order.order_ref, amount: order.escrow_held, payout_ref: ref } }).catch(() => {});
+        await supaRequest('POST', 'ptn_notifications', null, { user_id: order.seller_id, type: 'payment', order_id, title_en: 'Payout Sent', title_fr: 'Paiement envoyé', body_en: 'Payout for order ' + order.order_ref + ' has been sent (ref ' + ref + ').', body_fr: 'Le paiement de la commande ' + order.order_ref + ' a été envoyé (réf ' + ref + ').', read: false }).catch(() => {});
+        return send(200, { success: true, order_id, payout_ref: ref, amount: order.escrow_held });
+      } catch (e) { send(500, { success: false, message: e.message }); }
+    });
+    return;
+  }
+
   if (req.url === '/campay/pay' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);
@@ -1855,6 +2126,19 @@ http.createServer((req, res) => {
         if (!order.escrow_held || order.payment_status !== 'paid') {
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           return res.end(JSON.stringify({ success: false, message: 'No escrow to release' }));
+        }
+
+        // FLW-COLLECT: a Flutterwave-collected order is NOT paid out via the
+        // Campay XAF rail (wrong provider/currency). Mark it delivered, keep
+        // escrow_released=false, and QUEUE it for MANUAL payout (Peter records
+        // the out-of-band payment via /flw/mark-paid-out). Automated FLW
+        // Transfers payout is the next slice.
+        if (order.payment_method === 'flutterwave') {
+          await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { status: 'delivered', delivery_confirmed_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+          await supaRequest('POST', 'ptn_audit_log', null, { action: 'flw_payout_queued_manual', target_type: 'ptn_orders', target_id: order_id, details: { order_ref: order.order_ref, amount: order.escrow_held } }).catch(() => {});
+          await supaRequest('POST', 'ptn_notifications', null, { user_id: order.seller_id, type: 'order', order_id: order_id, title_en: 'Delivery Confirmed', title_fr: 'Livraison confirmée', body_en: 'Buyer confirmed delivery of ' + order.order_ref + '. Your payout is being processed.', body_fr: "L'acheteur a confirmé la livraison de " + order.order_ref + '. Votre paiement est en cours.', read: false }).catch(() => {});
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          return res.end(JSON.stringify({ success: true, manual: true, message: 'Delivery confirmed; payout queued for manual processing' }));
         }
 
         // Get seller phone — MOMO-PHONE-CAPTURE: prefer the seller's
