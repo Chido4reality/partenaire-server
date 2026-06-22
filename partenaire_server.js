@@ -346,13 +346,17 @@ async function resolveOrderCurrency(order) {
   }
 }
 
-// XAF → mobile money FIRST, card LAST (Cameroon buyers are mobile-money-first).
-// mobilemoneyfranco = MTN MoMo + Orange Money (francophone CM). NGN → omit so the
-// hosted page shows all dashboard-enabled methods (card, bank transfer, USSD,
-// OPay if enabled). NOTE: whether Flutterwave's hosted page actually honours this
-// order (and the MTN-vs-Orange sub-order) is Flutterwave's behaviour, not ours.
+// Narrow the hosted-checkout methods so the LOCAL method leads (Peter's call):
+//   XAF (Cameroon) → 'mobilemoneyfranco' ONLY (MTN MoMo + Orange Money). Dropping
+//     card + the generic mobilemoney makes MoMo/Orange the only/first choice.
+//   NGN (Nigeria)  → 'opay,banktransfer,card,ussd' with OPay listed FIRST (keep
+//     the others) — an experiment to see if FLW honours the lead method.
+// NOTE: the hosted page ultimately decides ordering/sub-ordering; this is the
+// strongest hint we can send (the method list + its order), not a guarantee.
 function flwPaymentOptions(currency) {
-  return currency === 'XAF' ? 'mobilemoneyfranco,mobilemoney,card' : undefined;
+  if (currency === 'XAF') return 'mobilemoneyfranco';
+  if (currency === 'NGN') return 'opay,banktransfer,card,ussd';
+  return undefined;
 }
 
 function dozieBaseUrl(req) {
