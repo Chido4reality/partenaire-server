@@ -2526,23 +2526,31 @@ function openOrderDetail(id) {
   document.getElementById('order-detail-screen').style.display = 'block';
 }
 
+// Standalone seller dispute reply — server-side (POST /disputes/reply, seller
+// JWT). Replaces the old anon-direct ptn_disputes/ptn_orders PATCHes now that
+// ptn_disputes anon writes are revoked. The service-role RPC writes both stores.
+async function dozieDisputeReply(orderId, reply) {
+  const jwt = localStorage.getItem('dozie_jwt');
+  const r = await fetch('/disputes/reply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(jwt ? { 'Authorization': 'Bearer ' + jwt } : {}) },
+    body: JSON.stringify({ order_id: orderId, reply: reply })
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.success) throw new Error((d && d.message) || 'Reply failed');
+  return d;
+}
+
 async function submitDisputeReply(orderId, buyerId, orderRef) {
   const reply = document.getElementById('dispute-reply-text') && document.getElementById('dispute-reply-text').value.trim();
   if (!reply) { toast('Enter your reply first', 'error'); return; }
   try {
-    const replyAt = new Date().toISOString();
-    // Save to ptn_orders (for buyer display)
-    await PATCH('ptn_orders', 'id', orderId, {
-      seller_dispute_reply: reply,
-      seller_reply_at: replyAt,
-      dispute_status: 'seller_replied',
-      updated_at: replyAt
-    });
-    // Save to ptn_disputes.seller_reply (for admin display)
-    await PATCH('ptn_disputes', 'order_id', orderId, {
-      seller_reply: reply,
-      seller_replied_at: replyAt
-    }).catch(() => {}); // correct column (was seller_reply_at); status left 'open' for admin/Litiges
+    // Server-side (POST /disputes/reply, seller JWT): the service-role RPC writes
+    // seller_reply on BOTH ptn_disputes + the inline ptn_orders col. dispute_status
+    // is left unchanged (NOT 'seller_replied') so the payout interlock keeps
+    // blocking until an admin resolves. Replaces the old anon-direct PATCHes
+    // (ptn_disputes anon writes are now revoked).
+    await dozieDisputeReply(orderId, reply);
     await POST('ptn_notifications', {
       user_id: buyerId,
       type: 'dispute',
@@ -3282,18 +3290,18 @@ function renderSellerDisputes(rows) {
       ${d.resolution_note ? `<div style="background:#EEF2FF;border-radius:10px;padding:10px 12px;font-size:13px;color:#3730a3;margin-bottom:10px"><strong>${fr?'Décision admin :':'Admin decision:'}</strong> ${dzEsc(d.resolution_note)}</div>` : ''}
       ${isOpen ? `
         <textarea id="dr-${d.id}" rows="2" placeholder="${fr?'Votre réponse au litige…':'Your response…'}" style="width:100%;border:1px solid #dcd7cf;border-radius:10px;padding:10px;font-size:13px;box-sizing:border-box;font-family:inherit;resize:none">${d.seller_reply ? dzEsc(d.seller_reply) : ''}</textarea>
-        <button onclick="submitSellerDisputeReply('${d.id}')" style="margin-top:8px;background:var(--navy);color:#fff;border:none;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">${fr?'Envoyer la réponse':'Send reply'}</button>
+        <button onclick="submitSellerDisputeReply('${d.id}','${d.order_id}')" style="margin-top:8px;background:var(--navy);color:#fff;border:none;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer">${fr?'Envoyer la réponse':'Send reply'}</button>
       ` : ''}
     </div>`;
   }).join('');
 }
-async function submitSellerDisputeReply(id) {
+async function submitSellerDisputeReply(id, orderId) {
   const fr = currentLang === 'fr';
   const ta = document.getElementById('dr-' + id);
   const reply = ta ? ta.value.trim() : '';
   if (!reply) { toast(fr?'Écrivez une réponse':'Write a reply','error'); return; }
   try {
-    await PATCH('ptn_disputes', 'id', id, { seller_reply: reply, seller_replied_at: new Date().toISOString() });
+    await dozieDisputeReply(orderId, reply);
     try { await POST('ptn_notifications', { type:'dispute', title_en:'Seller replied to a dispute', title_fr:'Le vendeur a répondu à un litige', body_en:reply.slice(0,120), body_fr:reply.slice(0,120), read:false }); } catch(e) {}
     toast(fr?'Réponse envoyée':'Reply sent','success');
     loadSellerDisputes();

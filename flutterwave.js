@@ -56,6 +56,31 @@ async function createPayment({ tx_ref, amount, currency, redirect_url, customer,
   return { link: json.data.link, raw: json };
 }
 
+// Refund a previously-successful charge. Our flow is full-order only, so the
+// caller passes amount = order.total. FLW v3: POST /v3/transactions/:id/refund
+// with { amount }. Some collection corridors (mobile money, OPay) are NOT
+// API-refundable — FLW returns an error; we surface { ok:false, reason } and the
+// caller falls back to a manual refund (refund_status='pending_manual'). On
+// success FLW returns data.{ id, status } (status 'completed' | 'pending').
+// NEVER throws — refunds must degrade to manual, not crash resolveRefund.
+async function refundTransaction(flwTxId, amount) {
+  if (!flwTxId) return { ok: false, reason: 'no_flw_tx_id' };
+  try {
+    const res = await fetch(`${FLW_BASE}/transactions/${encodeURIComponent(flwTxId)}/refund`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secretKey()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(amount != null ? { amount } : {}),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json.status !== 'success' || !json.data) {
+      return { ok: false, reason: (json && json.message) || `Flutterwave refund failed (HTTP ${res.status})`, raw: json };
+    }
+    return { ok: true, refundId: String(json.data.id != null ? json.data.id : ''), status: json.data.status || null, raw: json };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
 // Server-side verify a transaction by Flutterwave transaction id.
 // Returns the verified data object (or throws).
 async function verifyTransaction(transactionId) {
@@ -71,4 +96,4 @@ async function verifyTransaction(transactionId) {
   return json.data; // { status, amount, currency, tx_ref, id, ... }
 }
 
-module.exports = { createPayment, verifyTransaction, isTestKey, FLW_BASE };
+module.exports = { createPayment, verifyTransaction, refundTransaction, isTestKey, FLW_BASE };

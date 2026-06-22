@@ -2009,13 +2009,13 @@ function openOrderDetail(id) {
       ⚠️ <strong>Litige ouvert:</strong> ${o.dispute_reason || ''}
       ${o.seller_dispute_reply ? '<br><br><strong>Reponse du vendeur:</strong> ' + o.seller_dispute_reply : '<br><small>En attente de la reponse du vendeur...</small>'}
     </div>` : ''}
-    ${(o.payment_status === 'paid' || o.campay_status === 'successful') && !o.dispute_raised && o.status !== 'delivered' ? `
+    ${PAYMENTS_ENABLED && o.payment_method === 'flutterwave' && o.payment_status === 'paid' && !o.dispute_raised && !['refunded','cancelled'].includes(o.status) && !o.escrow_released ? `
     <div style="background:#fff;border-radius:14px;padding:16px;margin-bottom:16px;border:1px solid var(--lgrey)">
       <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">Un probleme avec cette commande?</div>
-      <div style="font-size:12px;color:var(--grey);margin-bottom:12px">Signalez un probleme — le vendeur sera notifie</div>
+      <div style="font-size:12px;color:var(--grey);margin-bottom:12px">Signalez un probleme / demandez un remboursement — le vendeur sera notifie</div>
       <button onclick="openDisputeModal('${o.id}','${o.order_ref}','${o.seller_id}',${o.total||0})"
         style="padding:10px 20px;background:transparent;border:1.5px solid var(--red);color:var(--red);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer">
-        ⚠️ Signaler un probleme
+        ⚠️ Signaler un probleme / demander un remboursement
       </button>
     </div>` : ''}
     ${(o.payment_requested && o.status==='confirmed' && o.payment_status !== 'paid') ? `
@@ -3295,30 +3295,23 @@ async function submitDispute() {
   errEl.style.display = 'none';
 
   try {
+    // SERVER-AUTHORITATIVE + DORMANT-GATED: the backend (gated behind
+    // PAYMENTS_ENABLED) validates ownership + paid-online state, writes BOTH the
+    // ptn_orders dispute cols and the authoritative ptn_disputes row, and
+    // notifies the seller. The buyer JWT authenticates the call.
     const claim = reason + ': ' + desc;
-    await POST('ptn_disputes', {
-      order_id:    activeDisputeOrder.orderId,
-      order_ref:   activeDisputeOrder.orderRef,
-      buyer_id:    currentBuyer.id,
-      seller_id:   activeDisputeOrder.sellerId,
-      buyer_claim: claim,
-      amount:      activeDisputeOrder.amount,
-      status:      'open',
-      created_at:  new Date().toISOString()
+    const _jwt = localStorage.getItem('dozie_jwt');
+    const r = await fetch('/orders/' + activeDisputeOrder.orderId + '/dispute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(_jwt ? { 'Authorization': 'Bearer ' + _jwt } : {}) },
+      body: JSON.stringify({ reason: claim })
     });
-    try {
-      await POST('ptn_notifications', {
-        type:      'dispute',
-        title_en:  '⚠️ New Dispute: ' + activeDisputeOrder.orderRef,
-        title_fr:  '⚠️ Nouveau litige: ' + activeDisputeOrder.orderRef,
-        body_en:   'Buyer raised a dispute — ' + reason,
-        body_fr:   'L\'acheteur a soumis un litige — ' + reason,
-        read:      false
-      });
-    } catch(e) {}
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success) throw new Error((d && d.message) || 'Dispute failed');
     closeDisputeModal();
     closeOrderDetail();
-    toast('⚠️ Dispute submitted. Admin will review within 24h.', 'success');
+    if (typeof loadBuyerOrders === 'function') { try { loadBuyerOrders(); } catch(e) {} }
+    toast('⚠️ Dispute submitted. The seller has been notified.', 'success');
   } catch(e) {
     errEl.textContent = 'Error: ' + e.message;
     errEl.style.display = 'block';

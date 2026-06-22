@@ -291,6 +291,13 @@ function supaRpc(fn, args) {
   return supaRequest('POST', 'rpc/' + fn, '', args || {});
 }
 
+// Privileged RPC (service role). The dozie_dispute_* / dozie_refund_* SECURITY
+// DEFINER functions have EXECUTE revoked from anon — they MUST be called with the
+// service role after the server has authenticated the buyer/seller/admin.
+function supaRpcPrivileged(fn, args) {
+  return supaRequestPrivileged('POST', 'rpc/' + fn, '', args || {});
+}
+
 // LAUNCH-PAYMENT-SECURITY: initiateMonetbilPayment / handleMonetbilNotify
 // / simulatePaymentSuccess removed. Payments go through Campay only
 // (campayCollect / campayCheckStatus / campayPayout above), and payment
@@ -453,6 +460,73 @@ async function flwSettle({ verified, txRef, source }) {
     details: { source, tx_ref: txRef, amount: amt, currency: txn.currency, flw_id: verified.id }
   }).catch(() => {});
   return { ok: true, order_id: order.id, amount: amt };
+}
+
+// Numeric Flutterwave transaction id for an order's SUCCESSFUL collect (stored
+// in ptn_campay_transactions.campay_response by flwSettle). Needed for the refund.
+async function flwTxIdForOrder(orderId) {
+  const txns = await supaRequestPrivileged('GET', 'ptn_campay_transactions',
+    'order_id=eq.' + orderId + '&transaction_type=eq.flutterwave_collect&status=eq.successful&select=campay_response&order=updated_at.desc&limit=1');
+  const row = Array.isArray(txns) && txns[0];
+  const resp = row && row.campay_response;
+  if (!resp) return null;
+  const id = resp.id != null ? resp.id : (resp.data && resp.data.id);
+  return id != null ? String(id) : null;
+}
+
+// ── DOZIE REFUND / DISPUTE — core ────────────────────────────────────────────
+// Full-order refund of an online-paid (Flutterwave escrow) order. Called by the
+// SELLER approve + ADMIN refund paths via POST /flw/resolve-refund (gated behind
+// PAYMENTS_ENABLED). by ∈ {'seller','admin'}. Full-order only.
+//
+// The dozie_refund_claim RPC does the ATOMIC, idempotent, concurrency-safe claim
+// (FOR UPDATE) — it flips the terminal order state + resolves the ptn_disputes
+// row in ONE transaction and returns claimed=true only to the winner. THEN this
+// reverses the MP books + calls the FLW refund; a non-refundable corridor (mobile
+// money / OPay) or a failure simply stays 'pending_manual' for an out-of-band
+// admin refund. On FLW success dozie_refund_mark_paid upgrades it to 'refunded'.
+async function resolveRefund(orderId, by) {
+  const claim = await supaRpcPrivileged('dozie_refund_claim', { p_order_id: orderId, p_by: by });
+  if (!claim || claim.ok !== true) return { ok: false, reason: (claim && claim.reason) || 'claim_failed' };
+  // Not claimed: already refunded (idempotent) or escrow already released (manual).
+  if (claim.claimed !== true)
+    return { ok: true, idempotent: !!claim.idempotent, order_id: orderId, refund_status: claim.refund_status, note: claim.note };
+
+  // Step 1 — reverse the MP books (void pa_sales + restock). Idempotent MP-side.
+  await mpServiceCall('/api/dozie/internal/reverse-online-sale',
+    { dozie_order_id: orderId, reason: 'Dozie refund (' + by + ')' })
+    .catch(e => console.warn('[resolveRefund reverse]', orderId, e && e.message));
+
+  // Step 2 — money back on Flutterwave (full order total).
+  let refund_status = 'pending_manual', refund_reference = null;
+  const flwTxId = await flwTxIdForOrder(orderId);
+  if (flwTxId) {
+    const fr = await FLW.refundTransaction(flwTxId, claim.amount);
+    if (fr.ok) {
+      refund_reference = fr.refundId || ('FLW-' + flwTxId);
+      await supaRpcPrivileged('dozie_refund_mark_paid', { p_order_id: orderId, p_reference: refund_reference });
+      refund_status = 'refunded';
+    } else { console.warn('[resolveRefund FLW]', orderId, fr.reason); }
+  } else {
+    console.warn('[resolveRefund FLW]', orderId, 'no successful FLW tx id — manual refund');
+  }
+
+  // Notify buyer + seller.
+  const done = refund_status === 'refunded';
+  await supaRequest('POST', 'ptn_notifications', null, {
+    user_id: claim.buyer_id, type: 'refund', order_id: orderId,
+    title_en: 'Refund ' + (done ? 'completed' : 'approved'), title_fr: 'Remboursement ' + (done ? 'effectué' : 'approuvé'),
+    body_en: 'Order ' + claim.order_ref + (done ? ' has been refunded.' : ' approved — refund being processed.'),
+    body_fr: 'Commande ' + claim.order_ref + (done ? ' remboursée.' : ' approuvée — remboursement en cours.'), read: false
+  }).catch(() => {});
+  await supaRequest('POST', 'ptn_notifications', null, {
+    user_id: claim.seller_id, type: 'refund', order_id: orderId,
+    title_en: 'Order refunded', title_fr: 'Commande remboursée',
+    body_en: 'Order ' + claim.order_ref + ' was refunded to the buyer (' + by + ').',
+    body_fr: 'Commande ' + claim.order_ref + ' remboursée à l\'acheteur (' + by + ').', read: false
+  }).catch(() => {});
+
+  return { ok: true, order_id: orderId, refund_status, refund_reference, amount: claim.amount };
 }
 
 // Translate one ptn_products row's name + description to FR + EN and store both.
@@ -1910,6 +1984,11 @@ http.createServer((req, res) => {
         const order = Array.isArray(orders) && orders[0];
         if (!order) return send(404, { success: false, message: 'Order not found' });
         if (order.escrow_released) return send(200, { success: false, message: 'Already released' });
+        // PAYOUT INTERLOCK: never pay a seller on a disputed or refunded order.
+        if (['open', 'seller_contested', 'escalated'].includes(order.dispute_status))
+          return send(200, { success: false, message: 'Cannot pay out: a dispute is open on this order' });
+        if (['refunded', 'pending_manual'].includes(order.refund_status))
+          return send(200, { success: false, message: 'Cannot pay out: this order has been refunded' });
         if (order.payment_status !== 'paid' || !order.escrow_held) return send(200, { success: false, message: 'No escrow to release' });
         const ref = payout_ref || ('MANUAL-' + order.order_ref + '-' + Date.now());
         await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { escrow_released: true, campay_payout_ref: ref, campay_payout_at: new Date().toISOString(), status: 'delivered', updated_at: new Date().toISOString() });
@@ -1941,6 +2020,97 @@ http.createServer((req, res) => {
         await supaRequest('POST', 'ptn_audit_log', null, { action: 'flw_sale_reversed', target_type: 'ptn_orders', target_id: order_id, details: { reason: reason || null, mp_result: r.json } }).catch(() => {});
         return send(r.status === 200 ? 200 : 502, { success: !!(r.json && r.json.ok), result: r.json });
       } catch (e) { send(500, { success: false, message: e.message }); }
+    });
+    return;
+  }
+
+  // ── DOZIE DISPUTE: BUYER RAISE ───────────────────────────────────
+  // Buyer flags a problem / requests a refund on their OWN paid online order.
+  // DORMANT-GATED behind PAYMENTS_ENABLED. Writes BOTH the inline ptn_orders
+  // dispute cols (buyer display + payout interlock + refund guards) AND the
+  // authoritative ptn_disputes row (MP seller Litiges + admin). Idempotent.
+  const mDispute = req.url.split('?')[0].match(/^\/orders\/([0-9a-fA-F-]{36})\/dispute$/);
+  if (mDispute && req.method === 'POST') {
+    const orderId = mDispute[1];
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        if (!PAYMENTS_ENABLED) return send(503, { success: false, error_code: 'payments_disabled', message: 'Online payment is not enabled' });
+        const idn = resolveDozieIdentity(req, 'buyer');
+        if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+        const reason = String((JSON.parse(body || '{}').reason) || '').trim();
+        if (reason.length < 10) return send(400, { success: false, error_code: 'validation', message: 'Please describe the problem (min 10 characters).' });
+
+        // ATOMIC dual-write: the SECURITY DEFINER RPC writes the inline ptn_orders
+        // dispute cols + the authoritative ptn_disputes row in ONE transaction
+        // (can't drift), after re-checking ownership + paid-online state. Called
+        // with the service role (anon has no EXECUTE).
+        const r = await supaRpcPrivileged('dozie_dispute_raise', { p_order_id: orderId, p_buyer_id: idn.uid, p_reason: reason });
+        if (!r || r.ok !== true) {
+          const rc = (r && r.reason) || 'error';
+          const http = rc === 'not_found' ? 404 : rc === 'forbidden' ? 403 : rc === 'not_disputable' ? 409 : 400;
+          return send(http, { success: false, error_code: rc, message: 'Cannot raise dispute (' + rc + ')' });
+        }
+        if (r.idempotent) return send(200, { success: true, idempotent: true, message: 'A dispute is already open on this order' });
+        // Notify the seller (the RPC returns seller_id + order_ref on success).
+        await supaRequest('POST', 'ptn_notifications', null, {
+          user_id: r.seller_id, type: 'dispute', order_id: orderId,
+          title_en: 'New dispute: ' + r.order_ref, title_fr: 'Nouveau litige : ' + r.order_ref,
+          body_en: 'Buyer raised a dispute: ' + reason.slice(0, 140),
+          body_fr: 'L\'acheteur a ouvert un litige : ' + reason.slice(0, 140), read: false
+        }).catch(() => {});
+        return send(200, { success: true, order_id: orderId, dispute_status: 'open' });
+      } catch (e) { send(500, { success: false, error_code: 'error', message: e.message }); }
+    });
+    return;
+  }
+
+  // ── DOZIE DISPUTE: STANDALONE SELLER REPLY ───────────────────────
+  // The standalone Dozie seller portal (PARTENAIRE_Seller.html) replies to a
+  // dispute. Moved server-side (seller JWT) so the ptn_disputes anon write grant
+  // can be revoked. The RPC writes the reply on BOTH ptn_disputes + the inline
+  // ptn_orders col (service role). Not a money path → not PAYMENTS-gated.
+  if (req.url === '/disputes/reply' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        const idn = resolveDozieIdentity(req, 'seller');
+        if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+        const { order_id, reply } = JSON.parse(body || '{}');
+        const txt = String(reply || '').trim();
+        if (!order_id || !txt) return send(400, { success: false, error_code: 'validation', message: 'order_id and reply required' });
+        const r = await supaRpcPrivileged('dozie_dispute_seller_reply', { p_order_id: order_id, p_seller_id: idn.uid, p_reply: txt });
+        if (!r || r.ok !== true) {
+          const rc = (r && r.reason) || 'error';
+          return send(rc === 'forbidden' ? 403 : rc === 'no_open_dispute' ? 404 : 400, { success: false, error_code: rc, message: 'Reply failed (' + rc + ')' });
+        }
+        return send(200, { success: true });
+      } catch (e) { send(500, { success: false, error_code: 'error', message: e.message }); }
+    });
+    return;
+  }
+
+  // ── DOZIE REFUND: RESOLVE (service-to-service) ───────────────────
+  // Called by the MP seller-approve + admin-refund paths (x-service-key). Runs the
+  // idempotent resolveRefund. DORMANT-GATED behind PAYMENTS_ENABLED.
+  if (req.url === '/flw/resolve-refund' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        if (!PAYMENTS_ENABLED) return send(503, { success: false, error_code: 'payments_disabled', message: 'Online payment is not enabled' });
+        if (!process.env.DOZIE_SERVICE_KEY || (req.headers['x-service-key'] || '') !== process.env.DOZIE_SERVICE_KEY)
+          return send(401, { success: false, error_code: 'auth_failed', message: 'service key required' });
+        const { order_id, by } = JSON.parse(body || '{}');
+        if (!order_id) return send(400, { success: false, error_code: 'validation', message: 'order_id required' });
+        const r = await resolveRefund(order_id, by === 'admin' ? 'admin' : 'seller');
+        return send(r.ok ? 200 : 409, r);
+      } catch (e) { send(500, { success: false, error_code: 'error', message: e.message }); }
     });
     return;
   }
