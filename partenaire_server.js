@@ -367,6 +367,21 @@ function orderEscrowAmount(order) {
   return order && order.counter_status === 'accepted' ? order.counter_total : order && order.total;
 }
 
+// Server-to-server call to the MP backend (service-role auth via the shared
+// DOZIE_SERVICE_KEY). Used to reconcile an online-paid order into MP pa_sales and
+// to reverse it on refund/void. Uses fetch so it works against both the prod MP
+// API (https) and a LOCAL MP backend (http) via MP_API_URL.
+async function mpServiceCall(path, body) {
+  const base = (process.env.MP_API_URL || 'https://partenaire-account-api.onrender.com').replace(/\/+$/, '');
+  const r = await fetch(base + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-service-key': process.env.DOZIE_SERVICE_KEY || '' },
+    body: JSON.stringify(body || {})
+  });
+  const json = await r.json().catch(() => ({}));
+  return { status: r.status, json };
+}
+
 // Settle a Flutterwave-collected order from a SERVER-SIDE VERIFIED transaction.
 // Shared by /flw/webhook (primary) and /flw/verify-return (fallback). NEVER
 // trusts a client/redirect assertion: the caller must pass the object returned
@@ -410,11 +425,19 @@ async function flwSettle({ verified, txRef, source }) {
   await supaRequestPrivileged('PATCH', 'ptn_campay_transactions', 'id=eq.' + txn.id, {
     status: 'successful', campay_response: verified, updated_at: new Date().toISOString()
   });
-  // TODO (later task, OUT OF SCOPE here): reconcile this ONLINE-paid order into
-  // MP's books — i.e. create the pa_sales record (like the seller's at-shop
-  // "record as sale" flow) so an online-paid Dozie order shows in the seller's
-  // MP sales/Day-Flow. This is the hook point: order is now paid + escrow_held,
-  // payment_method='flutterwave'; map seller_id→MP org/location + items→pa_sale_items.
+  // DOZIE ONLINE→MP RECONCILE: now that the order is paid + escrow_held, book it
+  // as an MP sale (pa_sales, paid-online via flutterwave, stock decremented) by
+  // the same pipeline the seller's at-shop "record as sale" uses — at
+  // PAYMENT-confirm, NOT delivery (Peter's call: no reliable goods-out signal).
+  // Best-effort + fire-and-forget: flwSettle runs on BOTH the webhook and the
+  // verify-return, so this MUST be idempotent — the MP side's dozie_order_id
+  // non-voided unique guard + the RPC's FOR UPDATE/status check collapse the
+  // double-fire to exactly one sale. A reconcile hiccup must NEVER break payment
+  // settlement, so errors are swallowed (the order is paid regardless; the entry
+  // simply stays pending in the MP Online Cart for a cashier).
+  mpServiceCall('/api/dozie/internal/reconcile-online-sale', { dozie_order_id: order.id })
+    .then(r => { if (!(r.json && r.json.ok)) console.warn('[flw reconcile]', order.order_ref, r.status, JSON.stringify(r.json)); })
+    .catch(e => console.warn('[flw reconcile] error', order.order_ref, e && e.message));
   await supaRequest('POST', 'ptn_notifications', null, {
     user_id: order.seller_id, type: 'payment', order_id: order.id,
     title_en: 'Payment Received', title_fr: 'Paiement reçu',
@@ -1889,6 +1912,30 @@ http.createServer((req, res) => {
         await supaRequest('POST', 'ptn_audit_log', null, { action: 'flw_manual_payout_recorded', target_type: 'ptn_orders', target_id: order_id, details: { order_ref: order.order_ref, amount: order.escrow_held, payout_ref: ref } }).catch(() => {});
         await supaRequest('POST', 'ptn_notifications', null, { user_id: order.seller_id, type: 'payment', order_id, title_en: 'Payout Sent', title_fr: 'Paiement envoyé', body_en: 'Payout for order ' + order.order_ref + ' has been sent (ref ' + ref + ').', body_fr: 'Le paiement de la commande ' + order.order_ref + ' a été envoyé (réf ' + ref + ').', read: false }).catch(() => {});
         return send(200, { success: true, order_id, payout_ref: ref, amount: order.escrow_held });
+      } catch (e) { send(500, { success: false, message: e.message }); }
+    });
+    return;
+  }
+
+  // ── FLUTTERWAVE: REVERSE THE MP SALE (refund / void / cancel) ────
+  // When a paid online order is refunded or cancelled, the MP sale booked at
+  // payment-confirm must be reversed (pa_sales voided + stock re-added). This is
+  // the Dozie-side hook into the shared MP reversal helper: it calls the
+  // service-authed MP endpoint, which routes through the SAME void path the MP
+  // owner-void uses, so reversal is reliable + identical regardless of trigger.
+  // Idempotent (no active entry → harmless no-op).
+  if (req.url === '/flw/reverse-sale' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        const { order_id, admin_pin, reason } = JSON.parse(body || '{}');
+        if (!process.env.ADMIN_PIN || admin_pin !== process.env.ADMIN_PIN) return send(200, { success: false, message: 'Non autorisé' });
+        if (!order_id) return send(400, { success: false, message: 'order_id required' });
+        const r = await mpServiceCall('/api/dozie/internal/reverse-online-sale', { dozie_order_id: order_id, reason: reason || 'Dozie order refunded/cancelled' });
+        await supaRequest('POST', 'ptn_audit_log', null, { action: 'flw_sale_reversed', target_type: 'ptn_orders', target_id: order_id, details: { reason: reason || null, mp_result: r.json } }).catch(() => {});
+        return send(r.status === 200 ? 200 : 502, { success: !!(r.json && r.json.ok), result: r.json });
       } catch (e) { send(500, { success: false, message: e.message }); }
     });
     return;
