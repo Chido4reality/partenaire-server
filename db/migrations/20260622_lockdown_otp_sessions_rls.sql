@@ -1,0 +1,26 @@
+-- SECURITY LOCKDOWN: ptn_otp_sessions (id, phone, otp, expires_at, used,
+-- created_at). It had RLS ON but a permissive policy "anon_all" (FOR ALL TO anon
+-- USING true WITH CHECK true) PLUS full anon/authenticated table grants — so the
+-- PUBLIC anon key could SELECT live OTP codes for ANY phone (read a code → account
+-- takeover) and insert/update/delete freely.
+--
+-- VERIFIED branch S (vestigial — no live path uses this table):
+--   * OTP login was RETIRED in B.4.1; the live Dozie clients are PIN-only
+--     (/auth/pin-login → auth_pin_login RPC), buyer + seller.
+--   * The Dozie server (partenaire_server.js) has NO /otp/* routes.
+--   * The only code touching the table is the ORPHANED api.js (legacy direct-anon
+--     sendOTP/verifyOTP) — referenced/loaded by NOTHING (no <script src>, no import).
+--   * MP backend only references it in an old migration (the policy creator).
+-- So no SECURITY DEFINER RPC is needed to preserve a flow; just remove public access.
+--
+-- DROP the permissive policy + REVOKE all anon/authenticated privileges. RLS stays
+-- ON with no policies → anon/authenticated get ZERO row access (cannot read the otp
+-- column or write the table). service_role keeps full access + bypasses RLS (so a
+-- future server-side OTP flow could be added behind a SECURITY DEFINER RPC).
+--
+-- Applied to prod ftxttdagpioieyzaijdc 2026-06-22. Post-checks PASS: anon SELECT
+-- ptn_otp_sessions → 401 permission denied (42501); anon INSERT → 401; end state
+-- RLS on / no policies / anon SELECT+INSERT+DELETE = false; PIN login (buyer +
+-- seller) unaffected.
+DROP POLICY IF EXISTS anon_all ON public.ptn_otp_sessions;
+REVOKE ALL ON public.ptn_otp_sessions FROM anon, authenticated;
