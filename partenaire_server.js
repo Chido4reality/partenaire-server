@@ -2094,6 +2094,61 @@ http.createServer((req, res) => {
     return;
   }
 
+  // ── DOZIE NOTIFICATIONS: UNREAD COUNTS (auth → service-role) ─────
+  // Any authenticated Dozie user (buyer OR seller). Returns this user's unread
+  // ptn_notifications grouped by type + a total. Server-side (service role) so the
+  // upcoming Batch-B anon lockdown on ptn_notifications just revokes anon and this
+  // keeps working. The recipient is the JWT's uid — never client-supplied.
+  if (req.url === '/notifications/unread-counts' && req.method === 'GET') {
+    (async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        const idn = resolveDozieIdentity(req);
+        if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+        const rows = await supaRequestPrivileged('GET', 'ptn_notifications',
+          'user_id=eq.' + idn.uid + '&read=eq.false&select=type');
+        const by_type = {}; let total = 0;
+        for (const r of (Array.isArray(rows) ? rows : [])) {
+          const t = r.type || 'other';
+          by_type[t] = (by_type[t] || 0) + 1; total += 1;
+        }
+        return send(200, { success: true, by_type, total });
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: false, error_code: 'error', message: e.message }));
+      }
+    })();
+    return;
+  }
+
+  // ── DOZIE NOTIFICATIONS: MARK READ (auth → service-role) ─────────
+  // body { type?: string, ids?: string[] }. Scoped to the caller's OWN user_id (a
+  // user can never mark another user's notifications). No type/ids → mark ALL the
+  // caller's unread. Returns the count updated.
+  if (req.url === '/notifications/mark-read' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        const idn = resolveDozieIdentity(req);
+        if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+        const { type, ids } = JSON.parse(body || '{}');
+        let filter = 'user_id=eq.' + idn.uid + '&read=eq.false';
+        if (Array.isArray(ids) && ids.length) {
+          const clean = ids.filter(x => /^[0-9a-fA-F-]{36}$/.test(String(x)));
+          if (!clean.length) return send(400, { success: false, error_code: 'validation', message: 'no valid ids' });
+          filter = 'user_id=eq.' + idn.uid + '&id=in.(' + clean.join(',') + ')';
+        } else if (type) {
+          filter = 'user_id=eq.' + idn.uid + '&read=eq.false&type=eq.' + encodeURIComponent(String(type));
+        }
+        const updated = await supaRequestPrivileged('PATCH', 'ptn_notifications', filter, { read: true });
+        return send(200, { success: true, updated: Array.isArray(updated) ? updated.length : 0 });
+      } catch (e) { send(500, { success: false, error_code: 'error', message: e.message }); }
+    });
+    return;
+  }
+
   // ── DOZIE REFUND: RESOLVE (service-to-service) ───────────────────
   // Called by the MP seller-approve + admin-refund paths (x-service-key). Runs the
   // idempotent resolveRefund. DORMANT-GATED behind PAYMENTS_ENABLED.

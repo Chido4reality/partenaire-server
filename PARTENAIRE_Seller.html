@@ -59,7 +59,8 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .header-notif:hover{background:rgba(255,255,255,0.2)}
 .notif-dot{position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:4px;background:var(--red);display:none}
 /* ── HAMBURGER DRAWER ───────────────────────────────────────── */
-.dz-hamburger{background:rgba(255,255,255,0.1);border:0;color:#fff;width:44px;height:44px;border-radius:8px;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.dz-hamburger{position:relative;background:rgba(255,255,255,0.1);border:0;color:#fff;width:44px;height:44px;border-radius:8px;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.dz-hamburger-badge{position:absolute;top:1px;right:1px;background:var(--red);color:#fff;font-size:10px;font-weight:800;min-width:16px;height:16px;border-radius:8px;padding:0 4px;display:none;align-items:center;justify-content:center;line-height:1}
 .dz-hamburger:hover{background:rgba(255,255,255,0.2)}
 .dz-hamburger:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 #dz-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0);transition:background .25s ease-out;z-index:200;pointer-events:none}
@@ -531,7 +532,7 @@ function openWhatsApp(e, phone, text){
     </div>
   </aside>
   <div class="app-header">
-    <button class="dz-hamburger" id="dz-hamburger" onclick="dzOpenDrawer()" aria-label="Open menu" aria-controls="dz-drawer" aria-expanded="false">☰</button>
+    <button class="dz-hamburger" id="dz-hamburger" onclick="dzOpenDrawer()" aria-label="Open menu" aria-controls="dz-drawer" aria-expanded="false">☰<span class="dz-hamburger-badge" id="dz-hamburger-badge"></span></button>
     <div class="app-header-logo">PARTENAIRE <span>✦</span></div>
     <button class="header-notif" onclick="switchTab('tab-notifications')" id="notif-btn" aria-label="Notifications">
       🔔<div class="notif-dot" id="notif-dot"></div>
@@ -1885,6 +1886,7 @@ async function renderMpStatusBanner() {
 
 async function loadAll() {
   await Promise.all([loadProducts(), loadOrders(), loadNotifications()]);
+  refreshNotifSignal(); // server-side unread signal → bell dot + drawer/hamburger badges
   renderDashboard();
 }
 
@@ -2823,12 +2825,15 @@ function renderNotifications() {
 async function markRead(id) {
   allNotifs = allNotifs.map(n => n.id===id ? {...n,read:true} : n);
   renderNotifications(); updateNotifBadge();
-  try { await PATCH('ptn_notifications','id',id,{read:true}); } catch(e){}
+  await notifMarkReadServer({ ids: [id] });
+  refreshNotifSignal();
 }
 
 async function markAllRead() {
   allNotifs = allNotifs.map(n => ({...n,read:true}));
   renderNotifications(); updateNotifBadge();
+  await notifMarkReadServer({});   // persist server-side (was local-only before)
+  refreshNotifSignal();
   toast('All notifications marked as read','success');
 }
 
@@ -2836,6 +2841,48 @@ function updateNotifBadge() {
   const unread = allNotifs.filter(n => !n.read).length;
   document.getElementById('notif-dot').style.display = unread > 0 ? 'block' : 'none';
 }
+
+// ── NOTIFICATION SIGNAL (server-side counts; Batch-B-safe) ────────────────────
+// Reads unread ptn_notifications counts (by type + total) + marks-read via the
+// Dozie server endpoints (JWT → service role), NOT anon-direct, so the upcoming
+// Batch-B lockdown on ptn_notifications doesn't break this.
+let notifCounts = { by_type: {}, total: 0 };
+async function notifFetchCounts() {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    const r = await fetch('/notifications/unread-counts', { headers: j ? { 'Authorization': 'Bearer ' + j } : {} });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return (d && d.success) ? d : null;
+  } catch (e) { return null; }
+}
+async function notifMarkReadServer(opts) {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    await fetch('/notifications/mark-read', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(j ? { 'Authorization': 'Bearer ' + j } : {}) }, body: JSON.stringify(opts || {}) });
+  } catch (e) {}
+}
+async function refreshNotifSignal() {
+  if (!currentSeller) return;
+  const c = await notifFetchCounts();
+  if (!c) return;
+  notifCounts = { by_type: c.by_type || {}, total: c.total || 0 };
+  const dot = document.getElementById('notif-dot');
+  if (dot) dot.style.display = notifCounts.total > 0 ? 'block' : 'none';
+  const hb = document.getElementById('dz-hamburger-badge');
+  if (hb) { hb.textContent = notifCounts.total > 99 ? '99+' : String(notifCounts.total); hb.style.display = notifCounts.total > 0 ? 'flex' : 'none'; }
+  if (document.getElementById('dz-drawer')?.classList.contains('open')) dzRenderDrawer();
+}
+// Mark the section's notifications read when the user opens it, then refresh.
+async function notifOnSectionOpen(tabId) {
+  const map = { 'tab-orders': 'order', 'tab-messages': 'message' };
+  if (tabId === 'tab-notifications') { await notifMarkReadServer({}); }
+  else if (map[tabId]) { await notifMarkReadServer({ type: map[tabId] }); }
+  else return;
+  refreshNotifSignal();
+}
+window.addEventListener('focus', () => refreshNotifSignal());
+setInterval(() => refreshNotifSignal(), 45000);
 
 // ══════════════════════════════════════════════════════════════
 //  PROFILE & DASHBOARD
@@ -3061,8 +3108,8 @@ function dzRenderDrawer() {
   const items = [
     { id:'tab-dashboard', icon:'📊', en:'Dashboard',              fr:'Tableau de bord' },
     { id:'tab-products',  icon:'📦', en:'My Products',            fr:'Mes Produits' },
-    { id:'tab-orders',    icon:'🧾', en:'Orders',                 fr:'Commandes' },
-    { id:'tab-messages',  icon:'💬', en:'Messages',               fr:'Messages',                badge: (window.scUnread||0) || null },
+    { id:'tab-orders',    icon:'🧾', en:'Orders',                 fr:'Commandes',               badge: (notifCounts.by_type.order||0) || null },
+    { id:'tab-messages',  icon:'💬', en:'Messages',               fr:'Messages',                badge: Math.max(window.scUnread||0, notifCounts.by_type.message||0) || null },
     { id:'tab-disputes',  icon:'⚠',  en:'Disputes',              fr:'Litiges',                 badge: disputed || null },
     { id:'tab-reports',   icon:'📈', en:'Reports',                fr:'Rapports' },
     { id:'tab-profile',   icon:'👤', en:'Profile / Verification', fr:'Profil / Vérification' }
@@ -3237,6 +3284,7 @@ function switchTab(tabId) {
   if (tabId === 'tab-disputes') loadSellerDisputes();
   if (tabId === 'tab-reports')  loadSellerReports();
   if (tabId === 'tab-messages') loadSellerInbox();
+  notifOnSectionOpen(tabId); // mark this section's notifications read + clear its badge
 }
 
 // ══════════════════════════════════════════════════════════════

@@ -14,7 +14,10 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v40-20260622';
+const CACHE = 'partenaire-dozie-v41-20260624';
+// BUMP (2026-06-24): notification signal — sidebar unread badges (hamburger total +
+// drawer Orders/Messages badges + buyer Orders dot) driven by the new server
+// /notifications/unread-counts + /notifications/mark-read endpoints (buyer + seller).
 // BUMP (2026-06-22): refund/dispute v1 — buyer raise-dispute button now calls the
 // gated POST /orders/:id/dispute endpoint (dormant behind PAYMENTS_ENABLED).
 // BUMP (2026-06-21j): search-bar UI fix (input on its own full-width row → typed

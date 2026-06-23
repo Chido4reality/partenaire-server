@@ -43,7 +43,8 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .cc{background:#f8f6f0;border:1.5px solid var(--lgrey);border-radius:10px;padding:13px 14px;font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap}
 .app-header{background:var(--navy);padding:0 16px;height:58px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
 /* ── HAMBURGER DRAWER ───────────────────────────────────────── */
-.dz-hamburger{background:rgba(255,255,255,0.1);border:0;color:#fff;width:44px;height:44px;border-radius:8px;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.dz-hamburger{position:relative;background:rgba(255,255,255,0.1);border:0;color:#fff;width:44px;height:44px;border-radius:8px;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.dz-hamburger-badge{position:absolute;top:1px;right:1px;background:var(--red);color:#fff;font-size:10px;font-weight:800;min-width:16px;height:16px;border-radius:8px;padding:0 4px;display:none;align-items:center;justify-content:center;line-height:1}
 .dz-hamburger:hover{background:rgba(255,255,255,0.2)}
 .dz-hamburger:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 #dz-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0);transition:background .25s ease-out;z-index:200;pointer-events:none}
@@ -416,7 +417,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
     </div>
   </aside>
   <div class="app-header">
-    <button class="dz-hamburger" id="dz-hamburger" onclick="dzOpenDrawer()" aria-label="Open menu" aria-controls="dz-drawer" aria-expanded="false">☰</button>
+    <button class="dz-hamburger" id="dz-hamburger" onclick="dzOpenDrawer()" aria-label="Open menu" aria-controls="dz-drawer" aria-expanded="false">☰<span class="dz-hamburger-badge" id="dz-hamburger-badge"></span></button>
     <div class="logo">PARTENAIRE <span>✦</span></div>
     <button class="hbtn cart-btn" onclick="switchTab('tab-cart')" id="cart-hbtn" aria-label="Cart">
       🛒 <span id="lbl-cart-btn">Panier</span> <span class="cart-count" id="cart-count">0</span>
@@ -444,7 +445,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
   <div class="tab-bar">
     <div class="tab active" onclick="switchTab('tab-shops')" id="tab-shops">🏪 <span id="lbl-shops">Boutiques</span></div>
     <div class="tab" onclick="switchTab('tab-cart')" id="tab-cart">🛒 <span id="lbl-cart">Panier</span> <span class="tab-badge" id="cart-badge">0</span></div>
-    <div class="tab" onclick="switchTab('tab-orders')" id="tab-orders">📦 <span id="lbl-orders">Commandes</span> <span class="tab-badge" id="order-badge">0</span></div>
+    <div class="tab" onclick="switchTab('tab-orders')" id="tab-orders">📦 <span id="lbl-orders">Commandes</span> <span class="tab-badge" id="order-badge">0</span><span id="orders-notif-dot" style="display:none;width:8px;height:8px;border-radius:4px;background:var(--red);margin-left:3px;vertical-align:middle"></span></div>
     <div class="tab" onclick="switchTab('tab-profile')" id="tab-profile">👤 <span id="lbl-profile">Profil</span></div>
   </div>
   <div class="tab-page active" id="page-shops">
@@ -1126,6 +1127,48 @@ async function registerBuyer() {
 // ══════════════════════════════════════════════════════════════
 //  APP
 // ══════════════════════════════════════════════════════════════
+// ── NOTIFICATION SIGNAL (server-side counts; Batch-B-safe) ────────────────────
+// Reads unread ptn_notifications counts + marks-read via the Dozie server endpoints
+// (JWT → service role), NOT anon-direct, so the upcoming Batch-B lockdown on
+// ptn_notifications doesn't break this.
+let notifCounts = { by_type: {}, total: 0 };
+async function notifFetchCounts() {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    const r = await fetch('/notifications/unread-counts', { headers: j ? { 'Authorization': 'Bearer ' + j } : {} });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return (d && d.success) ? d : null;
+  } catch (e) { return null; }
+}
+async function notifMarkReadServer(opts) {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    await fetch('/notifications/mark-read', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(j ? { 'Authorization': 'Bearer ' + j } : {}) }, body: JSON.stringify(opts || {}) });
+  } catch (e) {}
+}
+async function refreshNotifSignal() {
+  if (!currentBuyer) return;
+  const c = await notifFetchCounts();
+  if (!c) return;
+  notifCounts = { by_type: c.by_type || {}, total: c.total || 0 };
+  const hb = document.getElementById('dz-hamburger-badge');
+  if (hb) { hb.textContent = notifCounts.total > 99 ? '99+' : String(notifCounts.total); hb.style.display = notifCounts.total > 0 ? 'flex' : 'none'; }
+  const ob = document.getElementById('orders-notif-dot');
+  if (ob) ob.style.display = (notifCounts.by_type.order || notifCounts.by_type.payment || notifCounts.by_type.dispute) ? 'inline-block' : 'none';
+  if (document.getElementById('dz-drawer')?.classList.contains('open')) dzRenderDrawer();
+}
+// Mark a section's notifications read when the user opens it, then refresh.
+async function notifOnSectionOpen(tabId) {
+  const map = { 'tab-orders': ['order', 'payment', 'dispute'], 'tab-messages': ['message'] };
+  const types = map[tabId];
+  if (!types) return;
+  for (const t of types) await notifMarkReadServer({ type: t });
+  refreshNotifSignal();
+}
+window.addEventListener('focus', () => refreshNotifSignal());
+setInterval(() => refreshNotifSignal(), 45000);
+
 function enterApp() {
   // Single chokepoint: NEVER render authenticated content / fire
   // data fetches without a valid Dozie JWT. Blocks stale-identity,
@@ -1143,6 +1186,7 @@ function enterApp() {
   const hdrName = document.getElementById('hdr-name');
   if (hdrName) hdrName.textContent = currentBuyer.name || 'Buyer';
   dzRenderDrawer();
+  refreshNotifSignal(); // server-side unread signal → hamburger total + Orders dot + drawer badges
   document.getElementById('p-name').textContent = currentBuyer.name || 'Buyer';
   document.getElementById('p-sub').textContent = (currentBuyer.company||'') + ' · 📍 ' + (currentBuyer.city||'');
   document.getElementById('p-avatar-text').textContent = (currentBuyer.name||'B').charAt(0).toUpperCase();
@@ -2118,6 +2162,7 @@ function switchTab(tabId) {
   if (tabId==='tab-cart') renderCart();
   if (tabId==='tab-reviews') loadMyReviews();
   if (tabId==='tab-messages') loadBuyerInbox();
+  notifOnSectionOpen(tabId); // mark this section's notifications read + clear its badge
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2187,8 +2232,8 @@ function dzRenderDrawer() {
   // action, already lives in the header + tab-bar as the 🛒 button.
   const items = [
     { id:'tab-shops',   icon:'🏠', en:'Marketplace', fr:'Boutiques' },
-    { id:'tab-orders',  icon:'📦', en:'My Orders',   fr:'Mes Commandes' },
-    { id:'tab-messages',icon:'💬', en:'Messages',    fr:'Messages',     badge: (window.bzUnread||0) || null },
+    { id:'tab-orders',  icon:'📦', en:'My Orders',   fr:'Mes Commandes', badge: ((notifCounts.by_type.order||0)+(notifCounts.by_type.payment||0)+(notifCounts.by_type.dispute||0)) || null },
+    { id:'tab-messages',icon:'💬', en:'Messages',    fr:'Messages',     badge: Math.max(window.bzUnread||0, notifCounts.by_type.message||0) || null },
     { id:'tab-reviews', icon:'⭐', en:'My Reviews',  fr:'Mes Avis' },
     { id:'tab-profile', icon:'👤', en:'My Profile',  fr:'Mon Profil' }
   ];
