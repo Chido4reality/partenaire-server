@@ -106,6 +106,12 @@ const FLW_IS_TEST = String(process.env.FLW_SECRET_KEY || '').startsWith('FLWSECK
 // creates — so with the flag off there is nothing for it to settle.)
 const FLW_ROUTES_ACTIVE = PAYMENTS_ENABLED;
 
+// One-line, NON-SECRET boot log of the Flutterwave mode — always (regardless of
+// PAYMENTS_ENABLED / NODE_ENV) so the live-vs-test key + payments flag can be
+// eyeballed in the Render deploy logs at go-live. Never prints the key itself.
+console.log('[startup] Flutterwave mode: ' + (FLW_IS_TEST ? 'TEST' : 'LIVE') +
+  ' · payments ' + (PAYMENTS_ENABLED ? 'ENABLED' : 'OFF'));
+
 // Fail loud, not silent-sandbox: in production with payments ENABLED, refuse to
 // boot unless the Flutterwave collect env is present. (The Campay helpers below
 // stay for the legacy XAF payout path but are NO LONGER a boot requirement —

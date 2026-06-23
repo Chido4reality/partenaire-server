@@ -2338,7 +2338,7 @@ function openMomoPayment(total, operator, orderId, orderRef) {
 // All money-collection UI is gated behind this flag. The Campay modals
 // and functions are kept intact so a future version can revive them
 // (flip this to true AND set PAYMENTS_ENABLED=true on the server).
-const PAYMENTS_ENABLED = false;
+const PAYMENTS_ENABLED = true;
 function payAtShopMsg() {
   return (typeof currentLang !== 'undefined' && currentLang === 'fr')
     ? 'Paiement à effectuer en boutique'
