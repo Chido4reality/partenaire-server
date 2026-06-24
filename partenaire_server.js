@@ -342,6 +342,17 @@ function flwPaymentOptions(currency) {
   return undefined;
 }
 
+// FLW routes the hosted page's available methods partly by the customer's
+// ISO-3166 alpha-2 country. Sending it (alongside currency=XAF + payment_options=
+// mobilemoneyfranco) is the strongest corridor signal so Mobile Money Franco
+// (MTN/Orange CM) surfaces for Cameroon. Derived from the resolved currency
+// (itself from the seller's MP-org country). XAF→CM, NGN→NG.
+function flwCustomerCountry(currency) {
+  if (currency === 'XAF') return 'CM';
+  if (currency === 'NGN') return 'NG';
+  return undefined;
+}
+
 function dozieBaseUrl(req) {
   if (process.env.DOZIE_PUBLIC_URL) return process.env.DOZIE_PUBLIC_URL.replace(/\/+$/, '');
   const proto = (req && String(req.headers['x-forwarded-proto'] || '').split(',')[0]) || 'https';
@@ -1874,7 +1885,7 @@ http.createServer((req, res) => {
         try {
           ({ link } = await FLW.createPayment({
             tx_ref: txRef, amount: amt, currency: cur.currency, redirect_url,
-            customer: { email, name: buyer.name || 'Buyer', phonenumber: phone || '' },
+            customer: { email, name: buyer.name || 'Buyer', phonenumber: phone || '', country: flwCustomerCountry(cur.currency) },
             meta: { order_id: order.id, order_ref: order.order_ref, seller_id: order.seller_id, buyer_id: order.buyer_id },
             title: 'Partenaire Dozie — ' + order.order_ref,
             payment_options: flwPaymentOptions(cur.currency),
