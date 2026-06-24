@@ -125,54 +125,24 @@ if (PAYMENTS_ENABLED && process.env.NODE_ENV === 'production') {
   console.log('[payments] Flutterwave collect ENABLED — mode: ' + (FLW_IS_TEST ? 'TEST' : 'LIVE'));
 }
 
+// ── CAMPAY PROVIDER DECOMMISSIONED (Flutterwave only) ────────────────
+// CamPay is no longer used: collection + settlement are 100% Flutterwave
+// (./flutterwave.js + /flw/* routes). These provider helpers are neutralised
+// so NO code path — even an overlooked one — can ever reach the CamPay API
+// again. Every caller is additionally hard-blocked at the request router (see
+// the CAMPAY PROVIDER PERMANENTLY DISABLED block below). To revive CamPay you
+// would restore these bodies AND remove that router block.
+// NOTE: the campay_* DB columns, ptn_campay_transactions and
+// ptn_record_campay_reference() are LOAD-BEARING for the Flutterwave flow
+// (it writes/reads them) and are intentionally left untouched.
 let campayToken = null;
 let campayTokenExpiry = null;
+const CAMPAY_DISABLED_MSG = 'CamPay provider disabled — Flutterwave only';
 
-async function getCampayToken() {
-  // Use permanent access token if provided (preferred over username/password flow)
-  if (process.env.CAMPAY_TOKEN) return process.env.CAMPAY_TOKEN;
-  if (campayToken && campayTokenExpiry && Date.now() < campayTokenExpiry) return campayToken;
-  const res = await fetch(`${CAMPAY_BASE_URL}/token/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: process.env.CAMPAY_USERNAME, password: process.env.CAMPAY_PASSWORD })
-  });
-  const data = await res.json();
-  if (!data.token) throw new Error('Campay token failed: ' + JSON.stringify(data));
-  campayToken = data.token;
-  campayTokenExpiry = Date.now() + (55 * 60 * 1000);
-  return campayToken;
-}
-
-async function campayCollect({ amount, phone, description, reference }) {
-  const token = await getCampayToken();
-  const cleanPhone = String(phone).replace(/\s/g,'').replace(/^\+/,'');
-  const res = await fetch(`${CAMPAY_BASE_URL}/collect/`, {
-    method: 'POST',
-    headers: { 'Authorization': `Token ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount: String(amount), currency: 'XAF', from: cleanPhone, description, external_reference: reference })
-  });
-  return await res.json();
-}
-
-async function campayCheckStatus(reference) {
-  const token = await getCampayToken();
-  const res = await fetch(`${CAMPAY_BASE_URL}/transaction/${reference}/`, {
-    headers: { 'Authorization': `Token ${token}` }
-  });
-  return await res.json();
-}
-
-async function campayPayout({ amount, phone, description, reference }) {
-  const token = await getCampayToken();
-  const cleanPhone = String(phone).replace(/\s/g,'').replace(/^\+/,'');
-  const res = await fetch(`${CAMPAY_BASE_URL}/transfer/`, {
-    method: 'POST',
-    headers: { 'Authorization': `Token ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount: String(amount), currency: 'XAF', to: cleanPhone, description, external_reference: reference })
-  });
-  return await res.json();
-}
+async function getCampayToken() { throw new Error('CAMPAY_DISABLED: ' + CAMPAY_DISABLED_MSG); }
+async function campayCollect() { throw new Error('CAMPAY_DISABLED: collect — ' + CAMPAY_DISABLED_MSG); }
+async function campayCheckStatus() { throw new Error('CAMPAY_DISABLED: status — ' + CAMPAY_DISABLED_MSG); }
+async function campayPayout() { throw new Error('CAMPAY_DISABLED: payout — ' + CAMPAY_DISABLED_MSG); }
 const http  = require('http');
 const fs    = require('fs');
 const path  = require('path');
@@ -637,6 +607,30 @@ http.createServer((req, res) => {
       payments_enabled: PAYMENTS_ENABLED
     }));
     return;
+  }
+
+  // ── CAMPAY PROVIDER PERMANENTLY DISABLED (Flutterwave only) ────────
+  // CamPay is decommissioned. Every CamPay provider endpoint (collect / check
+  // / release / webhook / auto-release / payout / simulate), the legacy
+  // Monetbil path, and the legacy CamPay "retry-payment" charge path are hard-
+  // blocked here — independent of PAYMENTS_ENABLED — so no request can ever
+  // route through CamPay again. Online collection + settlement are Flutterwave
+  // only (/flw/initiate, /flw/webhook, /flw/verify-return). The Flutterwave
+  // routes and the load-bearing campay_* DB plumbing it reuses are untouched.
+  {
+    const _cp = req.url.split('?')[0];
+    const _isCampay =
+      _cp.startsWith('/campay/') ||
+      _cp.startsWith('/monetbil/') ||
+      /^\/api\/orders\/[0-9a-fA-F-]{36}\/retry-payment$/.test(_cp);
+    if (_isCampay) {
+      res.writeHead(410, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({
+        success: false, disabled: true, error_code: 'campay_disabled',
+        message: 'CamPay is disabled — online payment is via Flutterwave. Pay online from your order, or pay at the shop.'
+      }));
+      return;
+    }
   }
 
   // ── LAUNCH v1: BLOCK ALL MONEY-MOVEMENT ENDPOINTS ──────────────────
@@ -1823,19 +1817,11 @@ http.createServer((req, res) => {
         if (!rp || rp.success !== true)
           return send(400, { success: false, error_code: (rp && rp.error_code) || 'validation', message: (rp && rp.message) || 'Payment request failed', order_id });
 
-        // 3. Campay collect. On failure: keep the order, mark failed,
-        //    let the buyer retry via /api/orders/:id/retry-payment.
-        let camp;
-        try { camp = await campayCollect({ amount: server_total, phone: String(payer_phone), description: 'PARTENAIRE ' + order_ref, reference: rp.ext_reference }); }
-        catch (e) { camp = { _error: e.message }; }
-        if (!camp || !(camp.reference || camp.ussd_code)) {
-          await supaRpc('ptn_record_campay_reference', { p_caller: idn.uid, p_order_id: order_id, p_campay_reference: null, p_campay_operator: null, p_campay_status: 'failed', p_error_message: 'Campay collect failed: ' + JSON.stringify(camp && (camp.message || camp._error || camp)) });
-          return send(502, { success: false, error_code: 'campay_failed', message: 'Mobile money request failed. You can retry.', order_id, campay_error: camp });
-        }
-
-        // 4. Persist the Campay reference.
-        await supaRpc('ptn_record_campay_reference', { p_caller: idn.uid, p_order_id: order_id, p_campay_reference: camp.reference || rp.ext_reference, p_campay_operator: camp.operator || null, p_campay_status: 'PENDING', p_error_message: null });
-        return send(200, { success: true, order_id, order_ref, server_total, campay_reference: camp.reference || rp.ext_reference, campay_operator: camp.operator || null, ussd_code: camp.ussd_code || null, expected_status: 'PENDING' });
+        // 3. CAMPAY DISABLED: this legacy synchronous create+charge leg
+        //    collected via CamPay. Online collection is Flutterwave only now.
+        //    The order is created + payment_requested; the client must start
+        //    the Flutterwave hosted checkout (/flw/initiate) to actually pay.
+        return send(200, { success: true, order_id, order_ref, server_total, campay_disabled: true, use_flutterwave: true, message: 'Order created — pay online via Flutterwave.' });
       } catch (e) { send(500, { success: false, error_code: 'validation', message: e.message }); }
     });
     return;
@@ -2783,7 +2769,7 @@ http.createServer((req, res) => {
 }).listen(PORT, () => {
   console.log('');
   console.log('â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”');
-  console.log('â”‚   PARTENAIRE âœ¦ Server + Campay Ready          â”‚');
+  console.log('â”‚   PARTENAIRE âœ¦ Server + Flutterwave Ready     â”‚');
   console.log('â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤');
   console.log('â”‚  Admin:   RETIRED → mon-partenaire-app/admin â”‚');
   console.log('â”‚  Seller:  http://localhost:8080/seller        â”‚');

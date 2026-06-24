@@ -4091,82 +4091,16 @@ function selectOperator(op) {
 }
 
 async function confirmMomoPayment() {
-  const phone = document.getElementById('momo-phone').value.trim().replace(/\s/g,'');
-  if (phone.length < 8) { toast('Enter your phone number', 'error'); return; }
-
-  const btn    = document.getElementById('momo-pay-btn');
+  // CamPay (and the older Monetbil path) are retired — neither collects any more.
+  // Seller subscriptions are managed in Mon Partenaire (MP); there is no in-app
+  // CamPay subscription charge. Show a clear message instead of routing to a
+  // disabled provider.
   const status = document.getElementById('momo-status');
-  btn.disabled       = true;
-  btn.textContent    = '⏳ Processing...';
-  status.className   = 'momo-status processing';
-  status.textContent = '⏳ Sending payment request to your phone...';
-
-  try {
-    // Try server first, fall back to local sandbox
-    let usingSandbox = false;
-    try {
-      const res = await fetch('/monetbil/pay', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: momoContext.amount, phone,
-          paymentRef: momoContext.ref,
-          type: momoContext.type, sandbox: true
-        })
-      });
-      const data = await res.json();
-      if (data.payment_url) {
-        window.open(data.payment_url, '_blank');
-        status.className   = 'momo-status processing';
-        status.textContent = '📱 Complete payment on the Monetbil page that opened';
-        btn.textContent    = '⏳ Waiting...';
-        return;
-      }
-      usingSandbox = true;
-    } catch(fetchErr) {
-      usingSandbox = true; // Server not running — use local simulation
-    }
-
-    // Use Campay for real payment
-    const fullPhone = '237' + phone;
-    const pr = await fetch('/campay/pay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: fullPhone, amount: momoContext.amount, type: momoContext.type || 'subscription' })
-    });
-    const pd = await pr.json();
-    if (pd.success) {
-      window._sellerCampayRef = pd.reference;
-      status.textContent = 'Approuvez sur votre telephone.' + (pd.ussd_code ? ' USSD: ' + pd.ussd_code : '');
-      btn.textContent = 'En attente...';
-      let checks = 0;
-      window.sellerCampayTimer = setInterval(async () => {
-        checks++;
-        if (checks > 24) { clearInterval(window.sellerCampayTimer); btn.disabled=false; btn.textContent='Reessayer'; return; }
-        try {
-          const cr = await fetch('/campay/check', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({reference:window._sellerCampayRef}) });
-          const cd = await cr.json();
-          if (cd.paid) {
-            clearInterval(window.sellerCampayTimer);
-            status.className = 'momo-status success';
-            status.textContent = 'Paiement confirme!';
-            btn.textContent = 'Paye!';
-            if (momoContext.onSuccess) await momoContext.onSuccess();
-            setTimeout(() => closeMomoModal(), 2000);
-          }
-        } catch(e) {}
-      }, 5000);
-    } else {
-      status.className = 'momo-status failed';
-      status.textContent = pd.message || 'Erreur paiement';
-      btn.disabled = false; btn.textContent = 'Reessayer';
-    }
-  } catch(e) {
+  if (status) {
     status.className   = 'momo-status failed';
-    status.textContent = '❌ ' + e.message;
-    btn.disabled    = false;
-    btn.textContent = 'Try Again';
+    status.textContent = 'Paiement en ligne CamPay désactivé. Gérez votre abonnement dans Mon Partenaire.';
   }
+  toast('CamPay disabled — manage your subscription in Mon Partenaire.', '');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -4586,7 +4520,7 @@ document.addEventListener('keydown', e => {
     </div>
     <button class="momo-pay-btn mtn" id="momo-pay-btn" onclick="confirmMomoPayment()">📱 Pay with MTN MoMo →</button>
     <div class="momo-status" id="momo-status"></div>
-    <div style="font-size:11px;color:var(--grey);margin-top:12px">🔒 Securise par Campay · Your PIN stays on your phone</div>
+    <div style="font-size:11px;color:var(--grey);margin-top:12px">🔒 Securisé par Flutterwave · paiement en ligne sécurisé</div>
   </div>
 </div>
 

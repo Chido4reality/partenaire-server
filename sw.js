@@ -14,7 +14,15 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v43-20260624';
+const CACHE = 'partenaire-dozie-v44-20260624';
+// BUMP (2026-06-24c): CamPay PROVIDER decommissioned (Flutterwave only). Buyer +
+// seller clients no longer offer or call any CamPay path — order pay funnels
+// through the Online-vs-Pay-at-shop choice → Flutterwave hosted checkout; the
+// legacy mobile-money (CamPay) modal is never opened, confirmMomoPayment /
+// simulate / auto-release no longer hit /campay/*, and the seller subscription
+// CamPay charge is retired. Server hard-blocks every /campay/* + /monetbil/ +
+// retry-payment route (410). The campay_* DB plumbing the live Flutterwave flow
+// reuses is untouched. Bump evicts stale clients so the de-CamPay build goes live.
 // BUMP (2026-06-24b): notifications fully server-side — all notify-others inserts now
 // go through POST /notifications/notify (recipient derived+validated server-side, no
 // client user_id), and the seller notifications-list + buyer payment-poll reads now

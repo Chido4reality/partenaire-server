@@ -2440,22 +2440,12 @@ async function flwHandleReturn() {
 window.addEventListener('load', function () { try { flwHandleReturn(); } catch (e) {} });
 
 function openMomoModal(context) {
-  // v1: never open the mobile-money modal — payment happens at the shop.
-  if (!PAYMENTS_ENABLED) { toast('📋 ' + payAtShopMsg(), 'success'); return; }
-  // FLW-COLLECT: when payments are ON, every order-pay entry point funnels
-  // through the Online-vs-Pay-at-shop choice (openPaymentChoice). "Pay online"
-  // → Flutterwave hosted checkout; "Pay at shop" → at_shop. Single chokepoint.
-  // (Dormant while the flag above is false.) Non-order contexts keep the modal.
+  // CamPay retired — online payment is Flutterwave only. Every order-pay entry
+  // point funnels through the Online-vs-Pay-at-shop choice (openPaymentChoice):
+  // "Pay online" → Flutterwave hosted checkout; "Pay at shop" → at_shop. The
+  // legacy CamPay mobile-money modal is never opened any more.
   if (context && context.order_id) { openPaymentChoice({ order_id: context.order_id, ref: context.ref, total: context.amount }); return; }
-  momoContext = context;
-  console.log('openMomoModal called with:', JSON.stringify(context));
-  document.getElementById('momo-title').textContent = context.title || 'Pay with Mobile Money';
-  document.getElementById('momo-amount').textContent = (context.amount||0).toLocaleString() + ' FCFA';
-  document.getElementById('momo-sub').textContent = context.subtitle || '';
-  document.getElementById('momo-phone').value = currentBuyer?.phone || '';
-  document.getElementById('momo-status').className = 'momo-status';
-  document.getElementById('momo-pay-btn').disabled = false;
-  document.getElementById('momo-modal').classList.add('open');
+  toast('📋 ' + payAtShopMsg(), 'success');
 }
 function closeMomoModal() {
   if (window.campayCheckTimer) { clearInterval(window.campayCheckTimer); window.campayCheckTimer = null; }
@@ -2474,65 +2464,14 @@ function selectOperator(op) {
 }
 
 async function confirmMomoPayment() {
-  if (!PAYMENTS_ENABLED) { toast('📋 ' + payAtShopMsg(), 'success'); closeMomoModal(); return; }
-  const phone = document.getElementById('momo-phone').value.trim().replace(/\s/g,'');
-  if (phone.length < 8) { toast('Entrez votre numero Mobile Money', 'error'); return; }
-  const btn = document.getElementById('momo-pay-btn');
-  const status = document.getElementById('momo-status');
-  btn.disabled = true;
-  btn.textContent = 'Traitement...';
-  status.className = 'momo-status processing';
-  status.textContent = 'Demande envoyee a votre telephone...';
-  try {
-    const fullPhone = '237' + phone;
-    const _orderId = momoContext.order_id || momoContext.orderId || null;
-    console.log('Campay pay - order_id:', _orderId, 'context:', JSON.stringify(momoContext));
-    let data;
-    if (_orderId) {
-      // STAGE-1-DOZIE-ORDER-RPC: authenticated retry (orphans + retries).
-      data = await apiAuth('/api/orders/' + _orderId + '/retry-payment', { payer_phone: fullPhone });
-    } else {
-      // TODO STAGE-2: non-order legacy path still on unauthenticated /campay/pay.
-      const res = await fetch('/campay/pay', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: _orderId, phone: fullPhone, amount: momoContext.amount, type: momoContext.type || 'order' })
-      });
-      data = await res.json();
-    }
-    if (data.success) {
-      window._campayRef = data.campay_reference || data.reference;
-      status.textContent = 'Approuvez sur votre telephone.' + (data.ussd_code ? ' USSD: ' + data.ussd_code : '');
-      btn.textContent = 'En attente...';
-      const _simBtn = document.getElementById('sandbox-sim-btn');
-      if (_simBtn) _simBtn.style.display = 'block';
-      let checks = 0;
-      window.campayCheckTimer = setInterval(async () => {
-        checks++;
-        if (checks > 24) { clearInterval(window.campayCheckTimer); window.campayCheckTimer = null; btn.disabled = false; btn.textContent = 'Reessayer'; status.textContent = 'Temps ecoule.'; return; }
-        try {
-          const cr = await fetch('/campay/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference: window._campayRef, order_id: momoContext.order_id || null }) });
-          const cd = await cr.json();
-          if (cd.paid) {
-            clearInterval(window.campayCheckTimer); window.campayCheckTimer = null;
-            status.className = 'momo-status success';
-            status.textContent = 'Paiement confirme! Fonds en escrow.';
-            btn.textContent = 'Paye!';
-            if (momoContext.onSuccess) await momoContext.onSuccess();
-            setTimeout(function() { closeMomoModal(); toast('Paiement confirme!', 'success'); location.reload(); }, 2000);
-          }
-        } catch(e) {}
-      }, 5000);
-    } else {
-      status.className = 'momo-status failed';
-      status.textContent = data.message || 'Erreur paiement.';
-      btn.disabled = false; btn.textContent = 'Reessayer';
-    }
-  } catch(e) {
-    status.className = 'momo-status failed';
-    status.textContent = 'Erreur reseau: ' + e.message;
-    btn.disabled = false; btn.textContent = 'Reessayer';
-  }
+  // CamPay retired — this handler no longer collects via CamPay. Online payment
+  // is Flutterwave only: order payments funnel through the Online-vs-Pay-at-shop
+  // choice (openPaymentChoice → flwStartCheckout). This legacy modal is no longer
+  // opened for orders; if it is somehow triggered, redirect to the FLW flow.
+  const _oid = momoContext && (momoContext.order_id || momoContext.orderId);
+  closeMomoModal();
+  if (_oid) { openPaymentChoice({ order_id: _oid, ref: momoContext.ref, total: momoContext.amount }); }
+  else { toast('Online payment is via Flutterwave.', ''); }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2793,22 +2732,10 @@ async function confirmDelivery(orderId) {
       updated_at: new Date().toISOString()
     });
 
-    // Step 2: Auto-release escrow to seller
-    try {
-      const rel = await fetch('/campay/auto-release', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: orderId })
-      });
-      const rd = await rel.json();
-      if (rd.success) {
-        toast('Livraison confirmee! Paiement libere au vendeur.', 'success');
-      } else {
-        toast('Livraison confirmee! Paiement sera libere sous peu.', 'success');
-      }
-    } catch(re) {
-      toast('Livraison confirmee!', 'success');
-    }
+    // Step 2: CamPay retired — no auto-release. The order is marked delivered
+    // above; Flutterwave escrow payout to the seller is processed by an admin
+    // (manual /flw/mark-paid-out), not an automatic CamPay transfer.
+    toast('Livraison confirmee! Paiement sera libere au vendeur.', 'success');
 
     // Step 3: Notify seller
     await notifyServer('seller', {
@@ -3448,42 +3375,9 @@ async function submitReport() {
 }
 
 
-// ── SANDBOX: Simulate successful Campay payment ───────────────
+// CamPay sandbox simulation retired — CamPay is disabled (Flutterwave only).
 async function simulateCampaySuccess() {
-  if (!window._campayRef) {
-    toast('No active payment reference', 'error');
-    return;
-  }
-  const status = document.getElementById('momo-status');
-  const btn = document.getElementById('momo-pay-btn');
-  if (status) { status.className = 'momo-status processing'; status.textContent = 'Simulating payment...'; }
-  try {
-    const res = await fetch('/campay/simulate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        reference: window._campayRef,
-        order_id: momoContext ? (momoContext.order_id || null) : null
-      })
-    });
-    const data = await res.json();
-    if (data.success) {
-      if (window.campayCheckTimer) { clearInterval(window.campayCheckTimer); window.campayCheckTimer = null; }
-      if (window.campTimer) { clearInterval(window.campTimer); window.campTimer = null; }
-      if (status) { status.className = 'momo-status success'; status.textContent = '✅ Paiement confirme! (Sandbox)'; }
-      if (btn) { btn.textContent = 'Paye!'; btn.disabled = true; }
-      const simBtn = document.getElementById('sandbox-sim-btn');
-      if (simBtn) simBtn.style.display = 'none';
-      if (momoContext && momoContext.onSuccess) await momoContext.onSuccess();
-      setTimeout(() => {
-        document.getElementById('momo-modal').classList.remove('open');
-      }, 2000);
-    } else {
-      if (status) { status.className = 'momo-status failed'; status.textContent = 'Simulation failed: ' + data.message; }
-    }
-  } catch(e) {
-    toast('Simulation error: ' + e.message, 'error');
-  }
+  toast('CamPay is disabled — online payment is via Flutterwave.', '');
 }
 
 </script>
@@ -3524,7 +3418,7 @@ async function simulateCampaySuccess() {
         ⚡ Simulate Successful Payment
       </button>
     </div>
-    <div style="font-size:11px;color:var(--grey);margin-top:12px">🔒 Securise par Campay · Your PIN stays on your phone</div>
+    <div style="font-size:11px;color:var(--grey);margin-top:12px">🔒 Securisé par Flutterwave · paiement en ligne sécurisé</div>
   </div>
 </div>
 
