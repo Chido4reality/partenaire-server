@@ -43,7 +43,8 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 .cc{background:#f8f6f0;border:1.5px solid var(--lgrey);border-radius:10px;padding:13px 14px;font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap}
 .app-header{background:var(--navy);padding:0 16px;height:58px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
 /* ── HAMBURGER DRAWER ───────────────────────────────────────── */
-.dz-hamburger{background:rgba(255,255,255,0.1);border:0;color:#fff;width:44px;height:44px;border-radius:8px;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.dz-hamburger{position:relative;background:rgba(255,255,255,0.1);border:0;color:#fff;width:44px;height:44px;border-radius:8px;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.dz-hamburger-badge{position:absolute;top:1px;right:1px;background:var(--red);color:#fff;font-size:10px;font-weight:800;min-width:16px;height:16px;border-radius:8px;padding:0 4px;display:none;align-items:center;justify-content:center;line-height:1}
 .dz-hamburger:hover{background:rgba(255,255,255,0.2)}
 .dz-hamburger:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 #dz-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0);transition:background .25s ease-out;z-index:200;pointer-events:none}
@@ -416,7 +417,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
     </div>
   </aside>
   <div class="app-header">
-    <button class="dz-hamburger" id="dz-hamburger" onclick="dzOpenDrawer()" aria-label="Open menu" aria-controls="dz-drawer" aria-expanded="false">☰</button>
+    <button class="dz-hamburger" id="dz-hamburger" onclick="dzOpenDrawer()" aria-label="Open menu" aria-controls="dz-drawer" aria-expanded="false">☰<span class="dz-hamburger-badge" id="dz-hamburger-badge"></span></button>
     <div class="logo">PARTENAIRE <span>✦</span></div>
     <button class="hbtn cart-btn" onclick="switchTab('tab-cart')" id="cart-hbtn" aria-label="Cart">
       🛒 <span id="lbl-cart-btn">Panier</span> <span class="cart-count" id="cart-count">0</span>
@@ -444,7 +445,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
   <div class="tab-bar">
     <div class="tab active" onclick="switchTab('tab-shops')" id="tab-shops">🏪 <span id="lbl-shops">Boutiques</span></div>
     <div class="tab" onclick="switchTab('tab-cart')" id="tab-cart">🛒 <span id="lbl-cart">Panier</span> <span class="tab-badge" id="cart-badge">0</span></div>
-    <div class="tab" onclick="switchTab('tab-orders')" id="tab-orders">📦 <span id="lbl-orders">Commandes</span> <span class="tab-badge" id="order-badge">0</span></div>
+    <div class="tab" onclick="switchTab('tab-orders')" id="tab-orders">📦 <span id="lbl-orders">Commandes</span> <span class="tab-badge" id="order-badge">0</span><span id="orders-notif-dot" style="display:none;width:8px;height:8px;border-radius:4px;background:var(--red);margin-left:3px;vertical-align:middle"></span></div>
     <div class="tab" onclick="switchTab('tab-profile')" id="tab-profile">👤 <span id="lbl-profile">Profil</span></div>
   </div>
   <div class="tab-page active" id="page-shops">
@@ -1126,6 +1127,68 @@ async function registerBuyer() {
 // ══════════════════════════════════════════════════════════════
 //  APP
 // ══════════════════════════════════════════════════════════════
+// ── NOTIFICATION SIGNAL (server-side counts; Batch-B-safe) ────────────────────
+// Reads unread ptn_notifications counts + marks-read via the Dozie server endpoints
+// (JWT → service role), NOT anon-direct, so the upcoming Batch-B lockdown on
+// ptn_notifications doesn't break this.
+let notifCounts = { by_type: {}, total: 0 };
+async function notifFetchCounts() {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    const r = await fetch('/notifications/unread-counts', { headers: j ? { 'Authorization': 'Bearer ' + j } : {} });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return (d && d.success) ? d : null;
+  } catch (e) { return null; }
+}
+async function notifMarkReadServer(opts) {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    await fetch('/notifications/mark-read', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(j ? { 'Authorization': 'Bearer ' + j } : {}) }, body: JSON.stringify(opts || {}) });
+  } catch (e) {}
+}
+// Notify the counterparty server-side. The RECIPIENT is derived + validated by the
+// server from the order/conversation context (to='seller'|'buyer'|'admin') — this
+// NEVER sends a client-chosen user_id, so it can't target an arbitrary user.
+async function notifyServer(to, payload) {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    await fetch('/notifications/notify', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(j ? { 'Authorization': 'Bearer ' + j } : {}) }, body: JSON.stringify({ to, ...(payload || {}) }) });
+  } catch (e) {}
+}
+// The caller's own notifications (paginated/filtered) — replaces anon-direct reads.
+async function notifFetchList(query) {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    const r = await fetch('/notifications/list' + (query || ''), { headers: j ? { 'Authorization': 'Bearer ' + j } : {} });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d && d.success && Array.isArray(d.notifications)) ? d.notifications : [];
+  } catch (e) { return []; }
+}
+
+async function refreshNotifSignal() {
+  if (!currentBuyer) return;
+  const c = await notifFetchCounts();
+  if (!c) return;
+  notifCounts = { by_type: c.by_type || {}, total: c.total || 0 };
+  const hb = document.getElementById('dz-hamburger-badge');
+  if (hb) { hb.textContent = notifCounts.total > 99 ? '99+' : String(notifCounts.total); hb.style.display = notifCounts.total > 0 ? 'flex' : 'none'; }
+  const ob = document.getElementById('orders-notif-dot');
+  if (ob) ob.style.display = (notifCounts.by_type.order || notifCounts.by_type.payment || notifCounts.by_type.dispute) ? 'inline-block' : 'none';
+  if (document.getElementById('dz-drawer')?.classList.contains('open')) dzRenderDrawer();
+}
+// Mark a section's notifications read when the user opens it, then refresh.
+async function notifOnSectionOpen(tabId) {
+  const map = { 'tab-orders': ['order', 'payment', 'dispute'], 'tab-messages': ['message'] };
+  const types = map[tabId];
+  if (!types) return;
+  for (const t of types) await notifMarkReadServer({ type: t });
+  refreshNotifSignal();
+}
+window.addEventListener('focus', () => refreshNotifSignal());
+setInterval(() => refreshNotifSignal(), 45000);
+
 function enterApp() {
   // Single chokepoint: NEVER render authenticated content / fire
   // data fetches without a valid Dozie JWT. Blocks stale-identity,
@@ -1143,6 +1206,7 @@ function enterApp() {
   const hdrName = document.getElementById('hdr-name');
   if (hdrName) hdrName.textContent = currentBuyer.name || 'Buyer';
   dzRenderDrawer();
+  refreshNotifSignal(); // server-side unread signal → hamburger total + Orders dot + drawer badges
   document.getElementById('p-name').textContent = currentBuyer.name || 'Buyer';
   document.getElementById('p-sub').textContent = (currentBuyer.company||'') + ' · 📍 ' + (currentBuyer.city||'');
   document.getElementById('p-avatar-text').textContent = (currentBuyer.name||'B').charAt(0).toUpperCase();
@@ -1819,12 +1883,11 @@ async function placeOrder(total) {
       orders.push({ order_ref: ref, shopName: data.shopName });
       // Notify seller (existing pattern).
       try {
-        await POST('ptn_notifications', {
-          user_id: sellerId, type: 'order',
+        await notifyServer('seller', {
+          seller_id: sellerId, buyer_id: currentBuyer.id, type: 'order',
           title_en: 'New Order Received!', title_fr: 'Nouvelle commande!',
           body_en: `${currentBuyer.name} placed an order for ${data.clientTotal.toLocaleString()} FCFA`,
-          body_fr: `${currentBuyer.name} a passé une commande de ${data.clientTotal.toLocaleString()} FCFA`,
-          read: false
+          body_fr: `${currentBuyer.name} a passé une commande de ${data.clientTotal.toLocaleString()} FCFA`
         });
       } catch(e) {}
     }
@@ -2118,6 +2181,7 @@ function switchTab(tabId) {
   if (tabId==='tab-cart') renderCart();
   if (tabId==='tab-reviews') loadMyReviews();
   if (tabId==='tab-messages') loadBuyerInbox();
+  notifOnSectionOpen(tabId); // mark this section's notifications read + clear its badge
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2187,8 +2251,8 @@ function dzRenderDrawer() {
   // action, already lives in the header + tab-bar as the 🛒 button.
   const items = [
     { id:'tab-shops',   icon:'🏠', en:'Marketplace', fr:'Boutiques' },
-    { id:'tab-orders',  icon:'📦', en:'My Orders',   fr:'Mes Commandes' },
-    { id:'tab-messages',icon:'💬', en:'Messages',    fr:'Messages',     badge: (window.bzUnread||0) || null },
+    { id:'tab-orders',  icon:'📦', en:'My Orders',   fr:'Mes Commandes', badge: ((notifCounts.by_type.order||0)+(notifCounts.by_type.payment||0)+(notifCounts.by_type.dispute||0)) || null },
+    { id:'tab-messages',icon:'💬', en:'Messages',    fr:'Messages',     badge: Math.max(window.bzUnread||0, notifCounts.by_type.message||0) || null },
     { id:'tab-reviews', icon:'⭐', en:'My Reviews',  fr:'Mes Avis' },
     { id:'tab-profile', icon:'👤', en:'My Profile',  fr:'Mon Profil' }
   ];
@@ -2611,7 +2675,7 @@ async function chatAboutCounter() {
 async function checkPaymentRequests() {
   if (!currentBuyer) return;
   try {
-    const notifs = await GET('ptn_notifications', `user_id=eq.${currentBuyer.id}&type=eq.payment&read=eq.false&select=*&order=created_at.desc&limit=3`);
+    const notifs = await notifFetchList('?type=payment&unread=1&limit=3');
     if (!notifs || !notifs.length) return;
     for (const n of notifs) {
       if (!n.order_id) continue;
@@ -2621,7 +2685,7 @@ async function checkPaymentRequests() {
       if (o.counter_status === 'pending') {
         toast('✏️ Seller adjusted your order — tap to review', '');
         openCounterOffer(o.id);
-        try { await PATCH('ptn_notifications','id',n.id,{read:true}); } catch(e) {}
+        try { await notifMarkReadServer({ ids: [n.id] }); } catch(e) {}
         break;
       } else if (o.payment_requested && o.status === 'confirmed') {
         // MP-DOZIE-PAYMENT-AT-REQUEST-TIME: pay_option='pending' means the
@@ -2638,7 +2702,7 @@ async function checkPaymentRequests() {
             onSuccess: async () => { await PATCH('ptn_orders','id',o.id,{escrow_held:o.total||0,payment_requested:false,payment_status:'paid',updated_at:new Date().toISOString()}); await loadOrders(); toast('✅ Payment confirmed!', 'success'); }
           });
         }
-        try { await PATCH('ptn_notifications','id',n.id,{read:true}); } catch(e) {}
+        try { await notifMarkReadServer({ ids: [n.id] }); } catch(e) {}
         break;
       }
     }
@@ -2669,15 +2733,13 @@ async function raiseDispute(orderId, reason) {
       dispute_status: 'open',
       updated_at: new Date().toISOString()
     });
-    await POST('ptn_notifications', {
-      user_id: o.seller_id,
-      type: 'dispute',
+    await notifyServer('seller', {
       order_id: orderId,
+      type: 'dispute',
       title_en: 'Dispute on Order ' + o.order_ref,
       title_fr: 'Litige - Commande ' + o.order_ref,
       body_en: 'Buyer raised a dispute: ' + reason,
-      body_fr: 'Litige ouvert: ' + reason,
-      read: false
+      body_fr: 'Litige ouvert: ' + reason
     });
     await loadOrders();
     closeOrderDetail();
@@ -2749,15 +2811,13 @@ async function confirmDelivery(orderId) {
     }
 
     // Step 3: Notify seller
-    await POST('ptn_notifications', {
-      user_id: o.seller_id,
-      type: 'delivery',
+    await notifyServer('seller', {
       order_id: orderId,
+      type: 'delivery',
       title_en: 'Delivery Confirmed - Payment Released!',
       title_fr: 'Livraison confirmee - Paiement libere!',
       body_en: 'Buyer confirmed delivery of order ' + o.order_ref + '. Payment sent to your account.',
-      body_fr: 'Livraison confirmee pour ' + o.order_ref + '. Paiement envoye sur votre compte.',
-      read: false
+      body_fr: 'Livraison confirmee pour ' + o.order_ref + '. Paiement envoye sur votre compte.'
     });
 
     await loadOrders();
@@ -3157,7 +3217,7 @@ async function submitQuickOrder() {
     // payment method (momo/orange/at_shop) via openPaymentChoice modal
     // once the seller accepts.
     await POST('ptn_orders',{order_ref:ref,buyer_id:currentBuyer.id,seller_id:currentShop.id,items,total,mode,pay_option:'pending',deposit_paid:0,status:'pending',payment_status:'unpaid',payment_method:null,payment_requested:false,escrow_held:0,city:quartier||currentBuyer.city,notes:delivNote||null});
-    try{await POST('ptn_notifications',{user_id:currentShop.id,type:'order',title_en:'New Quick Order!',title_fr:'Nouvelle commande rapide!',body_en:`${currentBuyer.name} sent a quick order for ${total.toLocaleString()} FCFA · Ref: ${ref}`,body_fr:`${currentBuyer.name} a envoyé une commande rapide de ${total.toLocaleString()} FCFA · Ref: ${ref}`,read:false});}catch(e){}
+    try{await notifyServer('seller',{seller_id:currentShop.id,buyer_id:currentBuyer.id,type:'order',title_en:'New Quick Order!',title_fr:'Nouvelle commande rapide!',body_en:`${currentBuyer.name} sent a quick order for ${total.toLocaleString()} FCFA · Ref: ${ref}`,body_fr:`${currentBuyer.name} a envoyé une commande rapide de ${total.toLocaleString()} FCFA · Ref: ${ref}`});}catch(e){}
     const summary=items.map(i=>`• ${i.name} × ${i.qty}${i.price?' ('+i.price.toLocaleString()+' FCFA/unit)':''}`).join('\n');
     addChatMsg(`📋 QUICK ORDER ${ref}\n\n${summary}\n\nTotal: ${total.toLocaleString()} FCFA\nMode: ${mode==='pickup'?'Pickup':'Delivery'}${delivNote?'\nDelivery note: '+delivNote:''}`, 'sent', 'text');
     toast('🎉 Order sent to seller!', 'success');
@@ -3232,7 +3292,7 @@ async function sendChatMsg(){
   if(!currentBuyer)return;
   const sentAt=new Date().toISOString();addChatMsg(text,'sent','text');chatLastMsgTime=sentAt;input.value='';input.style.height='auto';
   try{await POST('ptn_messages',{buyer_id:currentBuyer.id,seller_id:currentShop.id,sender_role:'buyer',content:text,type:'text',read:false});
-  await POST('ptn_notifications',{user_id:currentShop.id,type:'message',buyer_id:currentBuyer.id,title_en:'New message from '+(currentBuyer.name||'Buyer'),title_fr:'Nouveau message de '+(currentBuyer.name||'Acheteur'),body_en:text.slice(0,80)+(text.length>80?'...':''),body_fr:text.slice(0,80)+(text.length>80?'...':''),read:false});}catch(e){}
+  await notifyServer('seller',{seller_id:currentShop.id,buyer_id:currentBuyer.id,type:'message',title_en:'New message from '+(currentBuyer.name||'Buyer'),title_fr:'Nouveau message de '+(currentBuyer.name||'Acheteur'),body_en:text.slice(0,80)+(text.length>80?'...':''),body_fr:text.slice(0,80)+(text.length>80?'...':'')});}catch(e){}
 }
 
 function sendChatImage(input){const file=input.files[0];if(!file)return;const reader=new FileReader();reader.onload=e=>{addChatMsg(e.target.result,'sent','image');input.value='';};reader.readAsDataURL(file);}
@@ -3368,13 +3428,12 @@ async function submitReport() {
       created_at:    new Date().toISOString()
     });
     try {
-      await POST('ptn_notifications', {
+      await notifyServer('admin', {
         type:     'report',
         title_en: '🚩 New report: ' + activeReport.targetType,
         title_fr: '🚩 Nouveau signalement : ' + activeReport.targetType,
         body_en:  'Reason: ' + reason + (activeReport.targetLabel ? ' — ' + activeReport.targetLabel : ''),
-        body_fr:  'Raison : ' + reason + (activeReport.targetLabel ? ' — ' + activeReport.targetLabel : ''),
-        read:     false
+        body_fr:  'Raison : ' + reason + (activeReport.targetLabel ? ' — ' + activeReport.targetLabel : '')
       });
     } catch (e) {}
     closeReportModal();

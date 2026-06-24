@@ -14,11 +14,17 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v42-20260624-pay';
-// BUMP (2026-06-24): PAYMENTS LIVE (soft launch) — buyer-HTML const PAYMENTS_ENABLED
-// flipped true so installed clients pick up the live "pay online" flow. Server-side
-// enable is the Render env PAYMENTS_ENABLED=true (set separately). Forces all
-// installed/web buyer clients onto the new build.
+const CACHE = 'partenaire-dozie-v43-20260624';
+// BUMP (2026-06-24b): notifications fully server-side — all notify-others inserts now
+// go through POST /notifications/notify (recipient derived+validated server-side, no
+// client user_id), and the seller notifications-list + buyer payment-poll reads now
+// use GET /notifications/list (caller-scoped). No client-direct anon ptn_notifications
+// reads/writes remain → ready for the Batch-B anon revoke.
+// BUMP (2026-06-24): notification signal — sidebar unread badges (hamburger total +
+// drawer Orders/Messages badges + buyer Orders dot) driven by the new server
+// /notifications/unread-counts + /notifications/mark-read endpoints (buyer + seller).
+// MERGE NOTE (payments-live): this build retains buyer const PAYMENTS_ENABLED=true
+// (soft launch). Server enable is the Render env PAYMENTS_ENABLED=true (set separately).
 // BUMP (2026-06-22): refund/dispute v1 — buyer raise-dispute button now calls the
 // gated POST /orders/:id/dispute endpoint (dormant behind PAYMENTS_ENABLED).
 // BUMP (2026-06-21j): search-bar UI fix (input on its own full-width row → typed
