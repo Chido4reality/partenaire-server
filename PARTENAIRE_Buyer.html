@@ -1147,6 +1147,26 @@ async function notifMarkReadServer(opts) {
     await fetch('/notifications/mark-read', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(j ? { 'Authorization': 'Bearer ' + j } : {}) }, body: JSON.stringify(opts || {}) });
   } catch (e) {}
 }
+// Notify the counterparty server-side. The RECIPIENT is derived + validated by the
+// server from the order/conversation context (to='seller'|'buyer'|'admin') — this
+// NEVER sends a client-chosen user_id, so it can't target an arbitrary user.
+async function notifyServer(to, payload) {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    await fetch('/notifications/notify', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(j ? { 'Authorization': 'Bearer ' + j } : {}) }, body: JSON.stringify({ to, ...(payload || {}) }) });
+  } catch (e) {}
+}
+// The caller's own notifications (paginated/filtered) — replaces anon-direct reads.
+async function notifFetchList(query) {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    const r = await fetch('/notifications/list' + (query || ''), { headers: j ? { 'Authorization': 'Bearer ' + j } : {} });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d && d.success && Array.isArray(d.notifications)) ? d.notifications : [];
+  } catch (e) { return []; }
+}
+
 async function refreshNotifSignal() {
   if (!currentBuyer) return;
   const c = await notifFetchCounts();
@@ -1863,12 +1883,11 @@ async function placeOrder(total) {
       orders.push({ order_ref: ref, shopName: data.shopName });
       // Notify seller (existing pattern).
       try {
-        await POST('ptn_notifications', {
-          user_id: sellerId, type: 'order',
+        await notifyServer('seller', {
+          seller_id: sellerId, buyer_id: currentBuyer.id, type: 'order',
           title_en: 'New Order Received!', title_fr: 'Nouvelle commande!',
           body_en: `${currentBuyer.name} placed an order for ${data.clientTotal.toLocaleString()} FCFA`,
-          body_fr: `${currentBuyer.name} a passé une commande de ${data.clientTotal.toLocaleString()} FCFA`,
-          read: false
+          body_fr: `${currentBuyer.name} a passé une commande de ${data.clientTotal.toLocaleString()} FCFA`
         });
       } catch(e) {}
     }
@@ -2656,7 +2675,7 @@ async function chatAboutCounter() {
 async function checkPaymentRequests() {
   if (!currentBuyer) return;
   try {
-    const notifs = await GET('ptn_notifications', `user_id=eq.${currentBuyer.id}&type=eq.payment&read=eq.false&select=*&order=created_at.desc&limit=3`);
+    const notifs = await notifFetchList('?type=payment&unread=1&limit=3');
     if (!notifs || !notifs.length) return;
     for (const n of notifs) {
       if (!n.order_id) continue;
@@ -2666,7 +2685,7 @@ async function checkPaymentRequests() {
       if (o.counter_status === 'pending') {
         toast('✏️ Seller adjusted your order — tap to review', '');
         openCounterOffer(o.id);
-        try { await PATCH('ptn_notifications','id',n.id,{read:true}); } catch(e) {}
+        try { await notifMarkReadServer({ ids: [n.id] }); } catch(e) {}
         break;
       } else if (o.payment_requested && o.status === 'confirmed') {
         // MP-DOZIE-PAYMENT-AT-REQUEST-TIME: pay_option='pending' means the
@@ -2683,7 +2702,7 @@ async function checkPaymentRequests() {
             onSuccess: async () => { await PATCH('ptn_orders','id',o.id,{escrow_held:o.total||0,payment_requested:false,payment_status:'paid',updated_at:new Date().toISOString()}); await loadOrders(); toast('✅ Payment confirmed!', 'success'); }
           });
         }
-        try { await PATCH('ptn_notifications','id',n.id,{read:true}); } catch(e) {}
+        try { await notifMarkReadServer({ ids: [n.id] }); } catch(e) {}
         break;
       }
     }
@@ -2714,15 +2733,13 @@ async function raiseDispute(orderId, reason) {
       dispute_status: 'open',
       updated_at: new Date().toISOString()
     });
-    await POST('ptn_notifications', {
-      user_id: o.seller_id,
-      type: 'dispute',
+    await notifyServer('seller', {
       order_id: orderId,
+      type: 'dispute',
       title_en: 'Dispute on Order ' + o.order_ref,
       title_fr: 'Litige - Commande ' + o.order_ref,
       body_en: 'Buyer raised a dispute: ' + reason,
-      body_fr: 'Litige ouvert: ' + reason,
-      read: false
+      body_fr: 'Litige ouvert: ' + reason
     });
     await loadOrders();
     closeOrderDetail();
@@ -2794,15 +2811,13 @@ async function confirmDelivery(orderId) {
     }
 
     // Step 3: Notify seller
-    await POST('ptn_notifications', {
-      user_id: o.seller_id,
-      type: 'delivery',
+    await notifyServer('seller', {
       order_id: orderId,
+      type: 'delivery',
       title_en: 'Delivery Confirmed - Payment Released!',
       title_fr: 'Livraison confirmee - Paiement libere!',
       body_en: 'Buyer confirmed delivery of order ' + o.order_ref + '. Payment sent to your account.',
-      body_fr: 'Livraison confirmee pour ' + o.order_ref + '. Paiement envoye sur votre compte.',
-      read: false
+      body_fr: 'Livraison confirmee pour ' + o.order_ref + '. Paiement envoye sur votre compte.'
     });
 
     await loadOrders();
@@ -3202,7 +3217,7 @@ async function submitQuickOrder() {
     // payment method (momo/orange/at_shop) via openPaymentChoice modal
     // once the seller accepts.
     await POST('ptn_orders',{order_ref:ref,buyer_id:currentBuyer.id,seller_id:currentShop.id,items,total,mode,pay_option:'pending',deposit_paid:0,status:'pending',payment_status:'unpaid',payment_method:null,payment_requested:false,escrow_held:0,city:quartier||currentBuyer.city,notes:delivNote||null});
-    try{await POST('ptn_notifications',{user_id:currentShop.id,type:'order',title_en:'New Quick Order!',title_fr:'Nouvelle commande rapide!',body_en:`${currentBuyer.name} sent a quick order for ${total.toLocaleString()} FCFA · Ref: ${ref}`,body_fr:`${currentBuyer.name} a envoyé une commande rapide de ${total.toLocaleString()} FCFA · Ref: ${ref}`,read:false});}catch(e){}
+    try{await notifyServer('seller',{seller_id:currentShop.id,buyer_id:currentBuyer.id,type:'order',title_en:'New Quick Order!',title_fr:'Nouvelle commande rapide!',body_en:`${currentBuyer.name} sent a quick order for ${total.toLocaleString()} FCFA · Ref: ${ref}`,body_fr:`${currentBuyer.name} a envoyé une commande rapide de ${total.toLocaleString()} FCFA · Ref: ${ref}`});}catch(e){}
     const summary=items.map(i=>`• ${i.name} × ${i.qty}${i.price?' ('+i.price.toLocaleString()+' FCFA/unit)':''}`).join('\n');
     addChatMsg(`📋 QUICK ORDER ${ref}\n\n${summary}\n\nTotal: ${total.toLocaleString()} FCFA\nMode: ${mode==='pickup'?'Pickup':'Delivery'}${delivNote?'\nDelivery note: '+delivNote:''}`, 'sent', 'text');
     toast('🎉 Order sent to seller!', 'success');
@@ -3277,7 +3292,7 @@ async function sendChatMsg(){
   if(!currentBuyer)return;
   const sentAt=new Date().toISOString();addChatMsg(text,'sent','text');chatLastMsgTime=sentAt;input.value='';input.style.height='auto';
   try{await POST('ptn_messages',{buyer_id:currentBuyer.id,seller_id:currentShop.id,sender_role:'buyer',content:text,type:'text',read:false});
-  await POST('ptn_notifications',{user_id:currentShop.id,type:'message',buyer_id:currentBuyer.id,title_en:'New message from '+(currentBuyer.name||'Buyer'),title_fr:'Nouveau message de '+(currentBuyer.name||'Acheteur'),body_en:text.slice(0,80)+(text.length>80?'...':''),body_fr:text.slice(0,80)+(text.length>80?'...':''),read:false});}catch(e){}
+  await notifyServer('seller',{seller_id:currentShop.id,buyer_id:currentBuyer.id,type:'message',title_en:'New message from '+(currentBuyer.name||'Buyer'),title_fr:'Nouveau message de '+(currentBuyer.name||'Acheteur'),body_en:text.slice(0,80)+(text.length>80?'...':''),body_fr:text.slice(0,80)+(text.length>80?'...':'')});}catch(e){}
 }
 
 function sendChatImage(input){const file=input.files[0];if(!file)return;const reader=new FileReader();reader.onload=e=>{addChatMsg(e.target.result,'sent','image');input.value='';};reader.readAsDataURL(file);}
@@ -3413,13 +3428,12 @@ async function submitReport() {
       created_at:    new Date().toISOString()
     });
     try {
-      await POST('ptn_notifications', {
+      await notifyServer('admin', {
         type:     'report',
         title_en: '🚩 New report: ' + activeReport.targetType,
         title_fr: '🚩 Nouveau signalement : ' + activeReport.targetType,
         body_en:  'Reason: ' + reason + (activeReport.targetLabel ? ' — ' + activeReport.targetLabel : ''),
-        body_fr:  'Raison : ' + reason + (activeReport.targetLabel ? ' — ' + activeReport.targetLabel : ''),
-        read:     false
+        body_fr:  'Raison : ' + reason + (activeReport.targetLabel ? ' — ' + activeReport.targetLabel : '')
       });
     } catch (e) {}
     closeReportModal();

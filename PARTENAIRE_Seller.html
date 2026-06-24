@@ -2553,15 +2553,13 @@ async function submitDisputeReply(orderId, buyerId, orderRef) {
     // blocking until an admin resolves. Replaces the old anon-direct PATCHes
     // (ptn_disputes anon writes are now revoked).
     await dozieDisputeReply(orderId, reply);
-    await POST('ptn_notifications', {
-      user_id: buyerId,
-      type: 'dispute',
+    await notifyServer('buyer', {
       order_id: orderId,
+      type: 'dispute',
       title_en: 'Seller Replied to Your Dispute',
       title_fr: 'Le vendeur a repondu a votre litige',
       body_en: 'Order ' + orderRef + ': Seller replied. Tap to view.',
-      body_fr: 'Commande ' + orderRef + ': Le vendeur a repondu.',
-      read: false
+      body_fr: 'Commande ' + orderRef + ': Le vendeur a repondu.'
     });
     await loadOrders();
     closeOrderDetail();
@@ -2589,16 +2587,13 @@ async function confirmAndRequestPayment(orderId, buyerId, orderRef, total) {
     allOrders = allOrders.map(o => o.id===orderId ? {...o, status:'confirmed', payment_requested:true} : o);
 
     // Notify buyer with payment request
-    await POST('ptn_notifications', {
-      user_id: buyerId,
-      buyer_id: buyerId,
-      type: 'payment',
+    await notifyServer('buyer', {
       order_id: orderId,
+      type: 'payment',
       title_en: '💳 Please Pay for Your Order',
       title_fr: '💳 Veuillez payer votre commande',
       body_en: `Order ${orderRef} confirmed! Amount: ${total.toLocaleString()} FCFA. Tap to pay now via MTN MoMo or Orange Money.`,
-      body_fr: `Commande ${orderRef} confirmée! Montant: ${total.toLocaleString()} FCFA. Appuyez pour payer via MTN MoMo ou Orange Money.`,
-      read: false
+      body_fr: `Commande ${orderRef} confirmée! Montant: ${total.toLocaleString()} FCFA. Appuyez pour payer via MTN MoMo ou Orange Money.`
     });
 
     renderOrders();
@@ -2689,11 +2684,9 @@ async function sendCounterOffer() {
     });
 
     // Notify buyer
-    await POST('ptn_notifications', {
-      user_id:  o.buyer_id,
-      buyer_id: o.buyer_id,
-      type:     'order',
+    await notifyServer('buyer', {
       order_id: adjustOrderId,
+      type:     'order',
       title_en: '✏️ Seller Adjusted Your Order',
       title_fr: '✏️ Le vendeur a modifié votre commande',
       body_en:  `Order ${o.order_ref}: New total ${counterTotal.toLocaleString()} FCFA (was ${(o.total||0).toLocaleString()} FCFA). ${note ? 'Note: '+note : ''} Tap to review & pay.`,
@@ -2729,14 +2722,13 @@ async function updateOrderStatus(id, status) {
       const n = notifMap[status];
       if (n) {
         try {
-          await POST('ptn_notifications', {
-            user_id: order.buyer_id,
+          await notifyServer('buyer', {
+            seller_id: currentSeller.id, buyer_id: order.buyer_id,
             type: 'order',
             title_en: `Order ${order.order_ref} Update`,
             title_fr: `Mise à jour commande ${order.order_ref}`,
             body_en: n.en,
-            body_fr: n.fr,
-            read: false
+            body_fr: n.fr
           });
         } catch(e) {}
       }
@@ -2758,7 +2750,7 @@ async function updateOrderStatus(id, status) {
 // ══════════════════════════════════════════════════════════════
 async function loadNotifications() {
   try {
-    allNotifs = await GET('ptn_notifications', `user_id=eq.${currentSeller.id}&order=created_at.desc&select=*`);
+    allNotifs = await notifFetchList('?limit=50');
     // Also load unread messages count
     try {
       const unreadMsgs = await GET('ptn_messages',
@@ -2861,6 +2853,25 @@ async function notifMarkReadServer(opts) {
     const j = localStorage.getItem('dozie_jwt');
     await fetch('/notifications/mark-read', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(j ? { 'Authorization': 'Bearer ' + j } : {}) }, body: JSON.stringify(opts || {}) });
   } catch (e) {}
+}
+// Notify the counterparty server-side. The RECIPIENT is derived + validated by the
+// server from the order/conversation context (to='seller'|'buyer'|'admin') — this
+// NEVER sends a client-chosen user_id, so it can't target an arbitrary user.
+async function notifyServer(to, payload) {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    await fetch('/notifications/notify', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(j ? { 'Authorization': 'Bearer ' + j } : {}) }, body: JSON.stringify({ to, ...(payload || {}) }) });
+  } catch (e) {}
+}
+// The caller's own notifications (paginated/filtered) — replaces anon-direct reads.
+async function notifFetchList(query) {
+  try {
+    const j = localStorage.getItem('dozie_jwt');
+    const r = await fetch('/notifications/list' + (query || ''), { headers: j ? { 'Authorization': 'Bearer ' + j } : {} });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d && d.success && Array.isArray(d.notifications)) ? d.notifications : [];
+  } catch (e) { return []; }
 }
 async function refreshNotifSignal() {
   if (!currentSeller) return;
@@ -3350,7 +3361,7 @@ async function submitSellerDisputeReply(id, orderId) {
   if (!reply) { toast(fr?'Écrivez une réponse':'Write a reply','error'); return; }
   try {
     await dozieDisputeReply(orderId, reply);
-    try { await POST('ptn_notifications', { type:'dispute', title_en:'Seller replied to a dispute', title_fr:'Le vendeur a répondu à un litige', body_en:reply.slice(0,120), body_fr:reply.slice(0,120), read:false }); } catch(e) {}
+    try { await notifyServer('buyer', { order_id: orderId, type:'dispute', title_en:'Seller replied to a dispute', title_fr:'Le vendeur a répondu à un litige', body_en:reply.slice(0,120), body_fr:reply.slice(0,120) }); } catch(e) {}
     toast(fr?'Réponse envoyée':'Reply sent','success');
     loadSellerDisputes();
   } catch (e) { toast((fr?'Erreur : ':'Error: ')+e.message,'error'); }
@@ -3494,7 +3505,7 @@ async function scReportBuyer() {
   if (!reason) return;
   try {
     await POST('ptn_reports', { target_type:'user', target_id:String(scBuyerId), target_label:scBuyerName||null, reason:reason, reporter_id:currentSeller.id, reporter_name:currentSeller.company||currentSeller.name||null, status:'open' });
-    try { await POST('ptn_notifications', { type:'report', title_en:'New report: user', title_fr:'Nouveau signalement : utilisateur', body_en:'Reason: '+reason, body_fr:'Raison : '+reason, read:false }); } catch(e){}
+    try { await notifyServer('admin', { type:'report', title_en:'New report: user', title_fr:'Nouveau signalement : utilisateur', body_en:'Reason: '+reason, body_fr:'Raison : '+reason }); } catch(e){}
     toast(fr?'Signalement envoyé':'Report sent','success');
   } catch (e) { toast((fr?'Erreur : ':'Error: ')+e.message,'error'); }
 }
@@ -3840,14 +3851,13 @@ async function scSendMsg() {
       read: false
     });
     // Notify buyer
-    await POST('ptn_notifications', {
-      user_id: scBuyerId,
+    await notifyServer('buyer', {
+      seller_id: currentSeller.id, buyer_id: scBuyerId,
       type: 'message',
       title_en: 'Reply from ' + (currentSeller.company||'Seller'),
       title_fr: 'Réponse de ' + (currentSeller.company||'Vendeur'),
       body_en: text.slice(0,80) + (text.length>80?'...':''),
-      body_fr: text.slice(0,80) + (text.length>80?'...':''),
-      read: false
+      body_fr: text.slice(0,80) + (text.length>80?'...':'')
     });
   } catch(e) { console.log('Chat error:', e.message); }
 }
@@ -3929,15 +3939,13 @@ async function scToggleVoice() {
               type: 'voice',
               read: false
             });
-            await POST('ptn_notifications', {
-              user_id: scBuyerId,
-              buyer_id: scBuyerId,
+            await notifyServer('buyer', {
+              seller_id: currentSeller.id, buyer_id: scBuyerId,
               type: 'message',
               title_en: '🎤 Voice message from ' + (currentSeller.company || 'Seller'),
               title_fr: '🎤 Message vocal de ' + (currentSeller.company || 'Vendeur'),
               body_en: 'Tap to listen',
-              body_fr: 'Appuyez pour écouter',
-              read: false
+              body_fr: 'Appuyez pour écouter'
             });
           } catch(err) { console.log('Voice DB save error:', err.message); }
         };

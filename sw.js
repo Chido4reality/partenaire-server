@@ -14,7 +14,12 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v41-20260624';
+const CACHE = 'partenaire-dozie-v43-20260624';
+// BUMP (2026-06-24b): notifications fully server-side — all notify-others inserts now
+// go through POST /notifications/notify (recipient derived+validated server-side, no
+// client user_id), and the seller notifications-list + buyer payment-poll reads now
+// use GET /notifications/list (caller-scoped). No client-direct anon ptn_notifications
+// reads/writes remain → ready for the Batch-B anon revoke.
 // BUMP (2026-06-24): notification signal — sidebar unread badges (hamburger total +
 // drawer Orders/Messages badges + buyer Orders dot) driven by the new server
 // /notifications/unread-counts + /notifications/mark-read endpoints (buyer + seller).

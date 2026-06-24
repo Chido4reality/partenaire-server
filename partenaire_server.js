@@ -2149,6 +2149,92 @@ http.createServer((req, res) => {
     return;
   }
 
+  // ── DOZIE NOTIFICATIONS: NOTIFY COUNTERPARTY (auth → service-role) ─
+  // Lets a buyer notify the SELLER (or a seller notify the BUYER) of an order /
+  // conversation they are part of, or file an admin 'report'. CRITICAL: the
+  // RECIPIENT is DERIVED + VALIDATED server-side from the event context — the
+  // client NEVER supplies a raw user_id, so it cannot target an arbitrary user.
+  //   body { to:'seller'|'buyer'|'admin', order_id? | (seller_id?+buyer_id?),
+  //          type, title_en, title_fr, body_en, body_fr }
+  //   to='seller' → caller MUST be the order/convo buyer; recipient = the seller.
+  //   to='buyer'  → caller MUST be the order/convo seller; recipient = the buyer.
+  //   to='admin'  → recipient = null (admin-visible report/dispute), content only.
+  if (req.url === '/notifications/notify' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        const idn = resolveDozieIdentity(req);
+        if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+        const b = JSON.parse(body || '{}');
+        const to = b.to;
+        // Content is cosmetic + client-controlled; cap lengths. NO user_id accepted.
+        const note = {
+          type: String(b.type || 'order').slice(0, 40),
+          title_en: String(b.title_en || '').slice(0, 160), title_fr: String(b.title_fr || '').slice(0, 160),
+          body_en: String(b.body_en || '').slice(0, 600), body_fr: String(b.body_fr || '').slice(0, 600),
+          order_id: b.order_id || null, read: false,
+        };
+        if (to === 'admin') {
+          note.user_id = null; // admin-visible (report / dispute) — no targeted user
+        } else if (to === 'seller' || to === 'buyer') {
+          let buyerId = null, sellerId = null;
+          if (b.order_id) {
+            const orders = await supaRequestPrivileged('GET', 'ptn_orders', 'id=eq.' + b.order_id + '&select=buyer_id,seller_id');
+            const o = Array.isArray(orders) && orders[0];
+            if (!o) return send(404, { success: false, error_code: 'not_found', message: 'Order not found' });
+            buyerId = o.buyer_id; sellerId = o.seller_id;
+          } else if (b.seller_id && b.buyer_id) {
+            buyerId = b.buyer_id; sellerId = b.seller_id;
+          } else {
+            return send(400, { success: false, error_code: 'validation', message: 'order_id or seller_id+buyer_id required' });
+          }
+          if (to === 'seller') {
+            if (idn.uid !== buyerId) return send(403, { success: false, error_code: 'forbidden', message: 'Only the buyer may notify the seller' });
+            note.user_id = sellerId;
+          } else { // to === 'buyer'
+            if (idn.uid !== sellerId) return send(403, { success: false, error_code: 'forbidden', message: 'Only the seller may notify the buyer' });
+            note.user_id = buyerId;
+          }
+          if (b.buyer_id || b.order_id) note.buyer_id = buyerId; // preserve the buyer_id col some notifs set
+        } else {
+          return send(400, { success: false, error_code: 'validation', message: "to must be 'seller', 'buyer' or 'admin'" });
+        }
+        await supaRequestPrivileged('POST', 'ptn_notifications', null, note);
+        return send(200, { success: true });
+      } catch (e) { send(500, { success: false, error_code: 'error', message: e.message }); }
+    });
+    return;
+  }
+
+  // ── DOZIE NOTIFICATIONS: LIST (auth → service-role) ──────────────
+  // The CALLER'S OWN notifications (recipient = JWT uid), paginated + optionally
+  // filtered by type / unread. Replaces the seller notifications-page anon read +
+  // the buyer payment-poll anon read. Caller-scoped — can't read another user's.
+  if (req.url.split('?')[0] === '/notifications/list' && req.method === 'GET') {
+    (async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        const idn = resolveDozieIdentity(req);
+        if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+        const sp = new URL(req.url, 'http://x').searchParams;
+        const limit = Math.min(Math.max(parseInt(sp.get('limit') || '30', 10) || 30, 1), 100);
+        const offset = Math.max(parseInt(sp.get('offset') || '0', 10) || 0, 0);
+        let q = 'user_id=eq.' + idn.uid + '&select=*&order=created_at.desc&limit=' + limit + '&offset=' + offset;
+        const type = sp.get('type');
+        if (type) q += '&type=eq.' + encodeURIComponent(type);
+        if (sp.get('unread') === '1') q += '&read=eq.false';
+        const rows = await supaRequestPrivileged('GET', 'ptn_notifications', q);
+        return send(200, { success: true, notifications: Array.isArray(rows) ? rows : [] });
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: false, error_code: 'error', message: e.message }));
+      }
+    })();
+    return;
+  }
+
   // ── DOZIE REFUND: RESOLVE (service-to-service) ───────────────────
   // Called by the MP seller-approve + admin-refund paths (x-service-key). Runs the
   // idempotent resolveRefund. DORMANT-GATED behind PAYMENTS_ENABLED.
