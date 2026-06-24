@@ -15,12 +15,15 @@
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
 const CACHE = 'partenaire-dozie-v46-20260624';
-// BUMP (2026-06-24e): buyer currency localization (display-only). Order card
-// amount, the "Payer" button, and the openPaymentChoice online option now derive
-// from the order's currency (seller org country via get_users_minimal.country_code):
-// NG → ₦ + a neutral "Pay online" label; CM/default → FCFA + Mobile Money. The
-// amount value + actual FLW checkout currency are unchanged. (v45 is reserved by
-// the held FLW seller-subscription branch.)
+// BUMP (2026-06-24e): buyer currency localization (display-only). EVERY buyer
+// price now derives currency from the right context (NG → ₦ + neutral online
+// label; CM/default → FCFA + Mobile Money): (1) ORDER flow — order card amount,
+// "Payer" button, order detail, openPaymentChoice — from the order's currency
+// (seller org country via get_users_minimal.country_code); (2) BROWSE/CART/QOF —
+// product cards, cart line items + total, Quick Order header + totals — from the
+// VIEWED SHOP's country_code (already in the list_public_sellers payload; no RPC).
+// Amount values + actual FLW checkout currency unchanged. (v45 reserved by the
+// held FLW seller-subscription branch.)
 // BUMP (2026-06-24c): CamPay PROVIDER decommissioned (Flutterwave only). Buyer +
 // seller clients no longer offer or call any CamPay path — order pay funnels
 // through the Online-vs-Pay-at-shop choice → Flutterwave hosted checkout; the

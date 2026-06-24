@@ -599,7 +599,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
                 <th style="width:30px">#</th>
                 <th>Product Name / Description</th>
                 <th style="width:120px">Quantity</th>
-                <th style="width:110px">Unit Price (FCFA)</th>
+                <th style="width:110px">Unit Price (<span id="qof-unit-cur">FCFA</span>)</th>
                 <th style="width:44px">📷</th>
                 <th style="width:32px"></th>
               </tr>
@@ -610,7 +610,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
         <div class="qof-footer">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
             <button class="btn" onclick="addQofRow()" style="background:var(--navy);color:#fff;border-color:var(--navy)">+ Add Item Row</button>
-            <div style="font-size:14px;font-weight:700;color:var(--navy)">Total: <span id="qof-total" style="color:var(--gold);font-size:18px">0</span> FCFA</div>
+            <div style="font-size:14px;font-weight:700;color:var(--navy)">Total: <span id="qof-total" style="color:var(--gold);font-size:18px">0 FCFA</span></div>
           </div>
         </div>
       </div>
@@ -1538,7 +1538,7 @@ function buildSearchProductCard(p) {
   const photo = (p.photo_url && (p.photo_url.startsWith('data:') || p.photo_url.startsWith('http')))
     ? `<img src="${p.photo_url}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">`
     : (EMOJIS[p.category] || '📦');
-  const price = p.price ? p.price.toLocaleString() + ' FCFA' : (currentLang==='fr'?'Prix sur demande':'Ask for price');
+  const price = p.price ? fmtMoney(p.price, currencyForCountry(shop && shop.country_code)) : (currentLang==='fr'?'Prix sur demande':'Ask for price');
   const rptLabel = (p.name || '').replace(/['"\\<>]/g, ' ').slice(0, 60);
   return `<div class="product-card" onclick="openShop('${shop.id}')" style="position:relative">
     <button onclick="event.stopPropagation();openReportModal('listing','${p.id||''}','${rptLabel}')" title="Signaler / Report" style="position:absolute;top:6px;right:6px;background:rgba(255,255,255,0.92);border:none;border-radius:8px;width:24px;height:24px;font-size:12px;line-height:1;cursor:pointer;color:#999;z-index:2">🚩</button>
@@ -1676,7 +1676,7 @@ function renderShopProducts(products, shop) {
   window._cartCtx = {};
   el.innerHTML = products.map(p => {
     const cartProduct = { id: p.listing_id, name: p.name, price: p.price };
-    window._cartCtx[p.listing_id] = { product: cartProduct, shopId: shop.id, shopName: shop.company || shop.name };
+    window._cartCtx[p.listing_id] = { product: cartProduct, shopId: shop.id, shopName: shop.company || shop.name, currency: currencyForCountry(shop && shop.country_code) };
     const inCart = cart.find(c => c.product.id === p.listing_id);
     const outOfStock = p.stock_state === 'out_of_stock';
     const orderable = !outOfStock;
@@ -1697,7 +1697,7 @@ function renderShopProducts(products, shop) {
     return `<div class="product-card">
       <div class="product-emoji">${photoSrc ? `<img src="${photoSrc}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">` : EMOJIS[p.category]||'📦'}</div>
       <div class="product-name">${dispName(p)}</div>
-      <div class="product-price">${p.price ? p.price.toLocaleString()+' FCFA' : 'Ask for price'}</div>
+      <div class="product-price">${p.price ? fmtMoney(p.price, currencyForCountry(shop && shop.country_code)) : 'Ask for price'}</div>
       <div class="product-stock" style="margin-top:4px">${stockBadge}</div>
       <div style="display:flex;gap:6px;margin-top:8px;align-items:stretch">
         <button class="add-to-cart-btn ${inCart?'added':''}" id="btn-${p.listing_id}"
@@ -1728,13 +1728,13 @@ function closeShopDetail() {
 function addToCartById(listingId, btn) {
   const ctx = (window._cartCtx || {})[listingId];
   if (!ctx) return;
-  addToCart(ctx.product, ctx.shopId, ctx.shopName, btn);
+  addToCart(ctx.product, ctx.shopId, ctx.shopName, btn, ctx.currency);
 }
 
-function addToCart(product, shopId, shopName, btn) {
+function addToCart(product, shopId, shopName, btn, currency) {
   const existing = cart.find(c => c.product.id===product.id);
   if (existing) existing.qty++;
-  else cart.push({ product, shopId, shopName, qty:1 });
+  else cart.push({ product, shopId, shopName, qty:1, currency: currency || 'XAF' });
   btn.textContent = '✓'; // icon-only fixed-width cart button (no overflow)
   btn.className = 'add-to-cart-btn added';
   updateCartBadge();
@@ -1763,6 +1763,10 @@ function renderCart() {
     return;
   }
   const total = cart.reduce((s,c) => s+(c.product.price||0)*c.qty, 0);
+  // Per-item currency (stored at add time). Total uses the common currency, or
+  // XAF as a neutral fallback for a (rare) mixed-currency multi-shop cart.
+  const _cartCurs = [...new Set(cart.map(c => c.currency || 'XAF'))];
+  const cartCur = _cartCurs.length === 1 ? _cartCurs[0] : 'XAF';
   sub.textContent = `${cart.reduce((s,c)=>s+c.qty,0)} items from ${new Set(cart.map(c=>c.shopId)).size} shop(s)`;
   el.innerHTML = cart.map((c,i) => `
     <div class="cart-item">
@@ -1770,7 +1774,7 @@ function renderCart() {
       <div class="cart-item-info">
         <div class="cart-item-name">${c.product.name}</div>
         <div class="cart-item-shop">🏪 ${c.shopName}</div>
-        <div class="cart-item-price">${((c.product.price||0)*c.qty).toLocaleString()} FCFA</div>
+        <div class="cart-item-price">${fmtMoney((c.product.price||0)*c.qty, c.currency || 'XAF')}</div>
         <div class="qty-row">
           <button class="qty-btn" onclick="changeQty(${i},-1)">−</button>
           <span class="qty-num">${c.qty}</span>
@@ -1782,8 +1786,8 @@ function renderCart() {
   co.innerHTML = `
     <div class="summary-box">
       <div class="card-title" style="margin-bottom:12px">Order Summary</div>
-      ${cart.map(c=>`<div class="summary-row"><span>${c.product.name} ×${c.qty}</span><span>${((c.product.price||0)*c.qty).toLocaleString()} FCFA</span></div>`).join('')}
-      <div class="summary-row"><span>Total</span><span>${total.toLocaleString()} FCFA</span></div>
+      ${cart.map(c=>`<div class="summary-row"><span>${c.product.name} ×${c.qty}</span><span>${fmtMoney((c.product.price||0)*c.qty, c.currency || 'XAF')}</span></div>`).join('')}
+      <div class="summary-row"><span>Total</span><span>${fmtMoney(total, cartCur)}</span></div>
     </div>
     <div class="summary-box">
       <div class="card-title" style="margin-bottom:12px">Delivery Mode</div>
@@ -3139,7 +3143,7 @@ function qofChangeQty(i,delta){qofRows[i].qty=Math.max(1,(qofRows[i].qty||1)+del
 function removeQofRow(i){if(qofRows.length===1)return;qofRows.splice(i,1);renderQofRows();}
 function qofSnapPhoto(i){qofPhotoTarget=i;document.getElementById('qof-photo-input').click();}
 function handleQofPhoto(input){const file=input.files[0];if(!file||qofPhotoTarget===null)return;const reader=new FileReader();reader.onload=e=>{qofRows[qofPhotoTarget].photo=e.target.result;renderQofRows();qofPhotoTarget=null;input.value='';};reader.readAsDataURL(file);}
-function updateQofTotal(){const total=qofRows.reduce((s,r)=>s+(parseFloat(r.price)||0)*(parseInt(r.qty)||1),0);const items=qofRows.filter(r=>r.name.trim()).length;['qof-total','qof-total-2'].forEach((id,i)=>{const el=document.getElementById(id);if(el)el.textContent=i===0?total.toLocaleString():total.toLocaleString()+' FCFA';});const c=document.getElementById('qof-items-count');if(c)c.textContent=items+' item'+(items!==1?'s':'')+' · '+qofRows.reduce((s,r)=>s+(parseInt(r.qty)||1),0)+' units total';}
+function updateQofTotal(){const total=qofRows.reduce((s,r)=>s+(parseFloat(r.price)||0)*(parseInt(r.qty)||1),0);const items=qofRows.filter(r=>r.name.trim()).length;const cur=currencyForCountry((typeof currentShop!=='undefined'&&currentShop)?currentShop.country_code:null);['qof-total','qof-total-2'].forEach((id)=>{const el=document.getElementById(id);if(el)el.textContent=fmtMoney(total,cur);});const uc=document.getElementById('qof-unit-cur');if(uc)uc.textContent=(cur==='NGN'?'₦':'FCFA');const c=document.getElementById('qof-items-count');if(c)c.textContent=items+' item'+(items!==1?'s':'')+' · '+qofRows.reduce((s,r)=>s+(parseInt(r.qty)||1),0)+' units total';}
 let selectedDeliveryTime='';
 function selectTime(el,time){document.querySelectorAll('[onclick^="selectTime"]').forEach(e=>e.classList.remove('active'));el.classList.add('active');selectedDeliveryTime=time;}
 function addLandmark(el,text){const inp=document.getElementById('del-landmark');if(inp){inp.value=inp.value?inp.value+', '+text:text;el.classList.toggle('active');}}
