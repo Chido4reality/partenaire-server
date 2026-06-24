@@ -1910,17 +1910,33 @@ async function placeOrder(total) {
 // ══════════════════════════════════════════════════════════════
 //  ORDERS
 // ══════════════════════════════════════════════════════════════
+// ── BUYER CURRENCY LOCALIZATION (display-only) ───────────────────────
+// An order's currency is derived from the seller's org country (country_code
+// from get_users_minimal — same resolution as resolveOrderCurrency). The amount
+// VALUE is already correct; only the symbol + the online-method wording change.
+// NG → Naira (₦) + a neutral "Pay online" label; CM/default → FCFA + Mobile Money.
+function currencyForCountry(cc) { return cc === 'NG' ? 'NGN' : 'XAF'; }
+function orderCurrency(o) { return (o && o._currency) || 'XAF'; }
+function fmtMoney(amount, currency) {
+  const n = (Number(amount) || 0).toLocaleString();
+  return currency === 'NGN' ? ('₦' + n) : (n + ' FCFA');
+}
+function onlinePayLabel(currency, fr) {
+  if (currency === 'NGN') return fr ? '💳 Payer en ligne (OPay, carte & plus)' : '💳 Pay online (OPay, card & more)';
+  return fr ? '💳 Payer en ligne (Mobile Money / Carte)' : '💳 Pay online (Mobile Money / Card)';
+}
+
 async function loadOrders() {
   if (!currentBuyer) return;
   try {
     const orders = await GET('ptn_orders', `buyer_id=eq.${currentBuyer.id}&order=created_at.desc&select=*`);
     const sIds = [...new Set((orders||[]).map(o=>o.seller_id).filter(Boolean))];
-    let sMap = {};
+    let sMap = {}, sCur = {};
     if (sIds.length) {
       const us = await getUsersMinimal(sIds);
-      us.forEach(s => sMap[s.id] = s.company || s.name);
+      us.forEach(s => { sMap[s.id] = s.company || s.name; sCur[s.id] = currencyForCountry(s.country_code); });
     }
-    allOrders = (orders||[]).map(o => ({...o, shopName: sMap[o.seller_id]||'Shop'}));
+    allOrders = (orders||[]).map(o => ({...o, shopName: sMap[o.seller_id]||'Shop', _currency: sCur[o.seller_id] || 'XAF'}));
     const pending = allOrders.filter(o=>o.status==='pending').length;
     const ob = document.getElementById('order-badge');
     ob.textContent = pending;
@@ -1948,13 +1964,13 @@ function renderOrders() {
       </div>
       <div class="order-shop">🏪 ${o.shopName}</div>
       <div class="order-footer">
-        <div class="order-amount">${(o.total||0).toLocaleString()} FCFA</div>
+        <div class="order-amount">${fmtMoney(o.total, orderCurrency(o))}</div>
         <div style="font-size:12px;color:var(--grey)">${o.mode==='pickup'?'🏪 Pickup':'🚚 Delivery'} · ${fmtDate(o.created_at)}</div>
       </div>
       ${(o.payment_requested && o.status==='confirmed' && o.payment_status !== 'paid') ? `
       <button onclick="event.stopPropagation();payForOrder('${o.id}',${o.counter_status==='accepted'?o.counter_total:o.total||0},'${o.order_ref}')"
         style="width:100%;margin-top:10px;padding:11px;background:linear-gradient(135deg,#FFC107,#FF8F00);color:#1A2B4A;border:none;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer">
-        💳 Payer ${(o.counter_status==='accepted'?o.counter_total:o.total||0).toLocaleString()} FCFA
+        💳 Payer ${fmtMoney(o.counter_status==='accepted'?o.counter_total:o.total||0, orderCurrency(o))}
       </button>` : ''}
       ${(o.payment_status==='paid' || o.campay_status==='successful') ? `
       <div style="margin-top:8px;padding:8px 12px;background:var(--greenl);border-radius:8px;font-size:12px;font-weight:700;color:var(--green);text-align:center">
@@ -2037,8 +2053,8 @@ function openOrderDetail(id) {
   document.getElementById('od-body').innerHTML = `
     <div class="card"><div class="card-title">🏪 ${o.shopName}</div><div style="font-size:13px;color:var(--grey);margin-top:4px">${isPickup?'🏪 Pickup':'🚚 Delivery'} · ${fmtDate(o.created_at)}</div></div>
     <div class="card"><div class="card-title">📦 Items</div>
-      ${items.map(i=>`<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f0ede8"><div><div style="font-weight:600;font-size:13px">${i.name}</div><div style="font-size:12px;color:var(--grey)">Qty: ${i.qty}</div></div><div style="font-weight:700">${((i.price||0)*i.qty).toLocaleString()} FCFA</div></div>`).join('')}
-      <div style="display:flex;justify-content:space-between;padding:12px 0;font-weight:800;font-size:16px"><div>Total</div><div>${(o.total||0).toLocaleString()} FCFA</div></div>
+      ${items.map(i=>`<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f0ede8"><div><div style="font-weight:600;font-size:13px">${i.name}</div><div style="font-size:12px;color:var(--grey)">Qty: ${i.qty}</div></div><div style="font-weight:700">${fmtMoney((i.price||0)*i.qty, orderCurrency(o))}</div></div>`).join('')}
+      <div style="display:flex;justify-content:space-between;padding:12px 0;font-weight:800;font-size:16px"><div>Total</div><div>${fmtMoney(o.total, orderCurrency(o))}</div></div>
     </div>
     <div class="card"><div class="card-title">📍 Order Progress</div><div class="tracker">${tracker}</div></div>
     ${o.status==='delivered' ? `
@@ -2084,10 +2100,10 @@ function openOrderDetail(id) {
     ${(o.payment_requested && o.status==='confirmed' && o.payment_status !== 'paid') ? `
     <div style="background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;border:2px solid #185FA5">
       <div style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:4px">💳 Paiement requis</div>
-      <div style="font-size:22px;font-weight:900;color:var(--gold);margin-bottom:16px">${(o.counter_status==='accepted'?o.counter_total:o.total||0).toLocaleString()} FCFA</div>
+      <div style="font-size:22px;font-weight:900;color:var(--gold);margin-bottom:16px">${fmtMoney(o.counter_status==='accepted'?o.counter_total:o.total||0, orderCurrency(o))}</div>
       <button onclick="closeOrderDetail();payForOrder('${o.id}',${o.counter_status==='accepted'?o.counter_total:o.total||0},'${o.order_ref}')"
         style="width:100%;padding:14px;background:linear-gradient(135deg,#FFC107,#FF8F00);color:#1A2B4A;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer">
-        📱 Payer maintenant (MTN MoMo / Orange Money)
+        ${orderCurrency(o)==='NGN' ? '💳 Payer maintenant' : '📱 Payer maintenant (MTN MoMo / Orange Money)'}
       </button>
     </div>` : ''}
     <div style="height:40px"></div>`;
@@ -2499,8 +2515,14 @@ function openPaymentChoice(ctx) {
     return;
   }
   pcContext = ctx;
+  // Currency from the order (seller's org country); fall back to ctx/XAF.
+  const _cur = ((allOrders.find(o => o.id === ctx.order_id) || {})._currency) || ctx.currency || 'XAF';
+  pcContext.currency = _cur;
+  const _fr = (typeof currentLang !== 'undefined' && currentLang === 'fr');
   document.getElementById('pc-title').textContent = '💳 Pay for Order ' + (ctx.ref || '');
-  document.getElementById('pc-amount').textContent = (ctx.total || 0).toLocaleString() + ' FCFA';
+  document.getElementById('pc-amount').textContent = fmtMoney(ctx.total, _cur);
+  const _ob = document.getElementById('pc-online-btn');
+  if (_ob) _ob.textContent = onlinePayLabel(_cur, _fr);
   document.getElementById('payment-choice-modal').classList.add('open');
 }
 function closePaymentChoice() {
@@ -3430,7 +3452,7 @@ async function simulateCampaySuccess() {
     <div class="momo-amount" id="pc-amount">0 FCFA</div>
     <div class="momo-sub">Your order is confirmed by the seller</div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
-      <button class="btn btn-gold btn-block" style="padding:14px;font-size:14px;font-weight:800" onclick="choosePaymentMethod('online')">💳 Pay online (Mobile Money / Card)</button>
+      <button id="pc-online-btn" class="btn btn-gold btn-block" style="padding:14px;font-size:14px;font-weight:800" onclick="choosePaymentMethod('online')">💳 Pay online (Mobile Money / Card)</button>
       <button class="btn btn-block" style="padding:14px;font-size:14px;background:#f8f6f0;color:var(--grey);border:1.5px dashed var(--lgrey)" onclick="choosePaymentMethod('cash')">📋 Pay at Shop (cash on pickup)</button>
     </div>
     <div style="font-size:11px;color:var(--grey);text-align:center;margin-top:14px">🔒 Online payments held in escrow until delivery</div>

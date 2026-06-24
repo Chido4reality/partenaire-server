@@ -14,7 +14,13 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v44-20260624';
+const CACHE = 'partenaire-dozie-v46-20260624';
+// BUMP (2026-06-24e): buyer currency localization (display-only). Order card
+// amount, the "Payer" button, and the openPaymentChoice online option now derive
+// from the order's currency (seller org country via get_users_minimal.country_code):
+// NG → ₦ + a neutral "Pay online" label; CM/default → FCFA + Mobile Money. The
+// amount value + actual FLW checkout currency are unchanged. (v45 is reserved by
+// the held FLW seller-subscription branch.)
 // BUMP (2026-06-24c): CamPay PROVIDER decommissioned (Flutterwave only). Buyer +
 // seller clients no longer offer or call any CamPay path — order pay funnels
 // through the Online-vs-Pay-at-shop choice → Flutterwave hosted checkout; the
