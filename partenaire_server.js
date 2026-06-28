@@ -2742,6 +2742,12 @@ http.createServer((req, res) => {
       '<title>PARTENAIRE Dozie</title>' +
       '<meta name="theme-color" content="#1A2B4A">' +
       '<link rel="icon" href="/icon.svg" type="image/svg+xml">' +
+      // MP-BRANDED-DOMAINS: bare-domain (market.partenairedozie.com/) safety net.
+      // The JS auto-router below already sends a fresh visitor to /login (the
+      // buyer/seller chooser) and a logged-in Capacitor user to their portal;
+      // this <noscript> meta-refresh guarantees /login even with JS disabled, so
+      // the marketplace front door is never a blank/404.
+      '<noscript><meta http-equiv="refresh" content="0;url=/login"></noscript>' +
       '<style>html,body{margin:0;height:100%;background:#1A2B4A;color:#fff;' +
       'font-family:system-ui,sans-serif;display:flex;align-items:center;' +
       'justify-content:center}.l{text-align:center;opacity:.75;font-size:14px}</style>' +
