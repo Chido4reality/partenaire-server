@@ -357,6 +357,251 @@ async function resolveSellerCountry(uid) {
   }
 }
 
+// ── SELLER PAYOUT ENGINE (Phase 2) — REAL MONEY via Flutterwave Transfers ───
+// payoutSellerForOrder(orderId) is idempotent: it claims the order (sets
+// flw_payout_ref + status='processing' + attempts BEFORE calling FLW) via a
+// conditional PATCH so a mid-call crash or a concurrent caller can't double-pay.
+// The unique index on ptn_orders.flw_payout_ref is the hard backstop. It NEVER
+// touches the collection/escrow-HOLD flow or campay_* columns.
+
+// Order is "released/confirmed" (the gate that says it's OK to pay the seller).
+// Phase 3's buyer-confirm / 24h-auto triggers flip escrow_released; until then a
+// delivered order (delivery_confirmed_at / status='delivered') also qualifies so
+// /seller/payout/run can be tested.
+function orderReleasedOrConfirmed(order) {
+  return !!order && (order.escrow_released === true || order.status === 'delivered' || !!order.delivery_confirmed_at);
+}
+
+async function setPayoutStatus(orderId, status, extra) {
+  const patch = Object.assign({ flw_payout_status: status, updated_at: new Date().toISOString() }, extra || {});
+  return supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + orderId, patch);
+}
+
+// Notify the seller of a payout outcome (ptn_notifications, service role).
+async function notifyPayout(sellerId, orderId, orderRef, kind, errorCode) {
+  if (!sellerId) return;
+  let n;
+  if (kind === 'success') {
+    n = {
+      user_id: sellerId, type: 'payment', order_id: orderId, read: false,
+      title_en: "You've been paid", title_fr: 'Vous avez été payé',
+      body_en: 'Your payout for order ' + orderRef + ' has been sent to your account.',
+      body_fr: 'Votre paiement pour la commande ' + orderRef + ' a été envoyé sur votre compte.',
+    };
+  } else {
+    const needDetails = errorCode === 'no_payout_details' || errorCode === 'payout_not_verified' || errorCode === 'payout_incomplete';
+    n = {
+      user_id: sellerId, type: 'payment', order_id: orderId, read: false,
+      title_en: 'Payout needs attention', title_fr: 'Paiement à corriger',
+      body_en: 'We could not pay out order ' + orderRef + (needDetails
+        ? '. Please add or fix your payout details in "Get paid".'
+        : '. Please check your payout details; we will retry.'),
+      body_fr: "Le paiement de la commande " + orderRef + (needDetails
+        ? " n'a pas pu être envoyé. Ajoutez ou corrigez vos coordonnées dans « Recevoir mes paiements »."
+        : " n'a pas pu être envoyé. Vérifiez vos coordonnées de paiement ; nous réessaierons."),
+    };
+  }
+  return supaRequestPrivileged('POST', 'ptn_notifications', null, n).catch(() => {});
+}
+
+// Resolve the seller's payout destination row. Phones map to MANY ptn_users
+// rows, so if the order's seller_id has no row, fall back to siblings sharing
+// the same linked_mp_org_id. Returns the ptn_seller_payout row or null.
+async function getSellerPayoutForOrder(order) {
+  let rows = await supaRequestPrivileged('GET', 'ptn_seller_payout', 'user_id=eq.' + order.seller_id + '&limit=1');
+  let row = Array.isArray(rows) && rows[0];
+  if (row) return row;
+  const sellers = await supaRequestPrivileged('GET', 'ptn_users', 'id=eq.' + order.seller_id + '&select=id,linked_mp_org_id');
+  const seller = Array.isArray(sellers) && sellers[0];
+  if (!seller || !seller.linked_mp_org_id) return null;
+  const sibs = await supaRequestPrivileged('GET', 'ptn_users', 'linked_mp_org_id=eq.' + seller.linked_mp_org_id + '&select=id');
+  const ids = (Array.isArray(sibs) ? sibs : []).map(s => s.id).filter(id => id && id !== order.seller_id);
+  for (const id of ids) {
+    rows = await supaRequestPrivileged('GET', 'ptn_seller_payout', 'user_id=eq.' + id + '&limit=1');
+    row = Array.isArray(rows) && rows[0];
+    if (row) return row;
+  }
+  return null;
+}
+
+async function payoutSellerForOrder(orderId) {
+  const orders = await supaRequestPrivileged('GET', 'ptn_orders', 'id=eq.' + orderId + '&select=*');
+  const order = Array.isArray(orders) && orders[0];
+  if (!order) return { ok: false, status: null, reason: 'order_not_found' };
+
+  // GUARD — idempotency: already paid / in flight.
+  if (['success', 'processing'].includes(order.flw_payout_status))
+    return { ok: true, status: order.flw_payout_status, idempotent: true, reason: 'already_' + order.flw_payout_status };
+  // GUARD — escrow present & collected.
+  if (order.payment_status !== 'paid' || !(Number(order.escrow_held) > 0))
+    return { ok: false, status: order.flw_payout_status || null, reason: 'no_escrow' };
+  // GUARD — released/confirmed state.
+  if (!orderReleasedOrConfirmed(order))
+    return { ok: false, status: order.flw_payout_status || null, reason: 'not_released' };
+  // GUARD — dispute / refund interlock (never pay a contested or refunded order).
+  if (['open', 'seller_contested', 'escalated'].includes(order.dispute_status))
+    return { ok: false, status: order.flw_payout_status || null, reason: 'dispute_open' };
+  if (['refunded', 'pending_manual'].includes(order.refund_status))
+    return { ok: false, status: order.flw_payout_status || null, reason: 'refunded' };
+
+  // Currency + country from the SELLER's linked MP org (CM→XAF, NG→NGN).
+  const cur = await resolveOrderCurrency(order);
+  if (!cur.currency) {
+    await setPayoutStatus(orderId, 'failed', { flw_payout_error: 'currency_unresolved' });
+    await notifyPayout(order.seller_id, orderId, order.order_ref, 'failed', 'currency_unresolved');
+    return { ok: false, status: 'failed', reason: 'currency_unresolved' };
+  }
+  const country = normCountry2(cur.country) || (cur.currency === 'NGN' ? 'NG' : 'CM');
+
+  // Resolve the destination.
+  const payout = await getSellerPayoutForOrder(order);
+  if (!payout) {
+    await setPayoutStatus(orderId, 'failed', { flw_payout_error: 'no_payout_details' });
+    await notifyPayout(order.seller_id, orderId, order.order_ref, 'failed', 'no_payout_details');
+    return { ok: false, status: 'failed', reason: 'no_payout_details' };
+  }
+  // GUARD — same country (NG order → NG bank, CM order → CM momo).
+  if (payout.country !== country) {
+    await setPayoutStatus(orderId, 'failed', { flw_payout_error: 'country_mismatch' });
+    await notifyPayout(order.seller_id, orderId, order.order_ref, 'failed', 'country_mismatch');
+    return { ok: false, status: 'failed', reason: 'country_mismatch' };
+  }
+  // GUARD — destination usable (NG: verified bank; CM: momo present).
+  if (country === 'NG' && !(payout.verified === true && payout.method === 'bank' && payout.bank_code && payout.account_number)) {
+    await setPayoutStatus(orderId, 'failed', { flw_payout_error: 'payout_not_verified' });
+    await notifyPayout(order.seller_id, orderId, order.order_ref, 'failed', 'payout_not_verified');
+    return { ok: false, status: 'failed', reason: 'payout_not_verified' };
+  }
+  if (country === 'CM' && !(payout.method === 'momo' && payout.momo_number && payout.momo_operator)) {
+    await setPayoutStatus(orderId, 'failed', { flw_payout_error: 'payout_incomplete' });
+    await notifyPayout(order.seller_id, orderId, order.order_ref, 'failed', 'payout_incomplete');
+    return { ok: false, status: 'failed', reason: 'payout_incomplete' };
+  }
+
+  const reference = 'PO-' + order.order_ref;
+  // GUARD — reference not already used by a DIFFERENT order (unique index also enforces).
+  const dup = await supaRequestPrivileged('GET', 'ptn_orders',
+    'flw_payout_ref=eq.' + encodeURIComponent(reference) + '&id=neq.' + orderId + '&select=id&limit=1');
+  if (Array.isArray(dup) && dup[0]) return { ok: false, status: order.flw_payout_status || null, reason: 'reference_in_use' };
+
+  const basis = Number(order.escrow_held);
+
+  // XAF GATING — do NOT call FLW for XAF (transfers not enabled on the account).
+  if (cur.currency === 'XAF') {
+    await setPayoutStatus(orderId, 'pending_xaf', { flw_payout_ref: reference, flw_payout_amount: basis, flw_payout_fee: 0, flw_payout_error: null });
+    return { ok: true, status: 'pending_xaf', reason: 'xaf_not_enabled', amount: basis };
+  }
+
+  // NGN — fee (seller bears it) → amount_to_seller.
+  let fee = 0;
+  try { fee = await FLW.getTransferFee(basis, cur.currency); }
+  catch (e) { fee = 0; console.warn('[payout] fee lookup failed, assuming 0:', e.message); }
+  const amountToSeller = Math.round((basis - fee) * 100) / 100;
+  if (!(amountToSeller > 0)) {
+    await setPayoutStatus(orderId, 'failed', { flw_payout_error: 'amount_too_small', flw_payout_fee: fee });
+    await notifyPayout(order.seller_id, orderId, order.order_ref, 'failed', 'amount_too_small');
+    return { ok: false, status: 'failed', reason: 'amount_too_small' };
+  }
+
+  // CLAIM — set ref + processing + attempts BEFORE calling FLW. The conditional
+  // filter only matches an order that is null/failed/pending_* (never
+  // processing/success), so concurrent callers can't both proceed.
+  const claimFilter = 'id=eq.' + orderId +
+    '&or=(flw_payout_status.is.null,flw_payout_status.in.(failed,pending_settlement,pending_xaf))';
+  const claimed = await supaRequestPrivileged('PATCH', 'ptn_orders', claimFilter, {
+    flw_payout_ref: reference,
+    flw_payout_status: 'processing',
+    flw_payout_attempts: Number(order.flw_payout_attempts || 0) + 1,
+    flw_payout_amount: amountToSeller,
+    flw_payout_fee: fee,
+    flw_payout_error: null,
+    updated_at: new Date().toISOString(),
+  });
+  if (!Array.isArray(claimed) || !claimed[0])
+    return { ok: true, status: 'processing', idempotent: true, reason: 'claimed_elsewhere' };
+
+  // EXECUTE the transfer (NGN bank).
+  let transfer;
+  try {
+    transfer = await FLW.createTransfer({
+      country: 'NG', currency: 'NGN',
+      bank_code: payout.bank_code, account_number: payout.account_number,
+      amount: amountToSeller, reference,
+      narration: 'Partenaire Dozie payout ' + order.order_ref,
+    });
+  } catch (e) {
+    const msg = (e && e.message) || 'transfer_error';
+    if (e && e.retryable) {
+      // insufficient balance / settlement-not-ready → retryable; keep funds, don't flag seller.
+      await setPayoutStatus(orderId, 'pending_settlement', { flw_payout_error: msg });
+      return { ok: false, status: 'pending_settlement', reason: 'pending_settlement', message: msg };
+    }
+    // hard error (bad account, etc.) → failed; notify seller to fix; keep funds.
+    await setPayoutStatus(orderId, 'failed', { flw_payout_error: msg });
+    await notifyPayout(order.seller_id, orderId, order.order_ref, 'failed', 'transfer_failed');
+    return { ok: false, status: 'failed', reason: 'transfer_failed', message: msg };
+  }
+
+  // FLW accepted (async). Store id; status stays 'processing' until the webhook.
+  await setPayoutStatus(orderId, 'processing', {
+    flw_payout_id: transfer.id != null ? String(transfer.id) : null,
+    flw_payout_at: new Date().toISOString(),
+    flw_payout_amount: amountToSeller,
+    flw_payout_fee: fee,
+  });
+  await supaRequest('POST', 'ptn_audit_log', null, {
+    action: 'flw_payout_initiated', target_type: 'ptn_orders', target_id: orderId,
+    details: { reference, flw_id: transfer.id != null ? String(transfer.id) : null, amount: amountToSeller, fee, currency: cur.currency },
+  }).catch(() => {});
+  return { ok: true, status: 'processing', transfer_id: transfer.id, amount: amountToSeller, fee };
+}
+
+// Handle a Flutterwave TRANSFER webhook event (async source of truth). Matches
+// the order by PO-<order_ref> reference or flw_payout_id, re-verifies the status
+// authoritatively, then flips success/failed + notifies the seller. Idempotent.
+async function handleTransferWebhook(data) {
+  const ref = data.reference || null;
+  const flwId = data.id != null ? String(data.id) : null;
+  let order = null;
+  if (ref) {
+    const rows = await supaRequestPrivileged('GET', 'ptn_orders', 'flw_payout_ref=eq.' + encodeURIComponent(ref) + '&select=*&limit=1');
+    order = Array.isArray(rows) && rows[0];
+  }
+  if (!order && flwId) {
+    const rows = await supaRequestPrivileged('GET', 'ptn_orders', 'flw_payout_id=eq.' + encodeURIComponent(flwId) + '&select=*&limit=1');
+    order = Array.isArray(rows) && rows[0];
+  }
+  if (!order) return { matched: false };
+  if (order.flw_payout_status === 'success') return { matched: true, idempotent: true };
+
+  // Don't trust the webhook's claim — re-verify via the transfer id when we have one.
+  let status = String(data.status || '').toUpperCase();
+  const vid = flwId || order.flw_payout_id;
+  if (vid) {
+    try { const v = await FLW.verifyTransfer(vid); status = String(v.status || status).toUpperCase(); }
+    catch (e) { console.warn('[transfer webhook] verify failed:', e.message); }
+  }
+
+  if (status === 'SUCCESSFUL') {
+    await setPayoutStatus(order.id, 'success', {
+      flw_payout_id: vid || order.flw_payout_id,
+      flw_payout_at: order.flw_payout_at || new Date().toISOString(),
+      flw_payout_error: null,
+      escrow_released: true,
+    });
+    await notifyPayout(order.seller_id, order.id, order.order_ref, 'success');
+    await supaRequest('POST', 'ptn_audit_log', null, { action: 'flw_payout_success', target_type: 'ptn_orders', target_id: order.id, details: { reference: ref, amount: order.flw_payout_amount } }).catch(() => {});
+    return { matched: true, status: 'success' };
+  }
+  if (status === 'FAILED') {
+    await setPayoutStatus(order.id, 'failed', { flw_payout_error: data.complete_message || 'transfer_failed' });
+    await notifyPayout(order.seller_id, order.id, order.order_ref, 'failed', 'transfer_failed');
+    await supaRequest('POST', 'ptn_audit_log', null, { action: 'flw_payout_failed', target_type: 'ptn_orders', target_id: order.id, details: { reference: ref, message: data.complete_message || null } }).catch(() => {});
+    return { matched: true, status: 'failed' };
+  }
+  return { matched: true, status: 'pending' }; // NEW / PENDING — leave processing.
+}
+
 // Narrow the hosted-checkout methods so the LOCAL method leads (Peter's call):
 //   XAF (Cameroon) → 'mobilemoneyfranco' ONLY (MTN MoMo + Orange Money). Dropping
 //     card + the generic mobilemoney makes MoMo/Orange the only/first choice.
@@ -2009,6 +2254,59 @@ http.createServer((req, res) => {
         return;
       }
 
+      // POST /seller/payout/run {order_id} — invoke the payout engine (Phase 2).
+      // Seller-or-admin. The seller may only run their OWN order. Phase 3 will
+      // add the buyer-confirm + 24h-auto triggers that flip escrow_released.
+      if (payoutPath === '/seller/payout/run' && req.method === 'POST') {
+        (async () => {
+          const admin = readAdminJwt(req);
+          const idn = admin ? null : resolveDozieIdentity(req, 'seller');
+          if (!admin && (!idn || idn.error || !idn.uid)) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+          const body = await readBody();
+          const orderId = String(body.order_id || '').trim();
+          if (!orderId) return send(400, { success: false, error_code: 'validation', message: 'order_id required' });
+          if (!admin) {
+            const orders = await supaRequestPrivileged('GET', 'ptn_orders', 'id=eq.' + orderId + '&select=id,seller_id');
+            const o = Array.isArray(orders) && orders[0];
+            if (!o) return send(404, { success: false, error_code: 'not_found', message: 'Order not found' });
+            if (o.seller_id !== idn.uid) return send(403, { success: false, error_code: 'forbidden', message: 'Not your order' });
+          }
+          try {
+            const r = await payoutSellerForOrder(orderId);
+            return send(200, { success: !!r.ok, ...r });
+          } catch (e) {
+            console.error('[payout run]', e.message);
+            return send(500, { success: false, error_code: 'error', message: e.message });
+          }
+        })();
+        return;
+      }
+
+      // POST /seller/payout/retry {order_id} — admin re-invoke for
+      // pending_settlement / failed / pending_xaf orders (idempotency respected).
+      if (payoutPath === '/seller/payout/retry' && req.method === 'POST') {
+        (async () => {
+          const admin = readAdminJwt(req);
+          if (!admin) return send(403, { success: false, error_code: 'forbidden', message: 'Admin only' });
+          const body = await readBody();
+          const orderId = String(body.order_id || '').trim();
+          if (!orderId) return send(400, { success: false, error_code: 'validation', message: 'order_id required' });
+          const orders = await supaRequestPrivileged('GET', 'ptn_orders', 'id=eq.' + orderId + '&select=id,flw_payout_status');
+          const o = Array.isArray(orders) && orders[0];
+          if (!o) return send(404, { success: false, error_code: 'not_found', message: 'Order not found' });
+          if (!['pending_settlement', 'failed', 'pending_xaf'].includes(o.flw_payout_status))
+            return send(409, { success: false, error_code: 'not_retryable', message: 'Payout is ' + (o.flw_payout_status || 'unset') + ' — nothing to retry' });
+          try {
+            const r = await payoutSellerForOrder(orderId);
+            return send(200, { success: !!r.ok, ...r });
+          } catch (e) {
+            console.error('[payout retry]', e.message);
+            return send(500, { success: false, error_code: 'error', message: e.message });
+          }
+        })();
+        return;
+      }
+
       return send(404, { success: false, error_code: 'not_found', message: 'Unknown payout route' });
     }
   }
@@ -2087,6 +2385,17 @@ http.createServer((req, res) => {
 
         const payload = JSON.parse(body || '{}');
         const data = payload.data || {};
+
+        // ── TRANSFER (payout) events — async source of truth for Phase 2.
+        // Matched by PO-<order_ref> reference (or flw_payout_id). Handled before
+        // the charge-collection branch (transfers carry data.reference, no tx_ref).
+        const evt = String(payload.event || payload['event.type'] || '').toLowerCase();
+        const dataRef = data.reference || '';
+        if (evt.includes('transfer') || String(dataRef).startsWith('PO-')) {
+          const tr = await handleTransferWebhook(data);
+          return send(200, { ok: true, transfer: true, matched: !!tr.matched, status: tr.status || null, idempotent: !!tr.idempotent });
+        }
+
         const txRef = data.tx_ref, txId = data.id;
         const chargeStatus = String(data.status || '').toLowerCase();
         if (!txRef) return send(200, { ok: true, skipped: 'no_tx_ref' });
@@ -2507,33 +2816,14 @@ http.createServer((req, res) => {
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           return res.end(JSON.stringify({ success: false, message: 'Invalid order' }));
         }
-        const sellers = await supaRequestPrivileged('GET', 'ptn_users', 'id=eq.' + order.seller_id + '&select=id,phone,momo_phone,name');
-        const sRow = (sellers && sellers[0]) || {};
-        // MOMO-PHONE-CAPTURE: pay out to the seller's dedicated Mobile
-        // Money number when set, else fall back to their login phone.
-        const sellerPhone = (sRow.momo_phone || sRow.phone) || '';
-        const payoutVia = sRow.momo_phone ? 'momo_phone' : 'phone';
-        await supaRequest('POST', 'ptn_audit_log', null, {
-          action: 'campay_payout_target', target_type: 'ptn_users', target_id: order.seller_id,
-          details: { endpoint: '/campay/release', order_ref: order.order_ref, payout_phone: sellerPhone, source: payoutVia }
-        }).catch(e => console.warn('[payout audit] ' + e.message));
-        const ref = 'PAYOUT-' + order.order_ref + '-' + Date.now();
-        const token = await getCampayToken();
-        const cleanPhone = String(sellerPhone).replace(/\s/g,'').replace(/^\+/,'');
-        const cr = await fetch(CAMPAY_BASE_URL + '/transfer/', {
-          method: 'POST',
-          headers: { 'Authorization': 'Token ' + token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount: String(order.escrow_held), currency: 'XAF', to: cleanPhone, description: 'Paiement PARTENAIRE ' + order.order_ref, external_reference: ref })
-        });
-        const result = await cr.json();
-        if (result.reference || result.status === 'SUCCESSFUL') {
-          await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { escrow_released: true, campay_payout_ref: ref, campay_payout_at: new Date().toISOString(), status: 'delivered' });
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify({ success: true, amount: order.escrow_held, reference: ref }));
-        } else {
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify({ success: false, message: 'Virement echoue', details: result }));
-        }
+        // PAYOUT (Phase 2): release via the Flutterwave Transfers engine — this
+        // REPLACES the old Campay XAF transfer. Mark the order released, then
+        // call payoutSellerForOrder (idempotent). NOTE: /campay/release is itself
+        // 410-gated now (Campay retired); kept correct for Phase 3.
+        await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { status: 'delivered', delivery_confirmed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).catch(() => {});
+        const pr = await payoutSellerForOrder(order_id);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: !!pr.ok, payout: pr }));
       } catch(e) {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ success: false, message: e.message }));
@@ -2681,82 +2971,18 @@ http.createServer((req, res) => {
           return res.end(JSON.stringify({ success: false, message: 'No escrow to release' }));
         }
 
-        // FLW-COLLECT: a Flutterwave-collected order is NOT paid out via the
-        // Campay XAF rail (wrong provider/currency). Mark it delivered, keep
-        // escrow_released=false, and QUEUE it for MANUAL payout (Peter records
-        // the out-of-band payment via /flw/mark-paid-out). Automated FLW
-        // Transfers payout is the next slice.
-        if (order.payment_method === 'flutterwave') {
-          await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { status: 'delivered', delivery_confirmed_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-          await supaRequest('POST', 'ptn_audit_log', null, { action: 'flw_payout_queued_manual', target_type: 'ptn_orders', target_id: order_id, details: { order_ref: order.order_ref, amount: order.escrow_held } }).catch(() => {});
-          await supaRequest('POST', 'ptn_notifications', null, { user_id: order.seller_id, type: 'order', order_id: order_id, title_en: 'Delivery Confirmed', title_fr: 'Livraison confirmée', body_en: 'Buyer confirmed delivery of ' + order.order_ref + '. Your payout is being processed.', body_fr: "L'acheteur a confirmé la livraison de " + order.order_ref + '. Votre paiement est en cours.', read: false }).catch(() => {});
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          return res.end(JSON.stringify({ success: true, manual: true, message: 'Delivery confirmed; payout queued for manual processing' }));
-        }
-
-        // Get seller phone — MOMO-PHONE-CAPTURE: prefer the seller's
-        // dedicated Mobile Money number, fall back to their login phone.
-        const sellers = await supaRequestPrivileged('GET', 'ptn_users',
-          'id=eq.' + order.seller_id + '&select=id,phone,momo_phone,name');
-        const seller = sellers && sellers[0];
-        const payoutPhone = seller && (seller.momo_phone || seller.phone);
-
-        if (!seller || !payoutPhone) {
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          return res.end(JSON.stringify({ success: false, message: 'Seller phone not found' }));
-        }
-        await supaRequest('POST', 'ptn_audit_log', null, {
-          action: 'campay_payout_target', target_type: 'ptn_users', target_id: order.seller_id,
-          details: { endpoint: '/campay/auto-release', order_ref: order.order_ref, payout_phone: payoutPhone, source: seller.momo_phone ? 'momo_phone' : 'phone' }
-        }).catch(e => console.warn('[payout audit] ' + e.message));
-
-        const ref = 'AUTOPAY-' + order.order_ref + '-' + Date.now();
-        const cleanPhone = String(payoutPhone).replace(/\s/g, '').replace(/^\+/, '');
-
-        // Payout via Campay
-        const token = await getCampayToken();
-        const pr = await fetch(CAMPAY_BASE_URL + '/transfer/', {
-          method: 'POST',
-          headers: { 'Authorization': 'Token ' + token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            amount: String(order.escrow_held),
-            currency: 'XAF',
-            to: cleanPhone,
-            description: 'Paiement PARTENAIRE ' + order.order_ref,
-            external_reference: ref
-          })
-        });
-        const result = await pr.json();
-
-        if (result.reference || result.status === 'SUCCESSFUL') {
-          // Update order
-          await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, {
-            escrow_released: true,
-            campay_payout_ref: ref,
-            campay_payout_at: new Date().toISOString(),
-            status: 'delivered',
-            updated_at: new Date().toISOString()
-          });
-
-          // Notify seller
-          await supaRequest('POST', 'ptn_notifications', null, {
-            user_id: order.seller_id,
-            type: 'payment',
-            order_id: order_id,
-            title_en: 'Payment Received!',
-            title_fr: 'Paiement recu!',
-            body_en: order.escrow_held + ' FCFA sent to your account for order ' + order.order_ref,
-            body_fr: order.escrow_held + ' FCFA envoye sur votre compte pour ' + order.order_ref,
-            read: false
-          });
-
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify({ success: true, amount: order.escrow_held, reference: ref }));
-        } else {
-          console.error('Auto-release payout failed:', result);
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify({ success: false, message: 'Payout failed', details: result }));
-        }
+        // PAYOUT (Phase 2): the seller is now paid via the Flutterwave Transfers
+        // engine — this REPLACES the old Campay XAF transfer. Mark the order
+        // released/confirmed, then call payoutSellerForOrder (idempotent;
+        // PO-<order_ref> ref + claim-before-call guard; transfer success is
+        // confirmed asynchronously by the /flw/webhook transfer event).
+        // NOTE: this /campay/auto-release route is itself currently 410-gated
+        // (Campay retired as a rail); Phase 3 adds the live buyer-confirm +
+        // 24h-auto triggers that flip escrow_released and call the same engine.
+        await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { status: 'delivered', delivery_confirmed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).catch(() => {});
+        const pr = await payoutSellerForOrder(order_id);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: !!pr.ok, payout: pr }));
       } catch(e) {
         console.error('Auto-release error:', e.message);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });

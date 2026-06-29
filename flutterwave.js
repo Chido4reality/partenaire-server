@@ -122,6 +122,103 @@ async function resolveAccount(account_number, account_bank) {
   return { account_name: json.data.account_name };
 }
 
+// ── SELLER PAYOUT — Phase 2 (REAL MONEY: Flutterwave Transfers) ────────────
+// Reuse the same FLW v3 base + FLW_SECRET_KEY. These MOVE money — the caller
+// (payoutSellerForOrder) owns idempotency (PO-<order_ref> reference + a
+// claim-before-call status write).
+
+// Transfer fee FLW charges the sender for a payout. v3: GET /v3/transfers/fee.
+// Returns a number (0 on any ambiguity — caller treats fee as seller-borne).
+async function getTransferFee(amount, currency) {
+  const url = `${FLW_BASE}/transfers/fee?amount=${encodeURIComponent(amount)}&currency=${encodeURIComponent(currency)}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${secretKey()}` } });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.status !== 'success' || !Array.isArray(json.data)) {
+    const err = new Error((json && json.message) || `Flutterwave fee failed (HTTP ${res.status})`);
+    err.flw = json;
+    throw err;
+  }
+  const entry = json.data.find(d => d && d.fee != null) || json.data[0] || {};
+  const fee = Number(entry.fee || 0);
+  return isFinite(fee) ? fee : 0;
+}
+
+// Create a payout transfer. v3: POST /v3/transfers. Returns { id, status,
+// reference, raw }. Throws on failure; err.retryable flags insufficient-balance
+// / settlement-not-ready (caller keeps funds + retries) vs a hard error.
+//   NG bank: { account_bank, account_number, amount, currency:'NGN', narration,
+//             reference, debit_currency:'NGN' }.
+//   CM MoMo (XAF): FLW mobile-money transfer shape — IMPLEMENTED BEST-EFFORT,
+//   the exact params are UNCERTAIN (see report). XAF is gated OFF upstream
+//   (payoutSellerForOrder never calls this for XAF), so this branch does not
+//   execute until XAF is enabled on the account and the params are confirmed.
+async function createTransfer(p) {
+  let body;
+  if (p.currency === 'NGN' || p.country === 'NG') {
+    body = {
+      account_bank: p.bank_code,
+      account_number: p.account_number,
+      amount: p.amount,
+      currency: 'NGN',
+      narration: p.narration || 'Partenaire Dozie payout',
+      reference: p.reference,
+      debit_currency: 'NGN',
+    };
+  } else {
+    // XAF / Cameroon Mobile Money — TO CONFIRM before XAF go-live:
+    //  - account_bank: FLW expects the mobile-money network code here. For CM
+    //    the codes are not the same strings as our 'MTN'/'ORANGE'; FLW's CM MoMo
+    //    transfer corridor + exact network code must be confirmed from the FLW
+    //    dashboard/support. We pass the operator through and let the gate keep
+    //    this dormant until verified.
+    //  - account_number: beneficiary MoMo phone (digits).
+    body = {
+      account_bank: p.momo_operator,
+      account_number: p.momo_number,
+      amount: p.amount,
+      currency: 'XAF',
+      narration: p.narration || 'Partenaire Dozie payout',
+      reference: p.reference,
+      debit_currency: 'XAF',
+      meta: [{ mobile_number: p.momo_number }],
+    };
+  }
+  const res = await fetch(`${FLW_BASE}/transfers`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${secretKey()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.status !== 'success' || !json.data) {
+    const msg = (json && json.message) || `Flutterwave transfer failed (HTTP ${res.status})`;
+    const err = new Error(msg);
+    err.flw = json;
+    err.retryable = /insufficient|balance|not enough|settlement|try again|temporar|unsettled/i.test(msg);
+    throw err;
+  }
+  return {
+    id: json.data.id,
+    status: json.data.status || null,
+    reference: json.data.reference || p.reference,
+    fee: json.data.fee,
+    raw: json,
+  };
+}
+
+// Fetch a transfer by id (authoritative status for the async webhook). Throws.
+async function verifyTransfer(transferId) {
+  const res = await fetch(`${FLW_BASE}/transfers/${encodeURIComponent(transferId)}`, {
+    headers: { Authorization: `Bearer ${secretKey()}` },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.status !== 'success' || !json.data) {
+    const err = new Error((json && json.message) || `Flutterwave transfer fetch failed (HTTP ${res.status})`);
+    err.flw = json;
+    throw err;
+  }
+  return json.data; // { id, status: 'SUCCESSFUL'|'FAILED'|'NEW'|'PENDING', complete_message, ... }
+}
+
 // Server-side verify a transaction by Flutterwave transaction id.
 // Returns the verified data object (or throws).
 async function verifyTransaction(transactionId) {
@@ -137,4 +234,4 @@ async function verifyTransaction(transactionId) {
   return json.data; // { status, amount, currency, tx_ref, id, ... }
 }
 
-module.exports = { createPayment, verifyTransaction, refundTransaction, getBanks, resolveAccount, isTestKey, FLW_BASE };
+module.exports = { createPayment, verifyTransaction, refundTransaction, getBanks, resolveAccount, getTransferFee, createTransfer, verifyTransfer, isTestKey, FLW_BASE };
