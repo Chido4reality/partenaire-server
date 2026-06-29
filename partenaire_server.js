@@ -608,6 +608,33 @@ async function handleTransferWebhook(data) {
   return { matched: true, status: 'pending' }; // NEW / PENDING — leave processing.
 }
 
+// ── PHASE 3: RELEASE TRIGGERS ──────────────────────────────────────────────
+// A dispute ALWAYS blocks release. These states mean "money is contested".
+const OPEN_DISPUTE_STATES = ['open', 'seller_contested', 'escalated'];
+function isOpenDispute(s) { return OPEN_DISPUTE_STATES.includes(s); }
+
+// Flip an order to released and pay the seller via the ONE idempotent engine.
+// The escrow flip is conditional (escrow_released=false) so two concurrent
+// triggers (buyer confirm + sweep) can't both stamp it; payoutSellerForOrder is
+// itself idempotent (claim-before-call + unique flw_payout_ref), so calling it
+// regardless is safe. reason ∈ 'buyer_confirm' | 'auto_24h'.
+async function releaseAndPayout(order, reason) {
+  const nowIso = new Date().toISOString();
+  await supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + order.id + '&escrow_released=eq.false', {
+    status: 'delivered',
+    delivery_confirmed_at: order.delivery_confirmed_at || nowIso,
+    escrow_released: true,
+    escrow_released_at: nowIso,
+    escrow_release_reason: reason,
+    updated_at: nowIso,
+  });
+  await supaRequest('POST', 'ptn_audit_log', null, {
+    action: 'escrow_released', target_type: 'ptn_orders', target_id: order.id,
+    details: { order_ref: order.order_ref, reason },
+  }).catch(() => {});
+  return payoutSellerForOrder(order.id);
+}
+
 // Narrow the hosted-checkout methods so the LOCAL method leads (Peter's call):
 //   XAF (Cameroon) → 'mobilemoneyfranco' ONLY (MTN MoMo + Orange Money). Dropping
 //     card + the generic mobilemoney makes MoMo/Orange the only/first choice.
@@ -2322,8 +2349,117 @@ http.createServer((req, res) => {
         return;
       }
 
+      // POST /seller/payout/sweep-auto-release — CRON (shared-secret header
+      // x-sweep-secret = PAYOUT_SWEEP_SECRET). Releases escrow + pays the seller
+      // for orders paid >= 24h ago that the buyer never confirmed and that have
+      // no open dispute. Batch-safe + idempotent (conditional flip + the
+      // idempotent payout engine). A dispute ALWAYS blocks release.
+      if (payoutPath === '/seller/payout/sweep-auto-release' && req.method === 'POST') {
+        (async () => {
+          const secret = process.env.PAYOUT_SWEEP_SECRET;
+          if (!secret) return send(503, { success: false, error_code: 'not_configured', message: 'PAYOUT_SWEEP_SECRET not set' });
+          if ((req.headers['x-sweep-secret'] || '') !== secret) return send(401, { success: false, error_code: 'unauthorized', message: 'Bad sweep secret' });
+          try {
+            const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+            const filter =
+              'campay_paid_at=not.is.null' +
+              '&escrow_held=gt.0' +
+              '&escrow_released=eq.false' +
+              '&campay_paid_at=lte.' + encodeURIComponent(cutoff) +
+              '&dispute_status=not.in.(open,seller_contested,escalated)' +
+              '&or=(flw_payout_status.is.null,flw_payout_status.in.(failed,pending_settlement))' +
+              '&select=id,order_ref,delivery_confirmed_at,dispute_status,seller_id,flw_payout_status' +
+              '&order=campay_paid_at.asc&limit=200';
+            const rows = await supaRequestPrivileged('GET', 'ptn_orders', filter);
+            const list = Array.isArray(rows) ? rows : [];
+            const results = [];
+            for (const o of list) {
+              if (isOpenDispute(o.dispute_status)) continue; // belt-and-braces vs the SQL filter
+              try { const r = await releaseAndPayout(o, 'auto_24h'); results.push({ order_id: o.id, ok: !!r.ok, status: r.status, reason: r.reason || null }); }
+              catch (e) { results.push({ order_id: o.id, error: e.message }); }
+            }
+            return send(200, { success: true, swept: list.length, results });
+          } catch (e) { return send(500, { success: false, error_code: 'error', message: e.message }); }
+        })();
+        return;
+      }
+
+      // POST /seller/payout/sweep-settlement — CRON (x-sweep-secret). Re-runs the
+      // payout engine for orders stuck in 'pending_settlement' (funds may have
+      // settled). Does NOT touch 'pending_xaf' (waits for XAF) or 'failed'
+      // (manual/admin only). Idempotent.
+      if (payoutPath === '/seller/payout/sweep-settlement' && req.method === 'POST') {
+        (async () => {
+          const secret = process.env.PAYOUT_SWEEP_SECRET;
+          if (!secret) return send(503, { success: false, error_code: 'not_configured', message: 'PAYOUT_SWEEP_SECRET not set' });
+          if ((req.headers['x-sweep-secret'] || '') !== secret) return send(401, { success: false, error_code: 'unauthorized', message: 'Bad sweep secret' });
+          try {
+            const rows = await supaRequestPrivileged('GET', 'ptn_orders',
+              'flw_payout_status=eq.pending_settlement&select=id,order_ref&order=updated_at.asc&limit=200');
+            const list = Array.isArray(rows) ? rows : [];
+            const results = [];
+            for (const o of list) {
+              try { const r = await payoutSellerForOrder(o.id); results.push({ order_id: o.id, ok: !!r.ok, status: r.status, reason: r.reason || null }); }
+              catch (e) { results.push({ order_id: o.id, error: e.message }); }
+            }
+            return send(200, { success: true, retried: list.length, results });
+          } catch (e) { return send(500, { success: false, error_code: 'error', message: e.message }); }
+        })();
+        return;
+      }
+
       return send(404, { success: false, error_code: 'not_found', message: 'Unknown payout route' });
     }
+  }
+
+  // ── BUYER: CONFIRM RECEIVED (Phase 3 — live release trigger) ───────────────
+  // Buyer confirms delivery → release escrow + pay the seller via the idempotent
+  // engine. Replaces the old client-side direct PATCH confirm (and the dead
+  // 410-gated /campay/auto-release). A dispute ALWAYS blocks release.
+  if (req.url === '/buyer/confirm-received' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      try {
+        const idn = resolveDozieIdentity(req, 'buyer');
+        if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+        const { order_id } = JSON.parse(body || '{}');
+        if (!order_id) return send(400, { success: false, error_code: 'validation', message: 'order_id required' });
+
+        const orders = await supaRequestPrivileged('GET', 'ptn_orders', 'id=eq.' + order_id + '&select=*');
+        const order = Array.isArray(orders) && orders[0];
+        if (!order) return send(404, { success: false, error_code: 'not_found', message: 'Order not found' });
+
+        // Ownership: a phone maps to MANY ptn_users rows — the order's buyer_id
+        // must be one of the rows sharing this buyer's phone.
+        const me = await supaRequestPrivileged('GET', 'ptn_users', 'id=eq.' + idn.uid + '&select=id,phone');
+        const phone = (Array.isArray(me) && me[0] && me[0].phone) || null;
+        const ownerIds = new Set([idn.uid]);
+        if (phone) {
+          const sibs = await supaRequestPrivileged('GET', 'ptn_users', 'phone=eq.' + encodeURIComponent(phone) + '&select=id');
+          (Array.isArray(sibs) ? sibs : []).forEach(s => ownerIds.add(s.id));
+        }
+        if (!ownerIds.has(order.buyer_id)) return send(403, { success: false, error_code: 'forbidden', message: 'Not your order' });
+
+        // Guards: paid + has escrow; not already released; no open dispute.
+        if (!(order.campay_paid_at || Number(order.escrow_held) > 0)) return send(409, { success: false, error_code: 'not_paid', message: 'This order is not paid yet' });
+        if (order.escrow_released === true) return send(200, { success: true, idempotent: true, message: 'Already released' });
+        if (isOpenDispute(order.dispute_status)) return send(409, { success: false, error_code: 'dispute_open', message: 'A dispute is open on this order' });
+
+        const pr = await releaseAndPayout(order, 'buyer_confirm');
+        // Notify the seller of the confirmation (payout success/fail is notified
+        // separately by the engine / transfer webhook).
+        await supaRequestPrivileged('POST', 'ptn_notifications', null, {
+          user_id: order.seller_id, type: 'order', order_id: order.id, read: false,
+          title_en: 'Delivery confirmed', title_fr: 'Livraison confirmée',
+          body_en: 'Buyer confirmed delivery of ' + order.order_ref + '. Your payout is being processed.',
+          body_fr: "L'acheteur a confirmé la livraison de " + order.order_ref + '. Votre paiement est en cours.',
+        }).catch(() => {});
+        return send(200, { success: true, released: true, payout: pr });
+      } catch (e) { send(500, { success: false, error_code: 'error', message: e.message }); }
+    });
+    return;
   }
 
   if (req.url === '/flw/initiate' && req.method === 'POST') {

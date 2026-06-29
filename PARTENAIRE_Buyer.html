@@ -2084,7 +2084,7 @@ function openOrderDetail(id) {
       <div style="font-size:13px;color:var(--grey);margin-bottom:16px">Confirmez la reception pour liberer le paiement au vendeur.</div>
       <button onclick="confirmDelivery('${o.id}')"
         style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer">
-        ✅ Confirmer la reception
+        ✅ ${currentLang==='fr'?'Confirmer la réception':'Confirm received'}
       </button>
     </div>` : ''}
     ${o.dispute_raised ? `
@@ -2744,38 +2744,30 @@ function handleOrderCardClick(orderId, counterStatus, paymentRequested, status, 
 }
 
 
-// ── CONFIRM DELIVERY + AUTO RELEASE ESCROW ───────────────────
+// ── CONFIRM DELIVERY → SERVER RELEASES ESCROW + PAYS SELLER ──────────────────
+// Phase 3: the buyer confirm goes through ONE authoritative server endpoint
+// (/buyer/confirm-received) which releases escrow and pays the seller via the
+// idempotent Flutterwave payout engine. No client-side status write, no second
+// confirm path. A dispute blocks release server-side.
 async function confirmDelivery(orderId) {
-  if (!confirm('Confirmez-vous avoir recu la commande?')) return;
+  const fr = currentLang === 'fr';
+  if (!confirm(fr ? 'Confirmez-vous avoir reçu la commande ?' : 'Do you confirm you received the order?')) return;
   try {
-    const o = allOrders.find(x => x.id === orderId);
-    if (!o) return;
-
-    // Step 1: Update order status
-    await PATCH('ptn_orders', 'id', orderId, {
-      status: 'delivered',
-      delivery_confirmed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    });
-
-    // Step 2: CamPay retired — no auto-release. The order is marked delivered
-    // above; Flutterwave escrow payout to the seller is processed by an admin
-    // (manual /flw/mark-paid-out), not an automatic CamPay transfer.
-    toast('Livraison confirmee! Paiement sera libere au vendeur.', 'success');
-
-    // Step 3: Notify seller
-    await notifyServer('seller', {
-      order_id: orderId,
-      type: 'delivery',
-      title_en: 'Delivery Confirmed - Payment Released!',
-      title_fr: 'Livraison confirmee - Paiement libere!',
-      body_en: 'Buyer confirmed delivery of order ' + o.order_ref + '. Payment sent to your account.',
-      body_fr: 'Livraison confirmee pour ' + o.order_ref + '. Paiement envoye sur votre compte.'
-    });
-
+    const res = await apiAuth('/buyer/confirm-received', { order_id: orderId });
+    if (!res || res.success !== true) {
+      const code = res && res.error_code;
+      const msg = code === 'dispute_open'
+        ? (fr ? "Un litige est ouvert sur cette commande." : 'A dispute is open on this order.')
+        : code === 'not_paid'
+          ? (fr ? "Cette commande n'est pas encore payée." : 'This order is not paid yet.')
+          : (res && res.message) || (fr ? 'Confirmation échouée' : 'Confirmation failed');
+      toast(msg, 'error');
+      return;
+    }
+    toast(fr ? 'Confirmé — le vendeur sera payé.' : 'Confirmed — the seller will be paid.', 'success');
     await loadOrders();
     closeOrderDetail();
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+  } catch(e) { toast((fr ? 'Erreur : ' : 'Error: ') + e.message, 'error'); }
 }
 
 
