@@ -305,10 +305,18 @@ const FLW = require('./flutterwave.js');
 // (ptn_users.linked_mp_org_id → pa_organisations.country). CM→XAF, NG→NGN.
 // FAIL CLOSED: returns { currency:null, reason } when unresolvable (e.g. a
 // standalone seller with no linked MP org); callers MUST refuse to start a pay.
+// Case- AND accent-insensitive normalisation. pa_organisations.country stores
+// FULL FRENCH NAMES ('Cameroun', 'Nigeria') — and a French spelling can carry an
+// accent ('Nigéria'). Strip diacritics + uppercase so every spelling maps.
+function _normCountryToken(country) {
+  return String(country || '').trim().normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+}
+const _CM_TOKENS = ['CM', 'CMR', 'CAMEROON', 'CAMEROUN'];
+const _NG_TOKENS = ['NG', 'NGA', 'NIGERIA'];
 function _currencyForCountry(country) {
-  const c = String(country || '').trim().toUpperCase();
-  if (['CM', 'CMR', 'CAMEROON', 'CAMEROUN'].includes(c)) return 'XAF';
-  if (['NG', 'NGA', 'NIGERIA'].includes(c)) return 'NGN';
+  const c = _normCountryToken(country);
+  if (_CM_TOKENS.includes(c)) return 'XAF';
+  if (_NG_TOKENS.includes(c)) return 'NGN';
   return null;
 }
 async function resolveOrderCurrency(order) {
@@ -334,9 +342,9 @@ async function resolveOrderCurrency(order) {
 // ptn_users.linked_mp_org_id → pa_organisations.country (same chain as
 // resolveOrderCurrency), normalized to the 2-letter code the payout table uses.
 function normCountry2(country) {
-  const c = String(country || '').trim().toUpperCase();
-  if (['CM', 'CMR', 'CAMEROON', 'CAMEROUN'].includes(c)) return 'CM';
-  if (['NG', 'NGA', 'NIGERIA'].includes(c)) return 'NG';
+  const c = _normCountryToken(country); // case- + accent-insensitive
+  if (_CM_TOKENS.includes(c)) return 'CM';
+  if (_NG_TOKENS.includes(c)) return 'NG';
   return null;
 }
 async function resolveSellerCountry(uid) {
@@ -2189,8 +2197,13 @@ http.createServer((req, res) => {
             const banks = await FLW.getBanks('NG');
             return send(200, { success: true, country: 'NG', banks });
           } catch (e) {
-            console.error('[payout banks]', e.message, e.flw || '');
-            return send(502, { success: false, error_code: 'banks_failed', message: 'Could not load the bank list. Please try again.' });
+            // Surface the REAL Flutterwave error (status + message) — both in the
+            // server log AND to the card — so a key/config problem isn't masked by
+            // a generic "try again". e.flw is the raw FLW JSON when present.
+            const flwMsg = (e && e.flw && e.flw.message) || (e && e.message) || 'unknown error';
+            console.error('[payout banks] FLW /banks/NG failed:', e && e.message, 'flw=', JSON.stringify(e && e.flw || null));
+            return send(502, { success: false, error_code: 'banks_failed',
+              message: 'Could not load the bank list: ' + flwMsg, flw_error: flwMsg });
           }
         })();
         return;
