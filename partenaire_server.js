@@ -329,6 +329,34 @@ async function resolveOrderCurrency(order) {
   }
 }
 
+// ── SELLER PAYOUT (Phase 1) — resolve the seller's country ────────────────
+// Country is NEVER trusted from the client. It is derived from the seller's
+// ptn_users.linked_mp_org_id → pa_organisations.country (same chain as
+// resolveOrderCurrency), normalized to the 2-letter code the payout table uses.
+function normCountry2(country) {
+  const c = String(country || '').trim().toUpperCase();
+  if (['CM', 'CMR', 'CAMEROON', 'CAMEROUN'].includes(c)) return 'CM';
+  if (['NG', 'NGA', 'NIGERIA'].includes(c)) return 'NG';
+  return null;
+}
+async function resolveSellerCountry(uid) {
+  try {
+    const sellers = await supaRequestPrivileged('GET', 'ptn_users',
+      'id=eq.' + uid + '&select=id,linked_mp_org_id');
+    const seller = Array.isArray(sellers) && sellers[0];
+    if (!seller) return { country: null, reason: 'no_user' };
+    if (!seller.linked_mp_org_id) return { country: null, reason: 'no_linked_org' };
+    const orgs = await supaRequestPrivileged('GET', 'pa_organisations',
+      'id=eq.' + seller.linked_mp_org_id + '&select=id,country');
+    const org = Array.isArray(orgs) && orgs[0];
+    const country = normCountry2(org && org.country);
+    if (!country) return { country: null, reason: 'unknown_country', raw: org && org.country };
+    return { country };
+  } catch (e) {
+    return { country: null, reason: 'error', message: e.message };
+  }
+}
+
 // Narrow the hosted-checkout methods so the LOCAL method leads (Peter's call):
 //   XAF (Cameroon) → 'mobilemoneyfranco' ONLY (MTN MoMo + Orange Money). Dropping
 //     card + the generic mobilemoney makes MoMo/Orange the only/first choice.
@@ -1847,6 +1875,144 @@ http.createServer((req, res) => {
   // Buyer starts a hosted-checkout payment for a confirmed, payment-requested
   // order. Returns { link } to redirect to. payment_status is NOT set here —
   // only a verified webhook/return settles it.
+  // ── SELLER PAYOUT — Phase 1: CAPTURE + VERIFY + STORE (no Transfers) ──────
+  // A seller saves & verifies WHERE they want to be paid. This phase NEVER
+  // moves money — no FLW Transfers, no escrow/release changes, no campay_*
+  // changes. Storage: public.ptn_seller_payout (RLS on, no public policies) —
+  // ALWAYS via the service-role client (supaRequestPrivileged). The seller is
+  // authenticated via the Dozie seller JWT; user_id + country come from their
+  // ptn_users record, never the client.
+  {
+    const payoutPath = req.url.split('?')[0].replace(/\/+$/, '') || '/';
+    if (payoutPath.startsWith('/seller/payout')) {
+      const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+      const readBody = () => new Promise(r => { let b = ''; req.on('data', c => b += c); req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { r({}); } }); });
+
+      // GET /seller/payout/banks?country=NG → proxy FLW /v3/banks/:country.
+      if (payoutPath === '/seller/payout/banks' && req.method === 'GET') {
+        (async () => {
+          const idn = resolveDozieIdentity(req, 'seller');
+          if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+          // Country is derived from the seller — the ?country= param is ignored
+          // for trust (only NG sellers have a bank list; CM uses fixed operators).
+          const sc = await resolveSellerCountry(idn.uid);
+          if (!sc.country) return send(422, { success: false, error_code: 'country_unresolved', message: 'Could not determine your country. Link your shop to set up payout.', reason: sc.reason });
+          if (sc.country !== 'NG') return send(200, { success: true, country: sc.country, banks: [] });
+          try {
+            const banks = await FLW.getBanks('NG');
+            return send(200, { success: true, country: 'NG', banks });
+          } catch (e) {
+            console.error('[payout banks]', e.message, e.flw || '');
+            return send(502, { success: false, error_code: 'banks_failed', message: 'Could not load the bank list. Please try again.' });
+          }
+        })();
+        return;
+      }
+
+      // POST /seller/payout/resolve {account_number, bank_code} → FLW resolve.
+      if (payoutPath === '/seller/payout/resolve' && req.method === 'POST') {
+        (async () => {
+          const idn = resolveDozieIdentity(req, 'seller');
+          if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+          const body = await readBody();
+          const account_number = String(body.account_number || '').trim();
+          const bank_code = String(body.bank_code || '').trim();
+          if (!account_number || !bank_code) return send(400, { success: false, error_code: 'validation', message: 'account_number and bank_code are required' });
+          try {
+            const { account_name } = await FLW.resolveAccount(account_number, bank_code);
+            return send(200, { success: true, account_name });
+          } catch (e) {
+            console.error('[payout resolve]', e.message, e.flw || '');
+            return send(422, { success: false, error_code: 'resolve_failed', message: 'Could not verify this account. Check the number and bank and try again.' });
+          }
+        })();
+        return;
+      }
+
+      // GET /seller/payout → the seller's own saved row (or null).
+      if (payoutPath === '/seller/payout' && req.method === 'GET') {
+        (async () => {
+          const idn = resolveDozieIdentity(req, 'seller');
+          if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+          try {
+            const rows = await supaRequestPrivileged('GET', 'ptn_seller_payout', 'user_id=eq.' + idn.uid + '&limit=1');
+            const row = (Array.isArray(rows) && rows[0]) || null;
+            return send(200, { success: true, payout: row });
+          } catch (e) {
+            console.error('[payout get]', e.message);
+            return send(500, { success: false, error_code: 'error', message: 'Could not load your payout details.' });
+          }
+        })();
+        return;
+      }
+
+      // POST /seller/payout → save/update (upsert on user_id).
+      if (payoutPath === '/seller/payout' && req.method === 'POST') {
+        (async () => {
+          const idn = resolveDozieIdentity(req, 'seller');
+          if (idn.error || !idn.uid) return send(401, { success: false, error_code: 'auth_failed', message: 'Authentication required' });
+          const sc = await resolveSellerCountry(idn.uid);
+          if (!sc.country) return send(422, { success: false, error_code: 'country_unresolved', message: 'Could not determine your country. Link your shop to set up payout.', reason: sc.reason });
+
+          const body = await readBody();
+          const now = new Date().toISOString();
+          let row;
+
+          if (sc.country === 'NG') {
+            // NG bank: re-resolve server-side; never trust a client account_name.
+            const bank_code = String(body.bank_code || '').trim();
+            const account_number = String(body.account_number || '').trim();
+            const bank_name = body.bank_name ? String(body.bank_name).trim() : null;
+            if (!bank_code || !account_number) return send(400, { success: false, error_code: 'validation', message: 'bank_code and account_number are required' });
+            let account_name;
+            try {
+              ({ account_name } = await FLW.resolveAccount(account_number, bank_code));
+            } catch (e) {
+              console.error('[payout save resolve]', e.message, e.flw || '');
+              return send(422, { success: false, error_code: 'resolve_failed', message: 'Could not verify this account. Check the number and bank and try again.' });
+            }
+            row = {
+              user_id: idn.uid, country: 'NG', method: 'bank',
+              bank_code, bank_name, account_number, account_name,
+              momo_number: null, momo_operator: null,
+              verified: true, verified_at: now, updated_at: now,
+            };
+          } else {
+            // CM mobile money: store as-is, verified=false (no name resolution).
+            const momo_number = String(body.momo_number || '').trim();
+            const momo_operator = String(body.momo_operator || '').trim().toUpperCase();
+            if (!momo_number || !['MTN', 'ORANGE'].includes(momo_operator)) return send(400, { success: false, error_code: 'validation', message: 'momo_number and a valid momo_operator (MTN or ORANGE) are required' });
+            row = {
+              user_id: idn.uid, country: 'CM', method: 'momo',
+              momo_number, momo_operator,
+              bank_code: null, bank_name: null, account_number: null, account_name: null,
+              verified: false, verified_at: null, updated_at: now,
+            };
+          }
+
+          try {
+            // Upsert without a custom Prefer header: insert if absent, else patch.
+            const existing = await supaRequestPrivileged('GET', 'ptn_seller_payout', 'user_id=eq.' + idn.uid + '&select=user_id&limit=1');
+            let saved;
+            if (Array.isArray(existing) && existing[0]) {
+              saved = await supaRequestPrivileged('PATCH', 'ptn_seller_payout', 'user_id=eq.' + idn.uid, row);
+            } else {
+              saved = await supaRequestPrivileged('POST', 'ptn_seller_payout', null, { ...row, created_at: now });
+            }
+            const out = (Array.isArray(saved) && saved[0]) || row;
+            return send(200, { success: true, payout: out });
+          } catch (e) {
+            console.error('[payout save]', e.message);
+            return send(500, { success: false, error_code: 'error', message: 'Could not save your payout details.' });
+          }
+        })();
+        return;
+      }
+
+      return send(404, { success: false, error_code: 'not_found', message: 'Unknown payout route' });
+    }
+  }
+
   if (req.url === '/flw/initiate' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);

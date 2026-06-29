@@ -81,6 +81,47 @@ async function refundTransaction(flwTxId, amount) {
   }
 }
 
+// ── SELLER PAYOUT — Phase 1 (CAPTURE + VERIFY only; NO Transfers) ──────────
+// These reuse the same FLW v3 base + FLW_SECRET_KEY as the collect leg. They
+// are read/verify lookups only — they never move money.
+
+// List banks for a country (NG). FLW v3: GET /v3/banks/:country.
+// Returns [{ code, name }] (throws on failure).
+async function getBanks(country) {
+  const res = await fetch(`${FLW_BASE}/banks/${encodeURIComponent(country)}`, {
+    headers: { Authorization: `Bearer ${secretKey()}` },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.status !== 'success' || !Array.isArray(json.data)) {
+    const err = new Error((json && json.message) || `Flutterwave banks failed (HTTP ${res.status})`);
+    err.flw = json;
+    throw err;
+  }
+  // Normalize + sort by name; some FLW entries share a code (branches) — keep all.
+  return json.data
+    .map(b => ({ code: String(b.code), name: b.name }))
+    .filter(b => b.code && b.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Resolve (verify) a bank account name. FLW v3: POST /v3/accounts/resolve with
+// { account_number, account_bank }. Returns { account_name } (throws if FLW
+// can't resolve — caller surfaces a clean error).
+async function resolveAccount(account_number, account_bank) {
+  const res = await fetch(`${FLW_BASE}/accounts/resolve`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${secretKey()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account_number, account_bank }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.status !== 'success' || !json.data || !json.data.account_name) {
+    const err = new Error((json && json.message) || `Could not resolve account (HTTP ${res.status})`);
+    err.flw = json;
+    throw err;
+  }
+  return { account_name: json.data.account_name };
+}
+
 // Server-side verify a transaction by Flutterwave transaction id.
 // Returns the verified data object (or throws).
 async function verifyTransaction(transactionId) {
@@ -96,4 +137,4 @@ async function verifyTransaction(transactionId) {
   return json.data; // { status, amount, currency, tx_ref, id, ... }
 }
 
-module.exports = { createPayment, verifyTransaction, refundTransaction, isTestKey, FLW_BASE };
+module.exports = { createPayment, verifyTransaction, refundTransaction, getBanks, resolveAccount, isTestKey, FLW_BASE };

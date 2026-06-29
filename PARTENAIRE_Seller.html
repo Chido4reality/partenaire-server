@@ -649,6 +649,12 @@ function openWhatsApp(e, phone, text){
       <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:12px">📷 Click your photo to update it</div>
     </div>
     <div id="badge-card-profile"></div>
+    <!-- ══ GET PAID / PAYOUT DETAILS (Phase 1: capture + verify + store) ══ -->
+    <div class="card" id="payout-card">
+      <div class="card-title">💳 <span id="payout-title">Get paid</span></div>
+      <div class="card-sub" id="payout-sub">Where you receive your money from sales.</div>
+      <div id="payout-body"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
     <!-- QR CODE CARD -->
     <div class="card" id="qr-code-card">
       <div class="card-title">📱 QR Code de votre boutique</div>
@@ -3279,6 +3285,7 @@ async function submitVerification() {
 function switchTab(tabId) {
   if (tabId === 'tab-profile') {
     loadReviews();
+    loadPayout();
     setTimeout(() => {
       if (currentSeller && !document.getElementById('qr-code-display')?.querySelector('canvas, img')) {
         generateQRCode(currentSeller.id, currentSeller.company || currentSeller.name);
@@ -3296,6 +3303,203 @@ function switchTab(tabId) {
   if (tabId === 'tab-reports')  loadSellerReports();
   if (tabId === 'tab-messages') loadSellerInbox();
   notifOnSectionOpen(tabId); // mark this section's notifications read + clear its badge
+}
+
+// ══════════════════════════════════════════════════════════════
+//  GET PAID — seller payout details (Phase 1: CAPTURE + VERIFY + STORE).
+//  Talks to the Dozie server's /seller/payout* endpoints (service-role
+//  backed; ptn_seller_payout). Country is resolved server-side from the
+//  seller's linked MP org — never sent by the client. NG = bank account
+//  (must Verify before Save); CM = mobile money (no name resolution).
+//  This phase NEVER moves money — capture + verify + store only.
+// ══════════════════════════════════════════════════════════════
+let payoutState = { loaded: false, country: null, saved: null, banks: [], resolvedName: null, resolvedFor: null };
+
+async function payoutFetch(path, opts) {
+  const jwt = localStorage.getItem('dozie_jwt');
+  const o = Object.assign({ headers: {} }, opts || {});
+  o.headers = Object.assign({ 'Content-Type': 'application/json', ...(jwt ? { 'Authorization': 'Bearer ' + jwt } : {}) }, o.headers);
+  const r = await fetch(path, o);
+  let j = {};
+  try { j = await r.json(); } catch (_) {}
+  return { ok: r.ok && j && j.success !== false, status: r.status, json: j };
+}
+
+async function loadPayout() {
+  const body = document.getElementById('payout-body');
+  if (!body || !currentSeller) return;
+  body.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  payoutState.resolvedName = null; payoutState.resolvedFor = null;
+  const fr = currentLang === 'fr';
+  try {
+    // Saved row + country/banks in parallel. /banks returns the server-resolved
+    // country for ALL sellers (banks=[] for CM), so it's our country source.
+    const [saveRes, bankRes] = await Promise.all([
+      payoutFetch('/seller/payout', { method: 'GET' }),
+      payoutFetch('/seller/payout/banks', { method: 'GET' })
+    ]);
+    if (!bankRes.ok) {
+      payoutState.loaded = true; payoutState.country = null;
+      renderPayout((bankRes.json && bankRes.json.message) || (fr ? 'Impossible de déterminer votre pays.' : 'Could not determine your country.'));
+      return;
+    }
+    payoutState.country = bankRes.json.country || null;
+    payoutState.banks = bankRes.json.banks || [];
+    payoutState.saved = (saveRes.ok && saveRes.json.payout) ? saveRes.json.payout : null;
+    payoutState.loaded = true;
+    renderPayout();
+  } catch (e) {
+    payoutState.loaded = true;
+    renderPayout((fr ? 'Erreur de chargement : ' : 'Load error: ') + e.message);
+  }
+}
+
+function renderPayout(errMsg) {
+  const body = document.getElementById('payout-body');
+  if (!body) return;
+  const fr = currentLang === 'fr';
+  const tEl = document.getElementById('payout-title'); if (tEl) tEl.textContent = fr ? 'Recevoir mes paiements' : 'Get paid';
+  const sEl = document.getElementById('payout-sub');   if (sEl) sEl.textContent = fr ? 'Où vous recevez l’argent de vos ventes.' : 'Where you receive your money from sales.';
+
+  if (errMsg) { body.innerHTML = '<div class="alert alert-warn">' + dzEsc(errMsg) + '</div>'; return; }
+  if (!payoutState.country) {
+    body.innerHTML = '<div class="alert alert-info">' + (fr ? 'Impossible de déterminer votre pays. Liez votre boutique pour configurer le paiement.' : 'Could not determine your country. Link your shop to set up payout.') + '</div>';
+    return;
+  }
+
+  // Current saved destination + verified badge (when one exists).
+  const saved = payoutState.saved;
+  let savedSummary = '';
+  if (saved) {
+    const badge = saved.verified
+      ? '<span style="background:#DCFCE7;color:#16a34a;font-size:11px;font-weight:800;padding:3px 10px;border-radius:20px">✓ ' + (fr ? 'Vérifié' : 'Verified') + '</span>'
+      : '<span style="background:#FEF3C7;color:#92400e;font-size:11px;font-weight:800;padding:3px 10px;border-radius:20px">' + (fr ? 'Non vérifié' : 'Unverified') + '</span>';
+    let lines;
+    if (saved.method === 'bank') {
+      lines = '<div style="font-weight:700">' + dzEsc(saved.account_name || '') + '</div>'
+            + '<div style="font-size:13px;color:var(--grey)">' + dzEsc(saved.bank_name || saved.bank_code || '') + ' · ' + dzEsc(saved.account_number || '') + '</div>';
+    } else {
+      lines = '<div style="font-weight:700">' + dzEsc(saved.momo_operator || '') + ' Mobile Money</div>'
+            + '<div style="font-size:13px;color:var(--grey)">' + dzEsc(saved.momo_number || '') + '</div>';
+    }
+    savedSummary = '<div style="background:#f8f6f0;border:1px solid var(--lgrey);border-radius:10px;padding:12px;margin-bottom:14px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+      + '<span style="font-size:12px;font-weight:800;color:var(--grey);text-transform:uppercase">' + (fr ? 'Destination actuelle' : 'Current destination') + '</span>' + badge + '</div>'
+      + lines + '</div>';
+  }
+
+  body.innerHTML = savedSummary + (payoutState.country === 'NG' ? renderPayoutNG(fr) : renderPayoutCM(fr));
+}
+
+function renderPayoutNG(fr) {
+  const saved = payoutState.saved;
+  const opts = ['<option value="">' + (fr ? '— Choisir une banque —' : '— Select a bank —') + '</option>']
+    .concat(payoutState.banks.map(b =>
+      '<option value="' + dzEsc(b.code) + '" data-name="' + dzEsc(b.name) + '"' + ((saved && saved.bank_code === b.code) ? ' selected' : '') + '>' + dzEsc(b.name) + '</option>'
+    )).join('');
+  const acct = saved && saved.account_number ? dzEsc(saved.account_number) : '';
+  return ''
+    + '<div class="form-group"><label class="form-label">' + (fr ? 'Banque' : 'Bank') + '</label>'
+    + '<select class="form-select" id="payout-bank" onchange="payoutOnInputChange()">' + opts + '</select></div>'
+    + '<div class="form-group"><label class="form-label">' + (fr ? 'Numéro de compte' : 'Account number') + '</label>'
+    + '<input class="form-input" id="payout-acct" inputmode="numeric" placeholder="0123456789" value="' + acct + '" oninput="this.value=this.value.replace(/\\D/g,\'\');payoutOnInputChange()"></div>'
+    + '<button class="btn btn-primary" id="payout-verify-btn" onclick="payoutVerify()">' + (fr ? 'Vérifier le compte' : 'Verify account') + '</button>'
+    + '<div id="payout-verify-result" style="margin-top:10px"></div>'
+    + '<button class="btn btn-gold btn-block" id="payout-save-btn" style="margin-top:12px" onclick="payoutSave()" disabled>' + (fr ? 'Enregistrer' : 'Save') + '</button>'
+    + '<div class="card-sub" style="margin-top:8px">' + (fr ? 'Vérifiez le compte pour activer l’enregistrement.' : 'Verify the account to enable saving.') + '</div>';
+}
+
+function renderPayoutCM(fr) {
+  const saved = payoutState.saved;
+  const num = saved && saved.momo_number ? dzEsc(saved.momo_number) : '';
+  const op  = saved && saved.momo_operator ? saved.momo_operator : '';
+  return ''
+    + '<div class="form-group"><label class="form-label">' + (fr ? 'Numéro Mobile Money' : 'Mobile Money number') + '</label>'
+    + '<input class="form-input" id="payout-momo" type="tel" inputmode="numeric" placeholder="6XXXXXXXX" value="' + num + '" oninput="this.value=this.value.replace(/\\D/g,\'\')"></div>'
+    + '<div class="form-group"><label class="form-label">' + (fr ? 'Opérateur' : 'Operator') + '</label>'
+    + '<select class="form-select" id="payout-operator">'
+    + '<option value="">' + (fr ? '— Choisir —' : '— Select —') + '</option>'
+    + '<option value="MTN"' + (op === 'MTN' ? ' selected' : '') + '>MTN MoMo</option>'
+    + '<option value="ORANGE"' + (op === 'ORANGE' ? ' selected' : '') + '>Orange Money</option>'
+    + '</select></div>'
+    + '<button class="btn btn-gold btn-block" id="payout-save-btn" onclick="payoutSave()">' + (fr ? 'Enregistrer' : 'Save') + '</button>';
+}
+
+// Any change to the NG bank/account invalidates a prior verify → re-disable Save.
+function payoutOnInputChange() {
+  payoutState.resolvedName = null; payoutState.resolvedFor = null;
+  const r = document.getElementById('payout-verify-result'); if (r) r.innerHTML = '';
+  const sb = document.getElementById('payout-save-btn'); if (sb) sb.disabled = true;
+}
+
+async function payoutVerify() {
+  const fr = currentLang === 'fr';
+  const bankEl = document.getElementById('payout-bank');
+  const acctEl = document.getElementById('payout-acct');
+  const resEl  = document.getElementById('payout-verify-result');
+  const btn    = document.getElementById('payout-verify-btn');
+  const bank_code = bankEl ? bankEl.value : '';
+  const account_number = acctEl ? acctEl.value.trim() : '';
+  if (!bank_code || !account_number) {
+    if (resEl) resEl.innerHTML = '<div class="alert alert-warn">' + (fr ? 'Choisissez une banque et saisissez le numéro de compte.' : 'Select a bank and enter the account number.') + '</div>';
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = fr ? 'Vérification…' : 'Verifying…'; }
+  if (resEl) resEl.innerHTML = '';
+  try {
+    const res = await payoutFetch('/seller/payout/resolve', { method: 'POST', body: JSON.stringify({ account_number, bank_code }) });
+    if (!res.ok) {
+      if (resEl) resEl.innerHTML = '<div class="alert alert-warn">' + dzEsc((res.json && res.json.message) || (fr ? 'Vérification échouée.' : 'Verification failed.')) + '</div>';
+      return;
+    }
+    payoutState.resolvedName = res.json.account_name;
+    payoutState.resolvedFor = { bank_code, account_number };
+    if (resEl) resEl.innerHTML = '<div class="alert alert-success">✓ ' + dzEsc(res.json.account_name) + '</div>';
+    const sb = document.getElementById('payout-save-btn'); if (sb) sb.disabled = false;
+  } catch (e) {
+    if (resEl) resEl.innerHTML = '<div class="alert alert-warn">' + dzEsc(e.message) + '</div>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = fr ? 'Vérifier le compte' : 'Verify account'; }
+  }
+}
+
+async function payoutSave() {
+  const fr = currentLang === 'fr';
+  const btn = document.getElementById('payout-save-btn');
+  let payload;
+  if (payoutState.country === 'NG') {
+    const bankEl = document.getElementById('payout-bank');
+    const acctEl = document.getElementById('payout-acct');
+    const bank_code = bankEl ? bankEl.value : '';
+    const account_number = acctEl ? acctEl.value.trim() : '';
+    // Enforce verify-before-save: the resolved pair must match what's on screen.
+    if (!payoutState.resolvedFor || payoutState.resolvedFor.bank_code !== bank_code || payoutState.resolvedFor.account_number !== account_number) {
+      toast(fr ? 'Vérifiez d’abord le compte.' : 'Verify the account first.', 'error'); return;
+    }
+    const bank_name = (bankEl && bankEl.selectedOptions[0]) ? bankEl.selectedOptions[0].getAttribute('data-name') : null;
+    payload = { bank_code, account_number, bank_name };
+  } else {
+    const numEl = document.getElementById('payout-momo');
+    const opEl  = document.getElementById('payout-operator');
+    const momo_number = numEl ? numEl.value.replace(/\D/g, '') : '';
+    const momo_operator = opEl ? opEl.value : '';
+    if (!momo_number || momo_number.length < 8 || momo_number.length > 15) { toast(fr ? 'Numéro Mobile Money invalide (8–15 chiffres).' : 'Invalid Mobile Money number (8–15 digits).', 'error'); return; }
+    if (!['MTN', 'ORANGE'].includes(momo_operator)) { toast(fr ? 'Choisissez un opérateur.' : 'Select an operator.', 'error'); return; }
+    payload = { momo_number, momo_operator };
+  }
+  if (btn) { btn.disabled = true; btn.textContent = fr ? 'Enregistrement…' : 'Saving…'; }
+  try {
+    const res = await payoutFetch('/seller/payout', { method: 'POST', body: JSON.stringify(payload) });
+    if (!res.ok) { toast((res.json && res.json.message) || (fr ? 'Échec de l’enregistrement.' : 'Save failed.'), 'error'); return; }
+    payoutState.saved = res.json.payout || null;
+    payoutState.resolvedName = null; payoutState.resolvedFor = null;
+    toast(fr ? '✓ Détails de paiement enregistrés' : '✓ Payout details saved', 'success');
+    renderPayout();
+  } catch (e) {
+    toast((fr ? 'Erreur : ' : 'Error: ') + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = fr ? 'Enregistrer' : 'Save'; }
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -3643,6 +3847,7 @@ function setLang(lang) {
     renderOrders();
     renderNotifications();
     dzRenderDrawer();
+    if (payoutState.loaded) renderPayout();
   }
 }
 
