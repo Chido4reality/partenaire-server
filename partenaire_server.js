@@ -484,7 +484,12 @@ async function payoutSellerForOrder(orderId) {
     'flw_payout_ref=eq.' + encodeURIComponent(reference) + '&id=neq.' + orderId + '&select=id&limit=1');
   if (Array.isArray(dup) && dup[0]) return { ok: false, status: order.flw_payout_status || null, reason: 'reference_in_use' };
 
-  const basis = Number(order.escrow_held);
+  // NET-NEUTRAL basis: pay out from the amount Flutterwave actually SETTLED into
+  // our balance (charged minus FLW collection fee), NOT the gross order total.
+  // Then the seller also bears the transfer fee below → our balance change per
+  // order nets to 0. Fall back to escrow_held for orders settled before the
+  // flw_collected_net capture existed.
+  const basis = Number(order.flw_collected_net != null ? order.flw_collected_net : order.escrow_held);
 
   // XAF GATING — do NOT call FLW for XAF (transfers not enabled on the account).
   if (cur.currency === 'XAF') {
@@ -492,7 +497,8 @@ async function payoutSellerForOrder(orderId) {
     return { ok: true, status: 'pending_xaf', reason: 'xaf_not_enabled', amount: basis };
   }
 
-  // NGN — fee (seller bears it) → amount_to_seller.
+  // NGN — transfer fee (seller bears it, on top of the collection fee already
+  // netted out of `basis`) → amount_to_seller = net collected − transfer fee.
   let fee = 0;
   try { fee = await FLW.getTransferFee(basis, cur.currency); }
   catch (e) { fee = 0; console.warn('[payout] fee lookup failed, assuming 0:', e.message); }
@@ -688,8 +694,17 @@ async function flwSettle({ verified, txRef, source }) {
     return { ok: false, reason: 'verify_mismatch' };
   }
 
+  // NET-NEUTRAL: capture the amount Flutterwave actually SETTLED into our balance
+  // (charged minus FLW's collection fee) so the Phase-2 payout pays out from the
+  // net collected, not the gross order total. amount_settled is the FLW field
+  // that reflects what hit our balance; fall back to gross if absent.
+  const grossCharged = Number(verified.amount) || amt;
+  const settled = (verified.amount_settled != null) ? Number(verified.amount_settled) : NaN;
+  const collectedNet = isFinite(settled) ? settled : amt;
+  const collectionFee = isFinite(settled) ? Math.max(0, Math.round((grossCharged - settled) * 100) / 100) : 0;
   await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order.id, {
     payment_status: 'paid', escrow_held: amt, status: 'confirmed',
+    flw_collected_net: collectedNet, flw_collection_fee: collectionFee,
     payment_method: 'flutterwave', campay_status: 'successful',
     campay_paid_at: new Date().toISOString(), updated_at: new Date().toISOString()
   });
