@@ -273,7 +273,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
 #broadcast-popup{position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:1000;max-width:500px;width:90%;border-radius:14px;padding:16px 20px;display:none;box-shadow:0 8px 32px rgba(0,0,0,0.2);animation:slideDown .3s ease}
 @keyframes slideDown{from{transform:translateX(-50%) translateY(-20px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
 #broadcast-popup.security{background:#E84040;color:#fff;border:2px solid #c0392b}
-#broadcast-popup.announcement{background:#185FA5;color:#fff;border:2px solid #1a4a8a}
+#broadcast-popup.announcement,#broadcast-popup.promo{background:#185FA5;color:#fff;border:2px solid #1a4a8a}
 #broadcast-popup.new_stock{background:var(--navy);color:#fff;border:2px solid var(--gold)}
 #broadcast-popup.info{background:var(--navy);color:#fff}
 .bc-close{position:absolute;top:10px;right:14px;background:rgba(255,255,255,0.2);border:none;color:#fff;width:24px;height:24px;border-radius:12px;cursor:pointer;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center}
@@ -2370,10 +2370,9 @@ async function checkBroadcasts(userRole, userCity) {
     if (!bcs || !bcs.length) return;
     for (const bc of bcs) {
       if (shownBroadcasts.has(bc.id)) continue;
+      // Delivery is governed ONLY by target / target_city — no category, no tier.
       const targetMatch = bc.target==='all' || bc.target===userRole || (bc.target==='city' && bc.target_city===userCity);
       if (!targetMatch) continue;
-      // Category filter: only show to buyers whose category matches seller's category
-      if (bc.target_category && currentBuyer && currentBuyer.category && bc.target_category !== currentBuyer.category) continue;
       shownBroadcasts.add(bc.id);
       showBroadcastPopup(bc);
       break;
@@ -2385,7 +2384,7 @@ function showBroadcastPopup(bc) {
   const popup = document.getElementById('broadcast-popup');
   if (!popup) return;
   popup.className = bc.type || 'info';
-  const icon = bc.type==='security'?'🔒 ':bc.type==='new_stock'?'📦 ':'📣 ';
+  const icon = bc.type==='security'?'🔒 ':bc.type==='new_stock'?'📦 ':bc.type==='promo'?'🎉 ':'📣 ';
   document.getElementById('bc-popup-title').textContent = icon + bc.title;
   document.getElementById('bc-popup-message').textContent = bc.message;
   document.getElementById('bc-popup-from').textContent = bc.sender_role==='admin' ? 'From: PARTENAIRE Admin' : '🏪 ' + (bc.sender_name||'A seller');
