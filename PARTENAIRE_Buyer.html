@@ -2362,14 +2362,24 @@ function startBuyerRealtime() {
 // ══════════════════════════════════════════════════════════════
 //  BROADCASTS
 // ══════════════════════════════════════════════════════════════
-let shownBroadcasts = new Set();
+let shownBroadcasts = new Set();      // per-session guard (no logged-in buyer fallback)
+let currentBroadcastId = null;        // the broadcast currently shown (for close/order dismissal)
 async function checkBroadcasts(userRole, userCity) {
   try {
     const now = new Date().toISOString();
     const bcs = await GET('ptn_broadcasts', `active=eq.true&expires_at=gt.${encodeURIComponent(now)}&order=created_at.desc&select=*`);
     if (!bcs || !bcs.length) return;
+    // Per-buyer memory: exclude broadcasts this buyer already dismissed (closed OR
+    // ordered) — DB-backed so it survives refresh. RLS is anon_all; per-buyer
+    // scoping is done here by buyer_id, the standard Dozie pattern.
+    let dismissedIds = new Set();
+    if (currentBuyer && currentBuyer.id) {
+      const dz = await GET('ptn_broadcast_dismissals', `buyer_id=eq.${currentBuyer.id}&select=broadcast_id`) || [];
+      dismissedIds = new Set(dz.map(d => d.broadcast_id));
+    }
     for (const bc of bcs) {
-      if (shownBroadcasts.has(bc.id)) continue;
+      if (shownBroadcasts.has(bc.id)) continue;   // already shown this session
+      if (dismissedIds.has(bc.id)) continue;       // permanently dismissed by this buyer
       // Delivery is governed ONLY by target / target_city — no category, no tier.
       const targetMatch = bc.target==='all' || bc.target===userRole || (bc.target==='city' && bc.target_city===userCity);
       if (!targetMatch) continue;
@@ -2383,6 +2393,7 @@ async function checkBroadcasts(userRole, userCity) {
 function showBroadcastPopup(bc) {
   const popup = document.getElementById('broadcast-popup');
   if (!popup) return;
+  currentBroadcastId = bc.id; // remember which blast is showing, for close/order dismissal
   popup.className = bc.type || 'info';
   const icon = bc.type==='security'?'🔒 ':bc.type==='new_stock'?'📦 ':bc.type==='promo'?'🎉 ':'📣 ';
   document.getElementById('bc-popup-title').textContent = icon + bc.title;
@@ -2392,7 +2403,9 @@ function showBroadcastPopup(bc) {
   if (orderBtn) {
     if (bc.sender_role === 'seller' && bc.sender_id) {
       orderBtn.style.display = 'inline-block';
-      orderBtn.onclick = () => { closeBroadcastPopup(); switchTab('tab-shops'); openShop(bc.sender_id); };
+      // PLACE ORDER: record a permanent 'ordered' dismissal (even though we then
+      // navigate to the shop to complete the order — the point is it never re-pops).
+      orderBtn.onclick = () => { dismissBroadcast('ordered'); switchTab('tab-shops'); openShop(bc.sender_id); };
     } else {
       orderBtn.style.display = 'none';
     }
@@ -2401,6 +2414,23 @@ function showBroadcastPopup(bc) {
   setTimeout(closeBroadcastPopup, 15000);
 }
 function closeBroadcastPopup() { const p = document.getElementById('broadcast-popup'); if(p) p.style.display='none'; }
+
+// Record a PERMANENT per-buyer dismissal (survives refresh) and close the popup.
+// reason: 'closed' (× tapped) | 'ordered' (Place Order tapped). Idempotent —
+// UNIQUE(broadcast_id, buyer_id) makes a duplicate a no-op (409 → ignored). The
+// 15s auto-hide uses closeBroadcastPopup() (no dismissal), so an unattended blast
+// re-shows next refresh until the buyer actually acts on it.
+async function recordDismissal(broadcastId, reason) {
+  if (!broadcastId || !currentBuyer || !currentBuyer.id) return;
+  try {
+    await POST('ptn_broadcast_dismissals', { broadcast_id: broadcastId, buyer_id: currentBuyer.id, reason });
+  } catch(e) { /* duplicate / transient — already dismissed, fine */ }
+}
+function dismissBroadcast(reason) {
+  const bid = currentBroadcastId;
+  closeBroadcastPopup();
+  recordDismissal(bid, reason); // fire-and-forget; DB dedupes
+}
 
 // ══════════════════════════════════════════════════════════════
 //  MOMO PAYMENT
@@ -3401,7 +3431,7 @@ async function simulateCampaySuccess() {
 
 <!-- ══ BROADCAST POPUP ════════════════════════════════════════ -->
 <div id="broadcast-popup">
-  <button class="bc-close" onclick="closeBroadcastPopup()">✕</button>
+  <button class="bc-close" onclick="dismissBroadcast('closed')">✕</button>
   <div style="font-size:13px;font-weight:800;margin-bottom:4px" id="bc-popup-title"></div>
   <div style="font-size:13px;line-height:1.5;opacity:0.95" id="bc-popup-message"></div>
   <div style="font-size:10px;opacity:0.6;margin-top:6px" id="bc-popup-from"></div>
