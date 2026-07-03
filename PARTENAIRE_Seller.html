@@ -462,8 +462,8 @@ function openWhatsApp(e, phone, text){
       <textarea class="auth-input" id="reg-desc" placeholder="Tell buyers what you sell..." style="height:80px;resize:none;margin-bottom:16px"></textarea>
       <label class="auth-label">Choose Your Plan / Choisissez votre formule</label>
       <!-- Sprint B-bis: replaces the legacy badge selector. Two
-           choices only: Free or Premium Standalone (3 000 FCFA/mo).
-           MP-linked sellers (Mon Partenaire Gold/Premium) get full
+           choices only: Free or Standalone (3 000 FCFA/mo).
+           MP-linked sellers (Mon Partenaire Pro/Pro Plus) get full
            Dozie access included via their MP plan; that linkage is
            done post-signup in settings, not here. -->
       <style>
@@ -487,7 +487,7 @@ function openWhatsApp(e, phone, text){
           </ul>
         </div>
         <div class="plan-option" data-plan="paid_standalone" onclick="selectPlan(this)">
-          <h4>Premium Standalone <span class="plan-price">3 000 FCFA / mois</span></h4>
+          <h4>Standalone <span class="plan-price">3 000 FCFA / mois</span></h4>
           <ul>
             <li>Unlimited active listings / Annonces illimitées</li>
             <li>Sell anywhere in Cameroon / Vente partout au Cameroun</li>
@@ -499,7 +499,7 @@ function openWhatsApp(e, phone, text){
       <div class="plan-link-mp">
         Already have Mon Partenaire? / Vous avez déjà Mon Partenaire ?<br>
         <a href="https://mon-partenaire-app.vercel.app" target="_blank" rel="noopener">Sign up Free for Dozie, then link from settings →</a><br>
-        <span style="font-size:11px;color:var(--grey)">Free Dozie access included with MP Gold or Premium / Accès gratuit inclus avec MP Gold ou Premium</span>
+        <span style="font-size:11px;color:var(--grey)">Free Dozie access included with MP Pro or Pro Plus / Accès gratuit inclus avec MP Pro ou Pro Plus</span>
       </div>
       <label class="auth-label">Choose a PIN (4 digits)</label>
       <input class="auth-input" id="reg-pin" type="password" placeholder="Choose a 4-digit PIN e.g. 1234" maxlength="4" inputmode="numeric">
@@ -1544,7 +1544,7 @@ function renderDozieAccessBanner() {
         <li>Vente dans votre ville (<strong>${acc.seller_city || 'votre ville'}</strong>) uniquement</li>
         <li><strong>${ordersCap} commandes</strong> gratuites pour démarrer</li>
       </ul>
-      <div style="font-size:12px;opacity:0.85">Besoin de plus ? Passez à <strong>Standalone (3 000 FCFA / mois)</strong> — annonces, villes et commandes illimitées. Ou liez un compte Mon Partenaire (Gold/Premium) pour un accès complet inclus.</div>
+      <div style="font-size:12px;opacity:0.85">Besoin de plus ? Passez à <strong>Standalone (3 000 FCFA / mois)</strong> — annonces, villes et commandes illimitées. Ou liez un compte Mon Partenaire (Pro/Pro Plus) pour un accès complet inclus.</div>
       <div class="dozie-onboarding-actions">
         <button class="dozie-onboard-pay"  onclick="openDozieSubPaymentModal('upgrade')">Passer à 3 000 FCFA / mois</button>
         <button class="dozie-onboard-link" onclick="window.open('https://mon-partenaire-app.vercel.app','_blank')">Lier Mon Partenaire</button>
@@ -1570,7 +1570,7 @@ function openCapHitModal(feature) {
     listing_cap: `Vous avez ${acc.listing_cap || 2} annonces actives. Passez à Standalone Dozie (3 000 FCFA / mois) pour des annonces illimitées.`,
     city_cap:    `Le niveau gratuit limite la vente à votre ville (${acc.seller_city || ''}). Passez à Standalone pour vendre partout.`,
     orders_cap:  `Vous avez accepté vos ${acc.orders_cap || 2} commandes gratuites. Passez à Standalone (3 000 FCFA / mois) pour continuer à vendre.`,
-    dozie_access:`Votre plan actuel n'inclut pas Partenaire Dozie. Passez à Standalone Dozie (3 000 FCFA / mois) ou à un plan Mon Partenaire Gold/Premium.`
+    dozie_access:`Votre plan actuel n'inclut pas Partenaire Dozie. Passez à Standalone Dozie (3 000 FCFA / mois) ou à un plan Mon Partenaire Pro/Pro Plus.`
   };
   const root = document.createElement('div');
   root.className = 'cap-hit-overlay';
@@ -2785,7 +2785,7 @@ function renderProfileHero() {
   const acc = s._dozieAccess || { source: 'free', access: 'limited' };
   const planCfg = {
     mp_linked:       { cls:'premium', icon:'🔗', label:'Linked to Mon Partenaire', color:'var(--blue)' },
-    paid_standalone: { cls:'gold',    icon:'💎', label:'Premium Standalone',       color:'var(--amber)' },
+    paid_standalone: { cls:'gold',    icon:'💎', label:'Standalone',               color:'var(--amber)' },
     free:            { cls:'none',    icon:'🆓', label:'Free tier',                color:'var(--grey)' },
     blocked:         { cls:'none',    icon:'⛔', label:'Access suspended',         color:'var(--red)' },
     none:            { cls:'none',    icon:'❓', label:'No access',                color:'var(--grey)' }
@@ -4008,22 +4008,21 @@ async function confirmMomoPayment() {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  PROMO BLAST (Premium & Gold sellers)
+//  PROMO BLAST (paid Dozie-access plans)
 // ══════════════════════════════════════════════════════════════
-// Promo Blast is a Pro / Pro Plus feature. Resolve the seller's REAL plan the
-// same way the portal reads it (dozie_seller_access → mp_plan for MP-linked,
-// else the standalone sub_tier), collapsing the legacy silver/gold/premium
-// aliases into the current trial/lite/pro model. Only 'pro' and 'pro_plus' may
-// send; lite / trial / free (and the legacy 'silver' default) are blocked.
-function sellerPlanResolved() {
+// Promo Blast is for PAID Dozie-access plans — pa_plans.dozie_access = true AND
+// price_monthly > 0. That ALLOWS pro + pro_plus, plus the legacy paid Dozie plans
+// gold + premium (so unmigrated sellers aren't wrongly blocked), and BLOCKS lite,
+// trial, silver, free (no Dozie access). The seller's real plan is its plan_id in
+// dozie_seller_access (mp_plan for MP-linked, else the standalone sub_tier). The
+// SERVER enforces the same rule against pa_plans.
+const PROMO_BLAST_PLANS = ['pro', 'pro_plus', 'gold', 'premium'];
+function sellerPlanId() {
   const acc = (currentSeller && currentSeller._dozieAccess) || {};
-  const alias = { silver: 'trial', gold: 'lite', premium: 'pro' };
-  const raw = String(acc.mp_plan || acc.sub_tier || '').toLowerCase();
-  return alias[raw] || raw;
+  return String(acc.mp_plan || acc.sub_tier || '').toLowerCase();
 }
 function canSendPromoBlast() {
-  const p = sellerPlanResolved();
-  return p === 'pro' || p === 'pro_plus';
+  return PROMO_BLAST_PLANS.includes(sellerPlanId());
 }
 function promoUpsellMsg() {
   return currentLang === 'fr'
