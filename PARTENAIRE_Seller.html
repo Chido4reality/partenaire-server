@@ -1408,13 +1408,16 @@ function enterApp() {
   checkBroadcasts("sellers", currentSeller.city);
   broadcastInterval = setInterval(() => checkBroadcasts("sellers", currentSeller.city), 60000);
 
-  // Sprint B-bis: Promo Blast is a "premium seller" feature. Show for
-  // paid_standalone or MP-linked (Gold/Premium MP) sellers — the same
-  // set who would have qualified under the old gold/premium badges.
+  // Promo Blast is a Pro / Pro Plus feature. Show the button to every seller so
+  // it's discoverable; openPromoBlast()/sendPromoBlast() enforce the plan (and
+  // the server rejects a non-Pro/Pro-Plus insert). Non-Pro sees a locked hint.
   const promoBtn = document.getElementById('promo-blast-btn');
-  const accSrc = currentSeller._dozieAccess && currentSeller._dozieAccess.source;
-  if (promoBtn && (accSrc === 'paid_standalone' || accSrc === 'mp_linked')) {
+  if (promoBtn) {
     promoBtn.style.display = 'inline-flex';
+    if (!canSendPromoBlast()) {
+      promoBtn.innerHTML = '🔒 Promo Blast';
+      promoBtn.title = promoUpsellMsg();
+    }
   }
 
   // Phase D — MP-subscription inactive banner.
@@ -4007,7 +4010,29 @@ async function confirmMomoPayment() {
 // ══════════════════════════════════════════════════════════════
 //  PROMO BLAST (Premium & Gold sellers)
 // ══════════════════════════════════════════════════════════════
+// Promo Blast is a Pro / Pro Plus feature. Resolve the seller's REAL plan the
+// same way the portal reads it (dozie_seller_access → mp_plan for MP-linked,
+// else the standalone sub_tier), collapsing the legacy silver/gold/premium
+// aliases into the current trial/lite/pro model. Only 'pro' and 'pro_plus' may
+// send; lite / trial / free (and the legacy 'silver' default) are blocked.
+function sellerPlanResolved() {
+  const acc = (currentSeller && currentSeller._dozieAccess) || {};
+  const alias = { silver: 'trial', gold: 'lite', premium: 'pro' };
+  const raw = String(acc.mp_plan || acc.sub_tier || '').toLowerCase();
+  return alias[raw] || raw;
+}
+function canSendPromoBlast() {
+  const p = sellerPlanResolved();
+  return p === 'pro' || p === 'pro_plus';
+}
+function promoUpsellMsg() {
+  return currentLang === 'fr'
+    ? 'Le Promo Blast est réservé aux plans Pro / Pro Plus.'
+    : 'Promo Blast is a Pro / Pro Plus feature.';
+}
+
 function openPromoBlast() {
+  if (!canSendPromoBlast()) { toast('🔒 ' + promoUpsellMsg(), 'error'); return; }
   const t = document.getElementById('promo-title');
   const m = document.getElementById('promo-message');
   if (t) t.value = '';
@@ -4016,25 +4041,29 @@ function openPromoBlast() {
 }
 
 async function sendPromoBlast() {
+  // Client gate (server enforces the same via a BEFORE INSERT trigger on
+  // ptn_broadcasts that rejects non-Pro/Pro-Plus seller blasts).
+  if (!canSendPromoBlast()) { toast('🔒 ' + promoUpsellMsg(), 'error'); return; }
   const type    = document.getElementById('promo-type').value;
   const title   = document.getElementById('promo-title').value.trim();
   const message = document.getElementById('promo-message').value.trim();
-  const target  = document.getElementById('promo-target').value;
-  if (!title || !message) { toast('Title and message required', 'error'); return; }
+  const target  = document.getElementById('promo-target').value; // 'all' | 'city'
+  if (!title || !message) { toast(currentLang === 'fr' ? 'Titre et message requis' : 'Title and message required', 'error'); return; }
   try {
+    // Buyer delivery is governed ONLY by target / target_city — no category and
+    // no badge/tier. badge_min keeps its column default (never scopes delivery).
     await POST('ptn_broadcasts', {
       sender_id:   currentSeller.id,
       sender_role: 'seller',
       sender_name: currentSeller.company || currentSeller.name,
-      type, title, message, target,
-      target_city: target==='city' ? currentSeller.city : null,
-      target_category: currentSeller.category || null,
+      type, title, message,
+      target,
+      target_city: target === 'city' ? currentSeller.city : null,
       active: true,
       expires_at: new Date(Date.now() + 6*3600000).toISOString()
     });
     closeModal('modal-promo-blast');
-    const catNote = currentSeller.category ? ' (category-targeted)' : '';
-    toast('📢 Promo blast sent to matching buyers!' + catNote, 'success');
+    toast('📢 ' + (currentLang === 'fr' ? 'Promo Blast envoyé aux acheteurs !' : 'Promo Blast sent to buyers!'), 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
@@ -4369,13 +4398,14 @@ document.addEventListener('keydown', e => {
     <div class="modal-title">📢 Promo Blast</div>
     <div class="modal-sub">Send a message to buyers — shows as a popup notification</div>
     <div style="background:var(--amberl);border:1px solid #F0C050;border-radius:10px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--amber)">
-      ⭐ Premium &amp; Gold sellers only · Limited to 3 blasts per day
+      ⭐ Pro / Pro Plus feature · Limited to 3 blasts per day<br>
+      <span style="opacity:.85">Fonction Pro / Pro Plus · Limité à 3 par jour</span>
     </div>
     <div class="form-group">
       <label class="form-label">Message Type</label>
       <select class="form-input" id="promo-type">
-        <option value="new_stock">📦 New Stock Arrived</option>
-        <option value="announcement">🎉 Special Offer / Promo</option>
+        <option value="new_stock">📦 New Stock Arrived / Nouveau stock</option>
+        <option value="promo">🎉 Special Offer / Promo</option>
       </select>
     </div>
     <div class="form-group">
@@ -4391,8 +4421,8 @@ document.addEventListener('keydown', e => {
     <div class="form-group">
       <label class="form-label">Send To</label>
       <select class="form-input" id="promo-target">
-        <option value="buyers">All Buyers on PARTENAIRE</option>
-        <option value="city">Buyers in my city only</option>
+        <option value="all">All buyers / Tous les acheteurs</option>
+        <option value="city">Buyers in my city / Acheteurs de ma ville</option>
       </select>
     </div>
     <button class="btn btn-gold" style="width:100%;justify-content:center;padding:13px" onclick="sendPromoBlast()">
