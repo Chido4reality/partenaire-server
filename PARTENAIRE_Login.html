@@ -157,10 +157,16 @@
 </div>
 
 <script>
+  // DOZIE-PRODUCT-DEEP-LINK: ?next=<same-origin path> — a visitor who logs in /
+  // signs up from a shared product page must RETURN to that product, not the
+  // portal home. Same-origin path only (blocks open-redirect).
+  var _dzNext = (function () {
+    try { var n = new URLSearchParams(location.search).get('next'); return (n && /^\/[^/]/.test(n)) ? n : ''; }
+    catch (_) { return ''; }
+  })();
+
   // ── EARLY REDIRECT — if a valid session already exists, send the user
-  //    directly to their portal without showing the login form. Same
-  //    JWT-decode logic the buyer/seller portals use; sync localStorage
-  //    read, no network.
+  //    directly to their portal (or ?next) without showing the login form.
   (function () {
     try {
       var t = localStorage.getItem('dozie_jwt');
@@ -168,6 +174,7 @@
       var p = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
       if (!p || !p.uid) return;
       if (p.exp && Date.now() / 1000 >= p.exp) return;
+      if (_dzNext) { location.replace(_dzNext); return; }
       if (p.role === 'seller') { location.replace('/seller'); return; }
       if (p.role === 'buyer')  { location.replace('/buyer');  return; }
     } catch (_) { /* fall through to login UI */ }
@@ -209,7 +216,7 @@
   // pre-select (seller "Switch to Buyer" re-entry), which still uses screen-pin.
   function goBuyer() {
     try { localStorage.setItem('dozie_lang', currentLang); } catch (_) {}
-    location.href = '/buyer?signup=1';
+    location.href = '/buyer?signup=1' + (_dzNext ? '&next=' + encodeURIComponent(_dzNext) : '');
   }
 
   function pickMode(mode) {
@@ -305,9 +312,9 @@
         return;
       }
 
-      // Success — store JWT and redirect to the picked portal.
+      // Success — store JWT and redirect to ?next (shared product) or the portal.
       try { localStorage.setItem('dozie_jwt', result.jwt); } catch (_) {}
-      location.replace(selectedMode === 'seller' ? '/seller' : '/buyer');
+      location.replace(_dzNext || (selectedMode === 'seller' ? '/seller' : '/buyer'));
     } catch (e) {
       errBox.textContent = fr
         ? 'Erreur réseau. Réessayez.'

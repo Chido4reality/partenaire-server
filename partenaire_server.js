@@ -674,6 +674,152 @@ function dozieBaseUrl(req) {
   return proto + '://' + host;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  DOZIE-PRODUCT-DEEP-LINK — server-rendered public product page + Open Graph.
+//
+//  A shared product link must open THE PRODUCT LISTING (not the marketplace
+//  home) for a logged-out stranger, and WhatsApp/crawlers (which don't run JS)
+//  must get real og:* tags. The buyer app is a client-rendered SPA, so we render
+//  the product route SERVER-SIDE here. ptn_products has RLS enabled, so we read
+//  with the service key and expose ONLY the public listing fields, and ONLY when
+//  published=true. Routes: /p/<id> (canonical), legacy /buyer?product=<id>, and
+//  an image proxy /p/<id>/image so og:image is always an http URL (even when a
+//  product's photo_url is a data: URL).
+// ─────────────────────────────────────────────────────────────────────────────
+const DOZIE_UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+function dzEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function dzFcfa(n){ return (Math.round(Number(n)||0)).toLocaleString('fr-FR').replace(/[  ]/g,' ') + ' FCFA'; }
+function dzLang(req){ return String((req.headers&&req.headers['accept-language'])||'').toLowerCase().startsWith('en') ? 'en' : 'fr'; }
+async function dzFetchProduct(id){
+  const rows = await supaRequestPrivileged('GET','ptn_products',
+    'id=eq.'+encodeURIComponent(id)+'&select=id,seller_id,name,name_fr,name_en,description,description_fr,description_en,price,stock,published,city,photo_url&limit=1');
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
+async function dzFetchSeller(id){
+  if(!id) return null;
+  const rows = await supaRequestPrivileged('GET','ptn_users','id=eq.'+encodeURIComponent(id)+'&select=name,city&limit=1');
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
+function dzDisplay(p, en){
+  return {
+    name: (en ? (p.name_en||p.name||p.name_fr) : (p.name_fr||p.name||p.name_en)) || '',
+    desc: (en ? (p.description_en||p.description||p.description_fr) : (p.description_fr||p.description||p.description_en)) || ''
+  };
+}
+function dzSend(res, code, html){
+  res.writeHead(code, { 'Content-Type':'text/html; charset=utf-8', 'Cache-Control':'no-cache', 'Access-Control-Allow-Origin':'*' });
+  res.end(html);
+}
+const DZ_CSS = 'html,body{margin:0;background:#0f1b30;color:#eef2f7;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}'
+  +'.wrap{max-width:520px;margin:0 auto;padding:16px}.card{background:#16233b;border:1px solid #23324e;border-radius:16px;overflow:hidden}'
+  +'.imgbox{aspect-ratio:1/1;background:#0f1b30 url(/icon.svg) center/38% no-repeat;display:flex;align-items:center;justify-content:center}'
+  +'.imgbox img{width:100%;height:100%;object-fit:cover}.body{padding:16px}'
+  +'.name{font-size:20px;font-weight:800;line-height:1.25}.price{font-size:22px;font-weight:900;color:#f7c948;margin:8px 0}'
+  +'.meta{font-size:13px;color:#a9b6cc}.meta .ok{color:#41d693;font-weight:700}.meta .off{color:#f08a8a;font-weight:700}'
+  +'.seller{font-size:14px;color:#cdd8ea;margin-top:8px}.desc{font-size:14px;color:#b9c5d8;margin-top:12px;white-space:pre-wrap;line-height:1.5}'
+  +'.cta{margin-top:18px;display:flex;flex-direction:column;gap:10px}'
+  +'.btn{display:block;text-align:center;text-decoration:none;padding:13px 16px;border-radius:10px;font-weight:800;font-size:15px}'
+  +'.btn.primary{background:#f7c948;color:#12203a}.btn.ghost{background:transparent;color:#eef2f7;border:1px solid #33456a}'
+  +'.brand{text-align:center;color:#7f8ea8;font-size:12px;margin:16px 0 6px;letter-spacing:.5px}'
+  +'.nf{padding:40px 20px;text-align:center}.nf .e{font-size:44px}.nf h1{font-size:20px;margin:14px 0 8px}.nf p{color:#a9b6cc;font-size:14px;margin:0 0 22px;line-height:1.5}';
+
+function dzProductHtml(p, seller, lang, origin){
+  const en = lang==='en';
+  const d = dzDisplay(p, en);
+  const price = dzFcfa(p.price);
+  const sellerName = (seller && seller.name) || '';
+  const city = p.city || (seller && seller.city) || '';
+  const inStock = (p.stock==null) ? true : Number(p.stock) > 0;
+  const avail = inStock ? (en?'In stock':'En stock') : (en?'Currently unavailable':'Indisponible');
+  const path = '/p/'+p.id, url = origin+path, img = origin+path+'/image';
+  const nextEnc = encodeURIComponent(path);
+  const ogTitle = d.name + ' — ' + price;
+  const ogDesc = (d.desc ? d.desc.replace(/\s+/g,' ').trim().slice(0,180)
+      : (sellerName ? (en?('Sold by '+sellerName+(city?' · '+city:'')):('Vendu par '+sellerName+(city?' · '+city:'')))
+                    : (en?'Available on PARTENAIRE Dozie':'Disponible sur PARTENAIRE Dozie')));
+  return '<!DOCTYPE html><html lang="'+lang+'"><head>'
+    +'<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    +'<title>'+dzEsc(ogTitle)+'</title>'
+    +'<meta name="description" content="'+dzEsc(ogDesc)+'">'
+    +'<link rel="icon" href="/icon.svg" type="image/svg+xml">'
+    +'<meta property="og:type" content="product">'
+    +'<meta property="og:site_name" content="PARTENAIRE Dozie">'
+    +'<meta property="og:title" content="'+dzEsc(ogTitle)+'">'
+    +'<meta property="og:description" content="'+dzEsc(ogDesc)+'">'
+    +'<meta property="og:image" content="'+dzEsc(img)+'">'
+    +'<meta property="og:url" content="'+dzEsc(url)+'">'
+    +'<meta property="product:price:amount" content="'+dzEsc(String(Math.round(Number(p.price)||0)))+'">'
+    +'<meta property="product:price:currency" content="XAF">'
+    +'<meta name="twitter:card" content="summary_large_image">'
+    +'<meta name="twitter:title" content="'+dzEsc(ogTitle)+'">'
+    +'<meta name="twitter:description" content="'+dzEsc(ogDesc)+'">'
+    +'<meta name="twitter:image" content="'+dzEsc(img)+'">'
+    +'<style>'+DZ_CSS+'</style></head><body><div class="wrap"><div class="card">'
+    +'<div class="imgbox"><img src="'+dzEsc(img)+'" alt="'+dzEsc(d.name)+'" onerror="this.remove()"></div>'
+    +'<div class="body">'
+    +'<div class="name">'+dzEsc(d.name)+'</div>'
+    +'<div class="price">'+dzEsc(price)+'</div>'
+    +'<div class="meta"><span class="'+(inStock?'ok':'off')+'">'+dzEsc(avail)+'</span>'+(city?(' · '+dzEsc(city)):'')+'</div>'
+    +(sellerName?('<div class="seller">'+dzEsc(en?'Sold by ':'Vendu par ')+'<b>'+dzEsc(sellerName)+'</b></div>'):'')
+    +(d.desc?('<div class="desc">'+dzEsc(d.desc)+'</div>'):'')
+    +'<div class="cta" id="cta">'
+    +'<a class="btn primary" href="/buyer?signup=1&next='+nextEnc+'">'+dzEsc(en?'Create an account to order or chat':'Créer un compte pour commander ou discuter')+'</a>'
+    +'<a class="btn ghost" href="/login?next='+nextEnc+'">'+dzEsc(en?'Log in':'Se connecter')+'</a>'
+    +'</div></div></div>'
+    +'<div class="brand">PARTENAIRE Dozie</div></div>'
+    // Already logged in? Swap the signup CTA for a direct "open in app" link.
+    +'<script>(function(){try{var t=localStorage.getItem("dozie_jwt");if(!t)return;var j=JSON.parse(atob(t.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));if(!j||!j.uid||(j.exp&&Date.now()/1000>=j.exp))return;var c=document.getElementById("cta");if(c)c.innerHTML=\'<a class="btn primary" href="/buyer?shop='+dzEsc(p.seller_id||'')+'">'+(en?'Order or chat in the app':'Commander ou discuter dans l’app')+' \\u2192</a>\';}catch(_){}})();<\/script>'
+    +'</body></html>';
+}
+
+function dzNotFoundHtml(lang, origin, sellerId){
+  const en = lang==='en';
+  const headline = en ? 'This product is no longer available' : 'Ce produit n’est plus disponible';
+  const sub = sellerId
+    ? (en?'It may have been paused or removed. You can still browse the shop.':'Il a peut-être été mis en pause ou retiré. Vous pouvez visiter la boutique.')
+    : (en?'It may have been sold or removed. Discover other products on the marketplace.':'Il a peut-être été vendu ou retiré. Découvrez d’autres produits sur le marché.');
+  const href = sellerId ? ('/buyer?shop='+encodeURIComponent(sellerId)) : '/buyer';
+  const txt = sellerId ? (en?'Visit the shop':'Voir la boutique') : (en?'Browse the marketplace':'Parcourir le marché');
+  return '<!DOCTYPE html><html lang="'+lang+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    +'<title>'+dzEsc(headline)+' — PARTENAIRE</title>'
+    +'<meta property="og:type" content="website"><meta property="og:site_name" content="PARTENAIRE Dozie">'
+    +'<meta property="og:title" content="'+dzEsc(headline)+'">'
+    +'<meta property="og:description" content="'+dzEsc(sub)+'">'
+    +'<meta property="og:url" content="'+dzEsc(origin+'/')+'">'
+    +'<meta property="og:image" content="'+dzEsc(origin+'/icon.svg')+'">'
+    +'<link rel="icon" href="/icon.svg" type="image/svg+xml">'
+    +'<style>'+DZ_CSS+'</style></head><body><div class="wrap"><div class="card nf">'
+    +'<div class="e">🔦</div><h1>'+dzEsc(headline)+'</h1><p>'+dzEsc(sub)+'</p>'
+    +'<a class="btn primary" href="'+dzEsc(href)+'">'+dzEsc(txt)+'</a></div>'
+    +'<div class="brand">PARTENAIRE Dozie</div></div></body></html>';
+}
+
+async function dzServeProductPage(req,res,id){
+  const lang = dzLang(req), origin = dozieBaseUrl(req);
+  try {
+    if(!DOZIE_UUID_RE.test(String(id))){ dzSend(res,404, dzNotFoundHtml(lang,origin,null)); return; }
+    const p = await dzFetchProduct(id);
+    if(!p){ dzSend(res,404, dzNotFoundHtml(lang,origin,null)); return; }                       // deleted / unknown id
+    if(p.published!==true){ dzSend(res,404, dzNotFoundHtml(lang,origin,p.seller_id||null)); return; } // unpublished/paused → offer the shop
+    const seller = await dzFetchSeller(p.seller_id);
+    dzSend(res,200, dzProductHtml(p, seller, lang, origin));
+  } catch(e){ console.warn('[dz product page]', e && e.message); dzSend(res,500, dzNotFoundHtml(lang,origin,null)); }
+}
+
+async function dzServeProductImage(req,res,id){
+  try {
+    if(!DOZIE_UUID_RE.test(String(id))){ res.writeHead(302,{Location:'/icon.svg'}); res.end(); return; }
+    const rows = await supaRequestPrivileged('GET','ptn_products','id=eq.'+encodeURIComponent(id)+'&select=photo_url,published&limit=1');
+    const p = Array.isArray(rows) && rows[0] ? rows[0] : null;
+    const url = (p && p.published===true) ? p.photo_url : null;
+    if(!url){ res.writeHead(302,{Location:'/icon.svg'}); res.end(); return; }
+    if(/^https?:\/\//i.test(url)){ res.writeHead(302,{Location:url}); res.end(); return; }      // hosted image → passthrough
+    const m = /^data:([^;,]+);base64,([\s\S]*)$/i.exec(url);
+    if(m){ const buf=Buffer.from(m[2],'base64'); res.writeHead(200,{'Content-Type':(m[1]||'image/jpeg'),'Cache-Control':'public, max-age=3600','Access-Control-Allow-Origin':'*'}); res.end(buf); return; }
+    res.writeHead(302,{Location:'/icon.svg'}); res.end();
+  } catch(e){ res.writeHead(302,{Location:'/icon.svg'}); res.end(); }
+}
+
 // The order amount to collect/hold (an accepted counter-offer overrides total).
 function orderEscrowAmount(order) {
   return order && order.counter_status === 'accepted' ? order.counter_total : order && order.total;
@@ -3318,6 +3464,24 @@ http.createServer((req, res) => {
       '</body></html>'
     );
     return;
+  }
+
+  // DOZIE-PRODUCT-DEEP-LINK — server-render the product route BEFORE the static
+  // file serve, so a shared link opens the listing (with OG tags) instead of the
+  // marketplace home. Canonical /p/<id>, image proxy /p/<id>/image, and the
+  // legacy /buyer?product=<id> (already shared in the wild). /buyer with no
+  // product param (app cold-start, ?shop=, ?signup=1) falls through to the SPA.
+  if (req.method === 'GET') {
+    const _qi = req.url.indexOf('?');
+    const _p  = _qi >= 0 ? req.url.slice(0, _qi) : req.url;
+    const mImg = /^\/p\/([^/]+)\/image$/.exec(_p);
+    if (mImg) { dzServeProductImage(req, res, decodeURIComponent(mImg[1])); return; }
+    const mP = /^\/p\/([^/]+)$/.exec(_p);
+    let pid = mP ? decodeURIComponent(mP[1]) : null;
+    if (!pid && _p === '/buyer' && _qi >= 0) {
+      try { const _sp = new URLSearchParams(req.url.slice(_qi + 1)); if (_sp.get('product')) pid = _sp.get('product'); } catch (_) {}
+    }
+    if (pid) { dzServeProductPage(req, res, pid); return; }
   }
 
   // SERVE LOCAL FILES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

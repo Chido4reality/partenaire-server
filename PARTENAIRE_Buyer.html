@@ -1083,6 +1083,8 @@ async function loginWithPIN() {
     currentBuyer = result.user;
     // B.4: dual-role probe dropped — no RPC; see migration note
     currentBuyer._hasSeller = false;
+    // DOZIE-PRODUCT-DEEP-LINK: return to the shared product (?next) after login.
+    if (dzReturnToNext()) return;
     enterApp();
     if (typeof resumePendingAuthAction === 'function') resumePendingAuthAction();
   } catch(e) { authErr('phone-error', e.message || 'Erreur réseau / Network error'); }
@@ -1116,6 +1118,8 @@ async function registerBuyer() {
     currentBuyer = result.user;
     currentBuyer._hasSeller = false;
     toast('✓ Compte créé ! Bienvenue sur PARTENAIRE', 'success');
+    // DOZIE-PRODUCT-DEEP-LINK: return to the shared product (?next) after signup.
+    if (dzReturnToNext()) return;
     enterApp();
     // Resume any pending action the guest was trying (order / message).
     if (typeof resumePendingAuthAction === 'function') resumePendingAuthAction();
@@ -3056,8 +3060,21 @@ async function handleDeepLink() {
 // FEATURE 2: share a product / shop. Builds a deep link and uses the native
 // share sheet when available, else falls back to WhatsApp. Product photo isn't
 // put in the text (often a data: URL); the opened link shows it.
+// DOZIE-PRODUCT-DEEP-LINK: after signup/login that started from a shared product
+// page (/p/<id> → CTA carries ?next=/p/<id>), send the newly-authed buyer BACK
+// to that product instead of the marketplace home. Same-origin path only.
+function dzReturnToNext() {
+  try {
+    var n = new URLSearchParams(location.search).get('next');
+    if (n && /^\/[^/]/.test(n)) { location.replace(n); return true; }
+  } catch (_) {}
+  return false;
+}
+
 async function shareProduct(listingId, name, price) {
-  const url = location.origin + '/buyer?product=' + encodeURIComponent(listingId);
+  // Canonical shareable link → the server-rendered product page (opens the
+  // listing for logged-out strangers + gives WhatsApp a real Open Graph card).
+  const url = location.origin + '/p/' + encodeURIComponent(listingId);
   const priceTxt = price ? (Number(price).toLocaleString('fr-FR') + ' FCFA') : 'Prix sur demande';
   const text = `${name} — ${priceTxt}\nVoir sur PARTENAIRE : ${url}`;
   try { if (navigator.share) { await navigator.share({ title: name, text, url }); return; } }
