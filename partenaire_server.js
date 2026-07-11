@@ -691,9 +691,42 @@ function dzEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp
 function dzFcfa(n){ return (Math.round(Number(n)||0)).toLocaleString('fr-FR').replace(/[  ]/g,' ') + ' FCFA'; }
 function dzLang(req){ return String((req.headers&&req.headers['accept-language'])||'').toLowerCase().startsWith('en') ? 'en' : 'fr'; }
 async function dzFetchProduct(id){
-  const rows = await supaRequestPrivileged('GET','ptn_products',
-    'id=eq.'+encodeURIComponent(id)+'&select=id,seller_id,name,name_fr,name_en,description,description_fr,description_en,price,stock,published,city,photo_url&limit=1');
-  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  // MP-DOZIE-DEEPLINK-MPLINKED: resolve against the SAME unified catalogue the app
+  // shows — the dozie_marketplace_products view (keyed by listing_id) — so BOTH
+  // standalone (ptn_products.id) AND MP-linked (pa_dozie_seller_listings.id) share
+  // links resolve. It previously read ptn_products only, so every MP-linked share
+  // link 404'd. The view already unions both sources and filters to published/
+  // visible + active, exposing every field the OG page needs. Map listing_id→id and
+  // derive a truthy stock from stock_state so dzProductHtml renders "In stock".
+  const rows = await supaRequestPrivileged('GET','dozie_marketplace_products',
+    'listing_id=eq.'+encodeURIComponent(id)+'&select=listing_id,seller_id,name,name_fr,name_en,description,description_fr,description_en,price,stock_state,published,city,photo_url&limit=1');
+  const r = Array.isArray(rows) && rows[0] ? rows[0] : null;
+  if(!r) return null;
+  return { ...r, id: r.listing_id, stock: r.stock_state === 'out_of_stock' ? 0 : 1 };
+}
+// Paused/unpublished-but-EXISTING listing → find its seller so the not-found page
+// can still offer "visit the shop" (the view excludes paused/unpublished, so those
+// fall through dzFetchProduct as null). Covers MP-linked (pa_dozie_seller_listings
+// → org → ptn_users.linked_mp_org_id) and standalone (ptn_products.seller_id).
+// Returns a ptn_users.id (seller_id) or null; a genuinely missing id → null → the
+// generic marketplace 404.
+async function dzResolveSellerForId(id){
+  try {
+    const dsl = await supaRequestPrivileged('GET','pa_dozie_seller_listings',
+      'id=eq.'+encodeURIComponent(id)+'&select=org_id&limit=1');
+    const org = Array.isArray(dsl) && dsl[0] ? dsl[0].org_id : null;
+    if(org){
+      const su = await supaRequestPrivileged('GET','ptn_users',
+        'linked_mp_org_id=eq.'+encodeURIComponent(org)+'&select=id&limit=1');
+      if(Array.isArray(su) && su[0]) return su[0].id;
+    }
+  } catch(_){ /* fall through to standalone lookup */ }
+  try {
+    const pp = await supaRequestPrivileged('GET','ptn_products',
+      'id=eq.'+encodeURIComponent(id)+'&select=seller_id&limit=1');
+    if(Array.isArray(pp) && pp[0]) return pp[0].seller_id;
+  } catch(_){ /* ignore */ }
+  return null;
 }
 async function dzFetchSeller(id){
   if(!id) return null;
@@ -799,8 +832,13 @@ async function dzServeProductPage(req,res,id){
   try {
     if(!DOZIE_UUID_RE.test(String(id))){ dzSend(res,404, dzNotFoundHtml(lang,origin,null)); return; }
     const p = await dzFetchProduct(id);
-    if(!p){ dzSend(res,404, dzNotFoundHtml(lang,origin,null)); return; }                       // deleted / unknown id
-    if(p.published!==true){ dzSend(res,404, dzNotFoundHtml(lang,origin,p.seller_id||null)); return; } // unpublished/paused → offer the shop
+    if(!p){
+      // Not in the live catalogue. If the id is a paused/unpublished-but-existing
+      // listing, offer its shop; a genuinely missing id → generic marketplace 404.
+      const sellerId = await dzResolveSellerForId(id);
+      dzSend(res,404, dzNotFoundHtml(lang,origin,sellerId));
+      return;
+    }
     const seller = await dzFetchSeller(p.seller_id);
     dzSend(res,200, dzProductHtml(p, seller, lang, origin));
   } catch(e){ console.warn('[dz product page]', e && e.message); dzSend(res,500, dzNotFoundHtml(lang,origin,null)); }
@@ -809,7 +847,7 @@ async function dzServeProductPage(req,res,id){
 async function dzServeProductImage(req,res,id){
   try {
     if(!DOZIE_UUID_RE.test(String(id))){ res.writeHead(302,{Location:'/icon.svg'}); res.end(); return; }
-    const rows = await supaRequestPrivileged('GET','ptn_products','id=eq.'+encodeURIComponent(id)+'&select=photo_url,published&limit=1');
+    const rows = await supaRequestPrivileged('GET','dozie_marketplace_products','listing_id=eq.'+encodeURIComponent(id)+'&select=photo_url,published&limit=1');
     const p = Array.isArray(rows) && rows[0] ? rows[0] : null;
     const url = (p && p.published===true) ? p.photo_url : null;
     if(!url){ res.writeHead(302,{Location:'/icon.svg'}); res.end(); return; }
