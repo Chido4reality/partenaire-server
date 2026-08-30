@@ -1122,7 +1122,11 @@ http.createServer((req, res) => {
       is_sandbox: isDemo,
       // v1: clients use this to hide all in-app payment UI and show the
       // "pay at shop" notice instead.
-      payments_enabled: PAYMENTS_ENABLED
+      payments_enabled: PAYMENTS_ENABLED,
+      // Deployed commit, so a deploy can be CONFIRMED rather than assumed.
+      // Mirrors the main API's /health, which already exposes this
+      // unauthenticated. Render injects RENDER_GIT_COMMIT at build time.
+      commit: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7)
     }));
     return;
   }
