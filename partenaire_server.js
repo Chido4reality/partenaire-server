@@ -1122,7 +1122,11 @@ http.createServer((req, res) => {
       is_sandbox: isDemo,
       // v1: clients use this to hide all in-app payment UI and show the
       // "pay at shop" notice instead.
-      payments_enabled: PAYMENTS_ENABLED
+      payments_enabled: PAYMENTS_ENABLED,
+      // Deployed commit, so a deploy can be CONFIRMED rather than assumed.
+      // Mirrors the main API's /health, which already exposes this
+      // unauthenticated. Render injects RENDER_GIT_COMMIT at build time.
+      commit: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7)
     }));
     return;
   }
@@ -1212,7 +1216,7 @@ http.createServer((req, res) => {
       if (!j) return sendJ(401, { ok:false, error:'auth_required' });
       (async () => {
         try {
-          const r = await supaRpc('admin_list', { p_caller: j.uid });
+          const r = await supaRpcPrivileged('admin_list', { p_caller: j.uid });
           if (!r || r.ok !== true) return sendJ(403, { ok:false, error:(r&&r.error)||'forbidden' });
           sendJ(200, r);
         } catch (e) { sendJ(500, { ok:false, error:'server_error', message:e.message }); }
@@ -1225,7 +1229,7 @@ http.createServer((req, res) => {
       (async () => {
         try {
           const { email, name, role, pin } = await readBody();
-          const r = await supaRpc('admin_create',
+          const r = await supaRpcPrivileged('admin_create',
             { p_caller: j.uid, p_email: email, p_name: name, p_role: role, p_pin: pin });
           if (!r || r.ok !== true) {
             const e = (r&&r.error)||'forbidden';
@@ -1243,7 +1247,7 @@ http.createServer((req, res) => {
       (async () => {
         try {
           const { active } = await readBody();
-          const r = await supaRpc('admin_toggle',
+          const r = await supaRpcPrivileged('admin_toggle',
             { p_caller: j.uid, p_target: mToggle[1], p_active: !!active });
           if (!r || r.ok !== true) {
             const e=(r&&r.error)||'forbidden';
@@ -1261,7 +1265,7 @@ http.createServer((req, res) => {
       (async () => {
         try {
           const { new_pin } = await readBody();
-          const r = await supaRpc('admin_change_pin',
+          const r = await supaRpcPrivileged('admin_change_pin',
             { p_caller: j.uid, p_target: mPin[1], p_new_pin: new_pin });
           if (!r || r.ok !== true) {
             const e=(r&&r.error)||'forbidden';
@@ -1278,7 +1282,7 @@ http.createServer((req, res) => {
       if (!j) return sendJ(401, { ok:false, error:'auth_required' });
       (async () => {
         try {
-          const r = await supaRpc('admin_delete', { p_caller: j.uid, p_target: mDel[1] });
+          const r = await supaRpcPrivileged('admin_delete', { p_caller: j.uid, p_target: mDel[1] });
           if (!r || r.ok !== true) {
             const e=(r&&r.error)||'forbidden';
             return sendJ(e==='forbidden'?403:400, { ok:false, error:e });
