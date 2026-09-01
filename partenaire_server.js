@@ -185,6 +185,10 @@ const ROUTES = {
   // Public Play-Store compliance pages — no login required (served by the
   // static handler below, same as the app shells).
   '/privacy-fr':         'privacy-fr.html',
+  // Google Play's listing for this app is en-GB, so the policy must exist in
+  // English too. Without this route the file ships but 404s, which is worse
+  // than not having it: the listing would link to a dead policy.
+  '/privacy-en':         'privacy-en.html',
   '/suppression-compte': 'suppression-compte.html',
 };
 
