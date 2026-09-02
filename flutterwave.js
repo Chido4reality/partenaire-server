@@ -32,7 +32,7 @@ async function createPayment({ tx_ref, amount, currency, redirect_url, customer,
     redirect_url,
     customer,               // { email, name, phonenumber }
     meta,                   // { order_id, order_ref, seller_id, buyer_id }
-    customizations: { title: title || 'Partenaire Dozie order' },
+    customizations: { title: title || 'Stenamo Market order' },
   };
   // Only set payment_options when explicitly provided (XAF). Omitting it for
   // NGN lets the dashboard-enabled method list (incl. OPay) drive the page.
@@ -160,7 +160,7 @@ async function createTransfer(p) {
       account_number: p.account_number,
       amount: p.amount,
       currency: 'NGN',
-      narration: p.narration || 'Partenaire Dozie payout',
+      narration: p.narration || 'Stenamo Market payout',
       reference: p.reference,
       debit_currency: 'NGN',
     };
@@ -177,7 +177,7 @@ async function createTransfer(p) {
       account_number: p.momo_number,
       amount: p.amount,
       currency: 'XAF',
-      narration: p.narration || 'Partenaire Dozie payout',
+      narration: p.narration || 'Stenamo Market payout',
       reference: p.reference,
       debit_currency: 'XAF',
       meta: [{ mobile_number: p.momo_number }],
