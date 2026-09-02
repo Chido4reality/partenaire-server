@@ -11,7 +11,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Dozie Buyer">
+<meta name="apple-mobile-web-app-title" content="Stenamo Market Buyer">
 <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js',{updateViaCache:'none'}).catch(()=>{});</script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
@@ -1103,7 +1103,7 @@ async function registerBuyer() {
   try {
     // Self-registration via the server route: creates the ptn_users buyer row
     // (role=buyer, also_buyer=true, bcrypt PIN) and returns a Dozie JWT so the
-    // new user is logged in straight away. Independent of Mon Partenaire.
+    // new user is logged in straight away. Independent of Stenamo Book.
     const resp = await fetch('/auth/register-buyer', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, phone, pin, country_code: ph.country })

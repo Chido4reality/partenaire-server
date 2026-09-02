@@ -12,7 +12,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Dozie Seller">
+<meta name="apple-mobile-web-app-title" content="Stenamo Market Seller">
 <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js',{updateViaCache:'none'}).catch(()=>{});</script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
@@ -383,19 +383,19 @@ function openWhatsApp(e, phone, text){
         <div class="step-dot"></div>
         <div class="step-dot"></div>
       </div>
-      <label class="auth-label">Mon Partenaire Phone Number</label>
+      <label class="auth-label">Stenamo Book Phone Number</label>
       <div class="phone-row">
         <div class="country-code">🇨🇲 +237</div>
         <input class="auth-input" id="phone-input" type="tel" placeholder="699 000 000" maxlength="9" style="margin-bottom:0;flex:1">
       </div>
       <div style="height:16px"></div>
-      <label class="auth-label">Dozie 4-digit PIN</label>
+      <label class="auth-label">Stenamo Market 4-digit PIN</label>
       <input class="auth-input" id="pin-input" type="password" placeholder="••••" maxlength="4" inputmode="numeric"
         onkeydown="if(event.key==='Enter') loginWithPIN()">
       <button class="auth-btn gold" id="btn-send-otp" onclick="loginWithPIN()">Se connecter / Sign In →</button>
       <div class="auth-error" id="phone-error"></div>
       <div class="auth-hint" style="background:#f8f6f0;border-radius:8px;padding:10px 12px;font-size:11px;line-height:1.5">
-        💡 Use your <strong>Mon Partenaire phone number</strong> and the <strong>4-digit Dozie PIN</strong> you set when activating Partenaire Dozie in Mon Partenaire Settings.
+        💡 Use your <strong>Stenamo Book phone number</strong> and the <strong>4-digit Stenamo Market PIN</strong> you set when activating Stenamo Market in Stenamo Book Settings.
       </div>
       <div class="auth-link">Nouveau vendeur? / New seller? <span onclick="goToRegister()">Créer votre boutique →</span></div>
     </div>
@@ -465,8 +465,8 @@ function openWhatsApp(e, phone, text){
       <label class="auth-label">Choose Your Plan / Choisissez votre formule</label>
       <!-- Sprint B-bis: replaces the legacy badge selector. Two
            choices only: Free or Standalone (3 000 FCFA/mo).
-           MP-linked sellers (Mon Partenaire Pro/Pro Plus) get full
-           Dozie access included via their MP plan; that linkage is
+           MP-linked sellers (Stenamo Book Pro/Pro Plus) get full
+           Stenamo Market access included via their MP plan; that linkage is
            done post-signup in settings, not here. -->
       <style>
         .plan-option{border:1.5px solid var(--lgrey);border-radius:12px;padding:14px 16px;cursor:pointer;font-size:13px;transition:all .15s;background:#fff}
@@ -499,9 +499,9 @@ function openWhatsApp(e, phone, text){
         </div>
       </div>
       <div class="plan-link-mp">
-        Already have Mon Partenaire? / Vous avez déjà Mon Partenaire ?<br>
-        <a href="https://mon-partenaire-app.vercel.app" target="_blank" rel="noopener">Sign up Free for Dozie, then link from settings →</a><br>
-        <span style="font-size:11px;color:var(--grey)">Free Dozie access included with MP Pro or Pro Plus / Accès gratuit inclus avec MP Pro ou Pro Plus</span>
+        Already have Stenamo Book? / Vous avez déjà Stenamo Book ?<br>
+        <a href="https://mon-partenaire-app.vercel.app" target="_blank" rel="noopener">Sign up Free for Stenamo Market, then link from settings →</a><br>
+        <span style="font-size:11px;color:var(--grey)">Free Stenamo Market access included with MP Pro or Pro Plus / Accès gratuit inclus avec MP Pro ou Pro Plus</span>
       </div>
       <label class="auth-label">Choose a PIN (4 digits)</label>
       <input class="auth-input" id="reg-pin" type="password" placeholder="Choose a 4-digit PIN e.g. 1234" maxlength="4" inputmode="numeric">
@@ -1392,10 +1392,10 @@ function applyMpLinkedSellerUI() {
     if (page) {
       page.innerHTML = '<div style="max-width:520px;margin:40px auto;text-align:center;padding:24px">'
         + '<div style="font-size:44px;margin-bottom:12px">🛒</div>'
-        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Gérez vos annonces dans Mon Partenaire' : 'Manage your listings in Mon Partenaire') + '</div>'
+        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Gérez vos annonces dans Stenamo Book' : 'Manage your listings in Stenamo Book') + '</div>'
         + '<div style="color:#94a3b8;font-size:14px;line-height:1.6">' + (lang === 'fr'
-            ? 'Votre boutique est liée à Mon Partenaire. Créez et modifiez vos annonces Dozie là-bas : ouvrez l’app et allez dans <b>Annonces Dozie</b>.'
-            : 'Your shop is linked to Mon Partenaire. Create and edit your Dozie listings there — open the app and go to <b>Dozie Listings</b>.')
+            ? 'Votre boutique est liée à Stenamo Book. Créez et modifiez vos annonces Stenamo Market là-bas : ouvrez l’app et allez dans <b>Annonces Stenamo Market</b>.'
+            : 'Your shop is linked to Stenamo Book. Create and edit your Stenamo Market listings there — open the app and go to <b>Stenamo Market Listings</b>.')
         + '</div></div>';
     }
     // MP-DOZIE-SELLER-MIGRATION Phase 3 — Messages also move to MP for MP-linked sellers.
@@ -1403,10 +1403,10 @@ function applyMpLinkedSellerUI() {
     if (mPage) {
       mPage.innerHTML = '<div style="max-width:520px;margin:40px auto;text-align:center;padding:24px">'
         + '<div style="font-size:44px;margin-bottom:12px">💬</div>'
-        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Vos messages sont dans Mon Partenaire' : 'Your messages are in Mon Partenaire') + '</div>'
+        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Vos messages sont dans Stenamo Book' : 'Your messages are in Stenamo Book') + '</div>'
         + '<div style="color:#94a3b8;font-size:14px;line-height:1.6">' + (lang === 'fr'
-            ? 'Discutez avec vos acheteurs depuis Mon Partenaire : ouvrez l’app et allez dans <b>Messages Dozie</b>.'
-            : 'Chat with your buyers from Mon Partenaire — open the app and go to <b>Dozie Messages</b>.')
+            ? 'Discutez avec vos acheteurs depuis Stenamo Book : ouvrez l’app et allez dans <b>Messages Stenamo Market</b>.'
+            : 'Chat with your buyers from Stenamo Book — open the app and go to <b>Stenamo Market Messages</b>.')
         + '</div></div>';
     }
     // MP-DOZIE-SELLER-MIGRATION Phase 4 — Reports also move to MP for MP-linked sellers.
@@ -1414,10 +1414,10 @@ function applyMpLinkedSellerUI() {
     if (rPage) {
       rPage.innerHTML = '<div style="max-width:520px;margin:40px auto;text-align:center;padding:24px">'
         + '<div style="font-size:44px;margin-bottom:12px">📈</div>'
-        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Vos rapports sont dans Mon Partenaire' : 'Your reports are in Mon Partenaire') + '</div>'
+        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Vos rapports sont dans Stenamo Book' : 'Your reports are in Stenamo Book') + '</div>'
         + '<div style="color:#94a3b8;font-size:14px;line-height:1.6">' + (lang === 'fr'
-            ? 'Vos statistiques de vente Dozie sont désormais dans Mon Partenaire : ouvrez l’app et allez dans <b>Commandes Dozie</b>.'
-            : 'Your Dozie sales stats are now in Mon Partenaire — open the app and go to <b>Dozie Orders</b>.')
+            ? 'Vos statistiques de vente Stenamo Market sont désormais dans Stenamo Book : ouvrez l’app et allez dans <b>Commandes Stenamo Market</b>.'
+            : 'Your Stenamo Market sales stats are now in Stenamo Book — open the app and go to <b>Stenamo Market Orders</b>.')
         + '</div></div>';
     }
     // MP-DOZIE-SELLER-MIGRATION Phase 5 — Disputes also move to MP for MP-linked sellers.
@@ -1425,10 +1425,10 @@ function applyMpLinkedSellerUI() {
     if (dPage) {
       dPage.innerHTML = '<div style="max-width:520px;margin:40px auto;text-align:center;padding:24px">'
         + '<div style="font-size:44px;margin-bottom:12px">⚠️</div>'
-        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Vos litiges sont dans Mon Partenaire' : 'Your disputes are in Mon Partenaire') + '</div>'
+        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Vos litiges sont dans Stenamo Book' : 'Your disputes are in Stenamo Book') + '</div>'
         + '<div style="color:#94a3b8;font-size:14px;line-height:1.6">' + (lang === 'fr'
-            ? 'Répondez aux litiges des acheteurs depuis Mon Partenaire : ouvrez l’app et allez dans <b>Litiges Dozie</b>.'
-            : 'Respond to buyer disputes from Mon Partenaire — open the app and go to <b>Dozie Disputes</b>.')
+            ? 'Répondez aux litiges des acheteurs depuis Stenamo Book : ouvrez l’app et allez dans <b>Litiges Stenamo Market</b>.'
+            : 'Respond to buyer disputes from Stenamo Book — open the app and go to <b>Stenamo Market Disputes</b>.')
         + '</div></div>';
     }
     // MP-DOZIE-SELLER-MIGRATION Phase 2 — Orders also move to MP for MP-linked sellers.
@@ -1438,10 +1438,10 @@ function applyMpLinkedSellerUI() {
     if (oPage) {
       oPage.innerHTML = '<div style="max-width:520px;margin:40px auto;text-align:center;padding:24px">'
         + '<div style="font-size:44px;margin-bottom:12px">📦</div>'
-        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Gérez vos commandes dans Mon Partenaire' : 'Manage your orders in Mon Partenaire') + '</div>'
+        + '<div style="font-weight:800;font-size:18px;margin-bottom:8px">' + (lang === 'fr' ? 'Gérez vos commandes dans Stenamo Book' : 'Manage your orders in Stenamo Book') + '</div>'
         + '<div style="color:#94a3b8;font-size:14px;line-height:1.6">' + (lang === 'fr'
-            ? 'Vos commandes Dozie arrivent désormais dans Mon Partenaire : ouvrez l’app et allez dans <b>Commandes Dozie</b> pour accepter, refuser et suivre. Les paiements restent gérés ici.'
-            : 'Your Dozie orders now arrive in Mon Partenaire — open the app and go to <b>Dozie Orders</b> to accept, reject and track. Payments are still handled here.')
+            ? 'Vos commandes Stenamo Market arrivent désormais dans Stenamo Book : ouvrez l’app et allez dans <b>Commandes Stenamo Market</b> pour accepter, refuser et suivre. Les paiements restent gérés ici.'
+            : 'Your Stenamo Market orders now arrive in Stenamo Book — open the app and go to <b>Stenamo Market Orders</b> to accept, reject and track. Payments are still handled here.')
         + '</div></div>';
     }
     if (typeof switchTab === 'function'
@@ -1606,7 +1606,7 @@ function renderDozieAccessBanner() {
     const days = acc.paid_expires_at ? Math.max(0, Math.ceil((new Date(acc.paid_expires_at) - Date.now()) / 86400000)) : 0;
     host.innerHTML = `
       <div class="dozie-paid-status">
-        <div>✓ <strong>Standalone Dozie</strong> — expires in ${days} day${days === 1 ? '' : 's'}</div>
+        <div>✓ <strong>Standalone Stenamo Market</strong> — expires in ${days} day${days === 1 ? '' : 's'}</div>
         <div style="display:flex;gap:8px">
           <button onclick="openDozieSubPaymentModal('renew')">Renew</button>
           <button onclick="cancelDozieSub()">Cancel</button>
@@ -1624,16 +1624,16 @@ function renderDozieAccessBanner() {
   const atListingCap = listings >= cap;
   host.innerHTML = `
     <div class="dozie-onboarding">
-      <h3>🛒 Bienvenue sur Partenaire Dozie — niveau gratuit</h3>
+      <h3>🛒 Bienvenue sur Stenamo Market — niveau gratuit</h3>
       <ul>
         <li>Jusqu'à <strong>${cap} annonces actives</strong></li>
         <li>Vente dans votre ville (<strong>${acc.seller_city || 'votre ville'}</strong>) uniquement</li>
         <li><strong>${ordersCap} commandes</strong> gratuites pour démarrer</li>
       </ul>
-      <div style="font-size:12px;opacity:0.85">Besoin de plus ? Passez à <strong>Standalone (3 000 FCFA / mois)</strong> — annonces, villes et commandes illimitées. Ou liez un compte Mon Partenaire (Pro/Pro Plus) pour un accès complet inclus.</div>
+      <div style="font-size:12px;opacity:0.85">Besoin de plus ? Passez à <strong>Standalone (3 000 FCFA / mois)</strong> — annonces, villes et commandes illimitées. Ou liez un compte Stenamo Book (Pro/Pro Plus) pour un accès complet inclus.</div>
       <div class="dozie-onboarding-actions">
         <button class="dozie-onboard-pay"  onclick="openDozieSubPaymentModal('upgrade')">Passer à 3 000 FCFA / mois</button>
-        <button class="dozie-onboard-link" onclick="window.open('https://mon-partenaire-app.vercel.app','_blank')">Lier Mon Partenaire</button>
+        <button class="dozie-onboard-link" onclick="window.open('https://mon-partenaire-app.vercel.app','_blank')">Lier Stenamo Book</button>
       </div>
     </div>
     <div class="dozie-badges">
@@ -1650,13 +1650,13 @@ function openCapHitModal(feature) {
     listing_cap: 'Limite d\'annonces atteinte',
     city_cap:    'Vente hors ville bloquée',
     orders_cap:  'Limite de commandes gratuites atteinte',
-    dozie_access:'Accès Partenaire Dozie requis'
+    dozie_access:'Accès Stenamo Market requis'
   };
   const bodies = {
-    listing_cap: `Vous avez ${acc.listing_cap || 2} annonces actives. Passez à Standalone Dozie (3 000 FCFA / mois) pour des annonces illimitées.`,
+    listing_cap: `Vous avez ${acc.listing_cap || 2} annonces actives. Passez à Standalone Stenamo Market (3 000 FCFA / mois) pour des annonces illimitées.`,
     city_cap:    `Le niveau gratuit limite la vente à votre ville (${acc.seller_city || ''}). Passez à Standalone pour vendre partout.`,
     orders_cap:  `Vous avez accepté vos ${acc.orders_cap || 2} commandes gratuites. Passez à Standalone (3 000 FCFA / mois) pour continuer à vendre.`,
-    dozie_access:`Votre plan actuel n'inclut pas Partenaire Dozie. Passez à Standalone Dozie (3 000 FCFA / mois) ou à un plan Mon Partenaire Pro/Pro Plus.`
+    dozie_access:`Votre plan actuel n'inclut pas Stenamo Market. Passez à Standalone Stenamo Market (3 000 FCFA / mois) ou à un plan Stenamo Book Pro/Pro Plus.`
   };
   const root = document.createElement('div');
   root.className = 'cap-hit-overlay';
@@ -1682,7 +1682,7 @@ function openDozieSubPaymentModal(mode) {
   root.className = 'cap-hit-overlay';
   root.innerHTML = `
     <div class="cap-hit-modal">
-      <h2>💳 ${mode === 'renew' ? 'Renouveler Standalone Dozie' : 'Passer à Standalone Dozie'}</h2>
+      <h2>💳 ${mode === 'renew' ? 'Renouveler Standalone Stenamo Market' : 'Passer à Standalone Stenamo Market'}</h2>
       <p>3 000 FCFA / mois — annonces, villes et commandes illimitées.</p>
       <p style="font-size:12px;opacity:0.75">Vous recevrez une invite USSD sur votre numéro Mobile Money pour confirmer le paiement.</p>
       <div style="margin:14px 0">
@@ -1821,7 +1821,7 @@ async function cancelDozieSub() {
 //  MP SUBSCRIPTION STATUS BANNER (Phase D-B)
 //
 //  Renders a persistent amber banner above the seller dashboard when
-//  the seller's Mon Partenaire subscription isn't active/trial. The
+//  the seller's Stenamo Book subscription isn't active/trial. The
 //  banner mirrors the server-side gate: order acceptance and listing
 //  CRUD will be rejected with a 403, so we tell the seller WHY.
 //
@@ -1881,9 +1881,9 @@ async function renderMpStatusBanner() {
 
   const idLabel = mpId ? `MP-${mpId}` : 'no linked MP account';
   const bodyHtml = status === 'no_mp_account'
-    ? `<strong>Lien Mon Partenaire requis</strong>
-       Pour vendre sur Dozie, vous devez lier un abonnement Mon Partenaire actif. Listings en pause et nouvelles commandes refusées.`
-    : `<strong>Abonnement Mon Partenaire inactif (${idLabel})</strong>
+    ? `<strong>Lien Stenamo Book requis</strong>
+       Pour vendre sur Stenamo Market, vous devez lier un abonnement Stenamo Book actif. Listings en pause et nouvelles commandes refusées.`
+    : `<strong>Abonnement Stenamo Book inactif (${idLabel})</strong>
        Listings en pause et vous ne pouvez pas accepter de nouvelles commandes. Renouvelez pour réactiver.`;
   banner.innerHTML = `
     <div class="mp-status-icon">⚠️</div>
@@ -2283,7 +2283,7 @@ function doziePaymentMode(o) {
 // Rendered BELOW the normal Dozie flow buttons (Mark as Shipped /
 // Confirm Delivered). Visible at confirmed | shipped | delivered so
 // the seller can either walk the normal flow OR jump straight to
-// recording the sale in Mon Partenaire. Hidden on pending / ready /
+// recording the sale in Stenamo Book. Hidden on pending / ready /
 // cancelled / rejected (nothing to hand off, or order is dead).
 function dozieHandoffButtons(o) {
   if (!o || !['confirmed','shipped','delivered'].includes(o.status)) return '';
@@ -2321,7 +2321,7 @@ function dozieHandoffButtons(o) {
       </button>`;
     }
     return sep + `<button class="btn btn-block" disabled style="margin-bottom:8px;padding:13px;font-size:13px;opacity:0.55;cursor:not-allowed"
-      title="${fr ? 'Nécessite un compte Mon Partenaire pour crédit/acompte' : 'Requires Mon Partenaire account for credit/partial payments'}">
+      title="${fr ? 'Nécessite un compte Stenamo Book pour crédit/acompte' : 'Requires Stenamo Book account for credit/partial payments'}">
       🔒 ${fr ? 'Crédit/acompte — compte MP requis' : 'Credit/Partial — MP account required'}
     </button>`;
   }
@@ -2343,14 +2343,14 @@ async function dozieHandoff(orderId, action, mode) {
   const o = allOrders.find(x => x.id === orderId) || {};
   const msgs = {
     'complete-at-shop': fr
-      ? "Ceci déplacera la commande vers votre boutique Mon Partenaire pour que le caissier confirme et enregistre la vente. Continuer ?"
-      : "This will move the order to your Mon Partenaire shop for the cashier to confirm and record the sale. Continue?",
+      ? "Ceci déplacera la commande vers votre boutique Stenamo Book pour que le caissier confirme et enregistre la vente. Continuer ?"
+      : "This will move the order to your Stenamo Book shop for the cashier to confirm and record the sale. Continue?",
     'send-to-mp-cart': fr
-      ? "Ceci déplacera la commande vers votre Panier Mon Partenaire pour que le caissier enregistre le client, les conditions de paiement et finalise la vente. Continuer ?"
-      : "This will move the order to your Mon Partenaire Cart so the cashier can register the customer details, payment terms, and complete the sale. Continue?",
+      ? "Ceci déplacera la commande vers votre Panier Stenamo Book pour que le caissier enregistre le client, les conditions de paiement et finalise la vente. Continuer ?"
+      : "This will move the order to your Stenamo Book Cart so the cashier can register the customer details, payment terms, and complete the sale. Continue?",
     'mark-complete': fr
-      ? "Marquer cette commande comme terminée dans Dozie. Le stock sera déduit de vos produits Dozie. Continuer ?"
-      : "Mark this order as completed in Dozie. Stock will deduct from your Dozie products. Continue?"
+      ? "Marquer cette commande comme terminée dans Stenamo Market. Le stock sera déduit de vos produits Stenamo Market. Continuer ?"
+      : "Mark this order as completed in Stenamo Market. Stock will deduct from your Stenamo Market products. Continue?"
   };
   const summary = fr
     ? `Commande ${o.order_ref || ''} · ${(o.total||0).toLocaleString()} FCFA`
@@ -2379,7 +2379,7 @@ async function dozieHandoff(orderId, action, mode) {
       throw new Error(data.message || ('HTTP ' + r.status));
     }
     if (data.handed_off) {
-      toast(fr ? '✓ Envoyé à Mon Partenaire' : '✓ Sent to Mon Partenaire', 'success');
+      toast(fr ? '✓ Envoyé à Stenamo Book' : '✓ Sent to Stenamo Book', 'success');
     } else if (data.completed_locally) {
       toast(fr ? '✓ Commande terminée' : '✓ Order completed', 'success');
     } else {
@@ -2427,7 +2427,7 @@ function openOrderDetail(id) {
   // Normal Dozie flow buttons first; the D-1 MP handoff section
   // (self-guarded to confirmed/shipped/delivered) is appended BELOW
   // so the seller can walk the flow OR jump straight to recording
-  // the sale in Mon Partenaire.
+  // the sale in Stenamo Book.
   const flowBtns = o.status==='pending'
     ? `
       <!-- Confirm & Request Payment -->
@@ -2953,7 +2953,7 @@ function renderProfileHero() {
   // small pill so admins can still track KYC progress.
   const acc = s._dozieAccess || { source: 'free', access: 'limited' };
   const planCfg = {
-    mp_linked:       { cls:'premium', icon:'🔗', label:'Linked to Mon Partenaire', color:'var(--blue)' },
+    mp_linked:       { cls:'premium', icon:'🔗', label:'Linked to Stenamo Book', color:'var(--blue)' },
     paid_standalone: { cls:'gold',    icon:'💎', label:'Standalone',               color:'var(--amber)' },
     free:            { cls:'none',    icon:'🆓', label:'Free tier',                color:'var(--grey)' },
     blocked:         { cls:'none',    icon:'⛔', label:'Access suspended',         color:'var(--red)' },
@@ -3138,7 +3138,7 @@ function dzRenderDrawer() {
   const soonToast = esc(fr ? 'Bientôt disponible' : 'Coming soon');
   const list = document.getElementById('dz-drawer-list');
   // MP-DOZIE-SELLER-MIGRATION: MP-linked sellers manage Products/Orders/Messages/
-  // Reports/Disputes in Mon Partenaire — drop those drawer entries (routed to MP).
+  // Reports/Disputes in Stenamo Book — drop those drawer entries (routed to MP).
   const _mpHidden = (currentSeller && currentSeller.linked_mp_org_id)
     ? new Set(['tab-products', 'tab-orders', 'tab-messages', 'tab-reports', 'tab-disputes']) : null;
   list.innerHTML = items.filter(it => !(_mpHidden && _mpHidden.has(it.id))).map(it => {
@@ -4300,15 +4300,15 @@ function selectOperator(op) {
 
 async function confirmMomoPayment() {
   // CamPay (and the older Monetbil path) are retired — neither collects any more.
-  // Seller subscriptions are managed in Mon Partenaire (MP); there is no in-app
+  // Seller subscriptions are managed in Stenamo Book (MP); there is no in-app
   // CamPay subscription charge. Show a clear message instead of routing to a
   // disabled provider.
   const status = document.getElementById('momo-status');
   if (status) {
     status.className   = 'momo-status failed';
-    status.textContent = 'Paiement en ligne CamPay désactivé. Gérez votre abonnement dans Mon Partenaire.';
+    status.textContent = 'Paiement en ligne CamPay désactivé. Gérez votre abonnement dans Stenamo Book.';
   }
-  toast('CamPay disabled — manage your subscription in Mon Partenaire.', '');
+  toast('CamPay disabled — manage your subscription in Stenamo Book.', '');
 }
 
 // ══════════════════════════════════════════════════════════════

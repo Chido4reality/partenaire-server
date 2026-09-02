@@ -545,7 +545,7 @@ async function payoutSellerForOrder(orderId) {
       country: 'NG', currency: 'NGN',
       bank_code: payout.bank_code, account_number: payout.account_number,
       amount: amountToSeller, reference,
-      narration: 'Partenaire Dozie payout ' + order.order_ref,
+      narration: 'Stenamo Market payout ' + order.order_ref,
     });
   } catch (e) {
     const msg = (e && e.message) || 'transfer_error';
@@ -773,14 +773,14 @@ function dzProductHtml(p, seller, lang, origin){
   const ogTitle = d.name + ' — ' + price;
   const ogDesc = (d.desc ? d.desc.replace(/\s+/g,' ').trim().slice(0,180)
       : (sellerName ? (en?('Sold by '+sellerName+(city?' · '+city:'')):('Vendu par '+sellerName+(city?' · '+city:'')))
-                    : (en?'Available on PARTENAIRE Dozie':'Disponible sur PARTENAIRE Dozie')));
+                    : (en?'Available on Stenamo Market':'Disponible sur Stenamo Market')));
   return '<!DOCTYPE html><html lang="'+lang+'"><head>'
     +'<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
     +'<title>'+dzEsc(ogTitle)+'</title>'
     +'<meta name="description" content="'+dzEsc(ogDesc)+'">'
     +'<link rel="icon" href="/icon.svg" type="image/svg+xml">'
     +'<meta property="og:type" content="product">'
-    +'<meta property="og:site_name" content="PARTENAIRE Dozie">'
+    +'<meta property="og:site_name" content="Stenamo Market">'
     +'<meta property="og:title" content="'+dzEsc(ogTitle)+'">'
     +'<meta property="og:description" content="'+dzEsc(ogDesc)+'">'
     +'<meta property="og:image" content="'+dzEsc(img)+'">'
@@ -803,7 +803,7 @@ function dzProductHtml(p, seller, lang, origin){
     +'<a class="btn primary" href="/buyer?signup=1&next='+nextEnc+'">'+dzEsc(en?'Create an account to order or chat':'Créer un compte pour commander ou discuter')+'</a>'
     +'<a class="btn ghost" href="/login?next='+nextEnc+'">'+dzEsc(en?'Log in':'Se connecter')+'</a>'
     +'</div></div></div>'
-    +'<div class="brand">PARTENAIRE Dozie</div></div>'
+    +'<div class="brand">Stenamo Market</div></div>'
     // Already logged in? Swap the signup CTA for a direct "open in app" link.
     +'<script>(function(){try{var t=localStorage.getItem("dozie_jwt");if(!t)return;var j=JSON.parse(atob(t.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));if(!j||!j.uid||(j.exp&&Date.now()/1000>=j.exp))return;var c=document.getElementById("cta");if(c)c.innerHTML=\'<a class="btn primary" href="/buyer?shop='+dzEsc(p.seller_id||'')+'">'+(en?'Order or chat in the app':'Commander ou discuter dans l’app')+' \\u2192</a>\';}catch(_){}})();<\/script>'
     +'</body></html>';
@@ -819,7 +819,7 @@ function dzNotFoundHtml(lang, origin, sellerId){
   const txt = sellerId ? (en?'Visit the shop':'Voir la boutique') : (en?'Browse the marketplace':'Parcourir le marché');
   return '<!DOCTYPE html><html lang="'+lang+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
     +'<title>'+dzEsc(headline)+' — PARTENAIRE</title>'
-    +'<meta property="og:type" content="website"><meta property="og:site_name" content="PARTENAIRE Dozie">'
+    +'<meta property="og:type" content="website"><meta property="og:site_name" content="Stenamo Market">'
     +'<meta property="og:title" content="'+dzEsc(headline)+'">'
     +'<meta property="og:description" content="'+dzEsc(sub)+'">'
     +'<meta property="og:url" content="'+dzEsc(origin+'/')+'">'
@@ -828,7 +828,7 @@ function dzNotFoundHtml(lang, origin, sellerId){
     +'<style>'+DZ_CSS+'</style></head><body><div class="wrap"><div class="card nf">'
     +'<div class="e">🔦</div><h1>'+dzEsc(headline)+'</h1><p>'+dzEsc(sub)+'</p>'
     +'<a class="btn primary" href="'+dzEsc(href)+'">'+dzEsc(txt)+'</a></div>'
-    +'<div class="brand">PARTENAIRE Dozie</div></div></body></html>';
+    +'<div class="brand">Stenamo Market</div></div></body></html>';
 }
 
 async function dzServeProductPage(req,res,id){
@@ -992,7 +992,7 @@ async function resolveRefund(orderId, by) {
 
   // Step 1 — reverse the MP books (void pa_sales + restock). Idempotent MP-side.
   await mpServiceCall('/api/dozie/internal/reverse-online-sale',
-    { dozie_order_id: orderId, reason: 'Dozie refund (' + by + ')' })
+    { dozie_order_id: orderId, reason: 'Stenamo Market refund (' + by + ')' })
     .catch(e => console.warn('[resolveRefund reverse]', orderId, e && e.message));
 
   // Step 2 — money back on Flutterwave (full order total).
@@ -1209,7 +1209,7 @@ http.createServer((req, res) => {
       return sendJ(410, {
         success: false,
         code: 'LEGACY_ADMIN_RETIRED',
-        message: 'The legacy Dozie admin has been retired. Use the unified admin at https://mon-partenaire-app.vercel.app/admin.html',
+        message: 'The legacy Stenamo Market admin has been retired. Use the unified admin at https://mon-partenaire-app.vercel.app/admin.html',
         retired_at: '2026-05-17'
       });
     }
@@ -1409,7 +1409,7 @@ http.createServer((req, res) => {
             status: user.status,
             country_code: user.country_code || null,
             // MP-DOZIE-SELLER-MIGRATION: surface the MP link so the portal can
-            // route MP-linked sellers to Mon Partenaire for listing management.
+            // route MP-linked sellers to Stenamo Book for listing management.
             linked_mp_org_id: user.linked_mp_org_id || null
           }
         });
@@ -1424,7 +1424,7 @@ http.createServer((req, res) => {
   // Self-registration for a non-MP buyer. Creates a ptn_users row
   // (role='buyer', also_buyer=true, dozie_pin_hash=bcrypt(pin)) and issues a
   // Dozie JWT so the new user is logged in immediately. Fully independent of
-  // Mon Partenaire — no MP account required. Duplicate (phone, role='buyer')
+  // Stenamo Book — no MP account required. Duplicate (phone, role='buyer')
   // returns 409 so the UI can route them to sign-in.
   if (req.url === '/auth/register-buyer' && req.method === 'POST') {
     let body = '';
@@ -1507,7 +1507,7 @@ http.createServer((req, res) => {
     try {
       if (!process.env.ADMIN_IMPERSONATE_SECRET) {
         res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ ok: false, error: 'ADMIN_IMPERSONATE_SECRET not configured on Dozie backend' }));
+        res.end(JSON.stringify({ ok: false, error: 'ADMIN_IMPERSONATE_SECRET not configured on Stenamo Market backend' }));
         return;
       }
       const u = new URL(req.url, 'http://x');
@@ -1791,7 +1791,7 @@ http.createServer((req, res) => {
           // Dozie-side equivalent).
           if (kind === 'send-to-mp-cart' && isStandalone) {
             return send(400, { success: false, code: 'requires_mp',
-              message: 'Credit / partial payments require a Mon Partenaire account. Standalone sellers can only complete fully-paid or pay-at-shop orders.' });
+              message: 'Credit / partial payments require a Stenamo Book account. Standalone sellers can only complete fully-paid or pay-at-shop orders.' });
           }
 
           if (isStandalone) {
@@ -2058,10 +2058,10 @@ http.createServer((req, res) => {
             res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
             const planLabel = acc && (acc.mp_plan || acc.source || 'free');
             const messages = {
-              dozie_access:  `Your current plan does not include Partenaire Dozie. Upgrade to a standalone Dozie subscription (3 000 FCFA/month) or to a Gold/Premium Mon Partenaire plan.`,
-              listing_cap:   `You've hit the free-tier limit of 2 active listings. Upgrade to standalone Dozie (3 000 FCFA/month) for unlimited listings.`,
-              city_cap:      `Free-tier sellers can only list in their own city (${(acc && acc.seller_city) || 'your city'}). Upgrade to standalone Dozie for unlimited cities.`,
-              orders_cap:    `You've accepted your 2 free orders. Upgrade to standalone Dozie (3 000 FCFA/month) to keep selling.`
+              dozie_access:  `Your current plan does not include Stenamo Market. Upgrade to a standalone Stenamo Market subscription (3 000 FCFA/month) or to a Gold/Premium Stenamo Book plan.`,
+              listing_cap:   `You've hit the free-tier limit of 2 active listings. Upgrade to standalone Stenamo Market (3 000 FCFA/month) for unlimited listings.`,
+              city_cap:      `Free-tier sellers can only list in their own city (${(acc && acc.seller_city) || 'your city'}). Upgrade to standalone Stenamo Market for unlimited cities.`,
+              orders_cap:    `You've accepted your 2 free orders. Upgrade to standalone Stenamo Market (3 000 FCFA/month) to keep selling.`
             };
             res.end(JSON.stringify({
               error: 'upgrade_required',
@@ -2131,7 +2131,7 @@ http.createServer((req, res) => {
             if (!hit) return { ok: true };
             if (hit.town != null) {
               return { ok: false, code: hit.category_slug != null ? 'COMBINATION_NOT_ALLOWED' : 'TOWN_NOT_ALLOWED',
-                message: 'Selling in ' + hit.town + ' is currently not permitted on Partenaire Dozie. Contact support.' };
+                message: 'Selling in ' + hit.town + ' is currently not permitted on Stenamo Market. Contact support.' };
             }
             let label = hit.category_slug || category || '';
             if (hit.category_slug) {
@@ -2142,7 +2142,7 @@ http.createServer((req, res) => {
               } catch (_) {}
             }
             return { ok: false, code: 'CATEGORY_NOT_ALLOWED',
-              message: 'Selling in the "' + label + '" category is currently not permitted on Partenaire Dozie. Contact support.' };
+              message: 'Selling in the "' + label + '" category is currently not permitted on Stenamo Market. Contact support.' };
           };
           const sendSellDeny = (chk) => {
             res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -2707,7 +2707,7 @@ http.createServer((req, res) => {
             tx_ref: txRef, amount: amt, currency: cur.currency, redirect_url,
             customer: { email, name: buyer.name || 'Buyer', phonenumber: phone || '', country: flwCustomerCountry(cur.currency) },
             meta: { order_id: order.id, order_ref: order.order_ref, seller_id: order.seller_id, buyer_id: order.buyer_id },
-            title: 'Partenaire Dozie — ' + order.order_ref,
+            title: 'Stenamo Market — ' + order.order_ref,
             payment_options: flwPaymentOptions(cur.currency),
           }));
         } catch (e) {
@@ -2850,7 +2850,7 @@ http.createServer((req, res) => {
         const { order_id, admin_pin, reason } = JSON.parse(body || '{}');
         if (!process.env.ADMIN_PIN || admin_pin !== process.env.ADMIN_PIN) return send(200, { success: false, message: 'Non autorisé' });
         if (!order_id) return send(400, { success: false, message: 'order_id required' });
-        const r = await mpServiceCall('/api/dozie/internal/reverse-online-sale', { dozie_order_id: order_id, reason: reason || 'Dozie order refunded/cancelled' });
+        const r = await mpServiceCall('/api/dozie/internal/reverse-online-sale', { dozie_order_id: order_id, reason: reason || 'Stenamo Market order refunded/cancelled' });
         await supaRequest('POST', 'ptn_audit_log', null, { action: 'flw_sale_reversed', target_type: 'ptn_orders', target_id: order_id, details: { reason: reason || null, mp_result: r.json } }).catch(() => {});
         return send(r.status === 200 ? 200 : 502, { success: !!(r.json && r.json.ok), result: r.json });
       } catch (e) { send(500, { success: false, message: e.message }); }
@@ -3381,7 +3381,7 @@ http.createServer((req, res) => {
   }
 
 
-  // ── MP ADMIN BRIDGE (proxy to Mon Partenaire API) ─────────────
+  // ── MP ADMIN BRIDGE (proxy to Stenamo Book API) ─────────────
   if (req.url.startsWith('/mp-admin/')) {
     const mpPath = req.url.replace('/mp-admin/', '/api/subscriptions/svc/');
     let body = '';
@@ -3487,7 +3487,7 @@ http.createServer((req, res) => {
       '<!DOCTYPE html><html lang="fr"><head>' +
       '<meta charset="utf-8">' +
       '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-      '<title>PARTENAIRE Dozie</title>' +
+      '<title>Stenamo Market</title>' +
       '<meta name="theme-color" content="#1A2B4A">' +
       '<link rel="icon" href="/icon.svg" type="image/svg+xml">' +
       // MP-BRANDED-DOMAINS: bare-domain (market.partenairedozie.com/) safety net.
@@ -3500,7 +3500,7 @@ http.createServer((req, res) => {
       'font-family:system-ui,sans-serif;display:flex;align-items:center;' +
       'justify-content:center}.l{text-align:center;opacity:.75;font-size:14px}</style>' +
       '</head><body>' +
-      '<div class="l">PARTENAIRE Dozie…</div>' +
+      '<div class="l">Stenamo Market…</div>' +
       '<script>(function(){try{var t=localStorage.getItem("dozie_jwt");' +
       'if(t){var p=JSON.parse(atob(t.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));' +
       'if(p&&p.uid&&(!p.exp||Date.now()/1000<p.exp)){' +
