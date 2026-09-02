@@ -818,7 +818,7 @@ function dzNotFoundHtml(lang, origin, sellerId){
   const href = sellerId ? ('/buyer?shop='+encodeURIComponent(sellerId)) : '/buyer';
   const txt = sellerId ? (en?'Visit the shop':'Voir la boutique') : (en?'Browse the marketplace':'Parcourir le marché');
   return '<!DOCTYPE html><html lang="'+lang+'"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-    +'<title>'+dzEsc(headline)+' — PARTENAIRE</title>'
+    +'<title>'+dzEsc(headline)+' — Stenamo Market</title>'
     +'<meta property="og:type" content="website"><meta property="og:site_name" content="Stenamo Market">'
     +'<meta property="og:title" content="'+dzEsc(headline)+'">'
     +'<meta property="og:description" content="'+dzEsc(sub)+'">'
@@ -1889,7 +1889,7 @@ http.createServer((req, res) => {
             return send(http, { success: false, error_code: ec, message: (rp && rp.message) || 'Payment request failed', order_id });
           }
           let camp;
-          try { camp = await campayCollect({ amount: rp.total, phone: String(payer_phone), description: 'PARTENAIRE ' + rp.order_ref, reference: rp.ext_reference }); }
+          try { camp = await campayCollect({ amount: rp.total, phone: String(payer_phone), description: 'Stenamo Market ' + rp.order_ref, reference: rp.ext_reference }); }
           catch (e) { camp = { _error: e.message }; }
           if (!camp || !(camp.reference || camp.ussd_code)) {
             await supaRpc('ptn_record_campay_reference', { p_caller: idn.uid, p_order_id: order_id, p_campay_reference: null, p_campay_operator: null, p_campay_status: 'failed', p_error_message: 'Campay collect failed: ' + JSON.stringify(camp && (camp.message || camp._error || camp)) });
@@ -3106,7 +3106,7 @@ http.createServer((req, res) => {
         const cr = await fetch(CAMPAY_BASE_URL + '/collect/', {
           method: 'POST',
           headers: { 'Authorization': 'Token ' + token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount: String(amount), currency: 'XAF', from: cleanPhone, description: 'Paiement PARTENAIRE', external_reference: ref })
+          body: JSON.stringify({ amount: String(amount), currency: 'XAF', from: cleanPhone, description: 'Paiement Stenamo Market', external_reference: ref })
         });
         const result = await cr.json();
         await supaRequest('POST', 'ptn_campay_transactions', null, { reference: ref, order_id: order_id || null, transaction_type: type || 'payment', amount, payer_phone: phone, status: 'pending' });
@@ -3366,7 +3366,7 @@ http.createServer((req, res) => {
         const r = await fetch(CAMPAY_BASE_URL + '/transfer/', {
           method: 'POST',
           headers: { 'Authorization': 'Token ' + token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount: String(amount), currency: 'XAF', to: cleanPhone, description: description || 'PARTENAIRE payout', external_reference: ref })
+          body: JSON.stringify({ amount: String(amount), currency: 'XAF', to: cleanPhone, description: description || 'Stenamo Market payout', external_reference: ref })
         });
         const result = await r.json();
         console.log('Direct payout result:', result);

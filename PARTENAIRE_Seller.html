@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://ftxttdagpioieyzaijdc.supabase.co; img-src * data: blob:; media-src * data: blob:; connect-src *;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PARTENAIRE ✦ Seller Portal</title>
+<title>Stenamo Market ✦ Seller Portal</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon.svg">
@@ -376,7 +376,7 @@ function openWhatsApp(e, phone, text){
 <div class="screen active" id="screen-phone">
   <div class="auth-wrap">
     <div class="auth-box">
-      <div class="auth-logo">PARTENAIRE <span>✦</span></div>
+      <div class="auth-logo">STENAMO MARKET <span>✦</span></div>
       <div class="auth-sub">Seller Portal · Portail Vendeur</div>
       <div class="step-dots">
         <div class="step-dot active"></div>
@@ -406,7 +406,7 @@ function openWhatsApp(e, phone, text){
 <div class="screen" id="screen-register">
   <div class="auth-wrap" style="align-items:flex-start;padding-top:40px">
     <div class="auth-box" style="max-width:500px">
-      <div class="auth-logo">PARTENAIRE <span>✦</span></div>
+      <div class="auth-logo">STENAMO MARKET <span>✦</span></div>
       <div class="auth-sub">Create your seller account</div>
       <div class="step-dots">
         <div class="step-dot"></div>
@@ -533,7 +533,7 @@ function openWhatsApp(e, phone, text){
   </aside>
   <div class="app-header">
     <button class="dz-hamburger" id="dz-hamburger" onclick="dzOpenDrawer()" aria-label="Open menu" aria-controls="dz-drawer" aria-expanded="false">☰<span class="dz-hamburger-badge" id="dz-hamburger-badge"></span></button>
-    <div class="app-header-logo">PARTENAIRE <span>✦</span></div>
+    <div class="app-header-logo">STENAMO MARKET <span>✦</span></div>
     <button class="header-notif" onclick="switchTab('tab-notifications')" id="notif-btn" aria-label="Notifications">
       🔔<div class="notif-dot" id="notif-dot"></div>
     </button>
@@ -711,7 +711,7 @@ function openWhatsApp(e, phone, text){
       <div id="reviews-list"><div class="loading"><div class="spinner"></div></div></div>
     </div>
     <div class="card">
-      <div class="card-title">🛒 Also Buy on PARTENAIRE?</div>
+      <div class="card-title">🛒 Also Buy on Stenamo Market?</div>
       <div class="card-sub">Mid-wholesalers can use the same phone number as both a seller AND a buyer</div>
       <div id="dual-role-section">
         <div class="alert alert-info" style="margin-bottom:12px">
@@ -766,7 +766,7 @@ function openWhatsApp(e, phone, text){
     <!-- ══ CONTACT ADMIN WHATSAPP (Profile Tab) ══ -->
     <div class="card" style="background:#E8F5E9;border:1.5px solid #2E7D32;margin-top:16px">
       <div class="card-title" style="color:#1A2B4A">🆘 Need Help?</div>
-      <div class="card-sub">Contact PARTENAIRE Admin directly on WhatsApp</div>
+      <div class="card-sub">Contact Stenamo Market Admin directly on WhatsApp</div>
       <div style="font-size:12px;color:#2E7D32;font-weight:600;margin:8px 0">Available Mon–Sat · Response within 2h</div>
       <a href="https://wa.me/237621840952?text=Hello%20PARTENAIRE%20Admin%2C%20I%20need%20help%20with%20my%20seller%20account."
          target="_blank" rel="noopener"
@@ -1351,7 +1351,7 @@ async function registerSeller() {
     }).catch(() => {});
 
     currentSeller = seller;
-    toast('✓ Shop created! Welcome to PARTENAIRE', 'success');
+    toast('✓ Shop created! Welcome to Stenamo Market', 'success');
 
     if (plan === 'paid_standalone') {
       // Bootstrap dozie_access shape so openDozieSubPaymentModal can
@@ -2291,7 +2291,7 @@ function dozieHandoffButtons(o) {
 
   const sep = `<div style="display:flex;align-items:center;gap:10px;margin:16px 0 10px">
       <div style="flex:1;height:1px;background:#dcd7cf"></div>
-      <div style="font-size:11px;font-weight:800;color:var(--grey);letter-spacing:0.4px">${fr ? 'OU — ENREGISTRER DANS MON PARTENAIRE' : 'OR — RECORD IN MON PARTENAIRE'}</div>
+      <div style="font-size:11px;font-weight:800;color:var(--grey);letter-spacing:0.4px">${fr ? 'OU — ENREGISTRER DANS STENAMO BOOK' : 'OR — RECORD IN STENAMO BOOK'}</div>
       <div style="flex:1;height:1px;background:#dcd7cf"></div>
     </div>`;
 
@@ -4402,7 +4402,7 @@ function showBroadcastPopup(bc) {
   document.getElementById('bc-popup-title').textContent   = icon + bc.title;
   document.getElementById('bc-popup-message').textContent = bc.message;
   document.getElementById('bc-popup-from').textContent    = bc.sender_role==='admin'
-    ? 'From: PARTENAIRE Admin' : 'Promo from a seller';
+    ? 'From: Stenamo Market Admin' : 'Promo from a seller';
   popup.style.display = 'block';
   setTimeout(closeBroadcastPopup, 10000); // Minimum 10 seconds for all
 }
@@ -4474,7 +4474,7 @@ function generateQRCode(sellerId, shopName) {
         const nameEl = document.createElement('div');
         nameEl.className = 'qr-name-label';
         nameEl.style.cssText = 'text-align:center;padding:6px 12px;background:#1A2B4A;color:#C9A84C;border-radius:0 0 8px 8px;font-size:11px;font-weight:800;letter-spacing:1.5px;margin-top:0';
-        nameEl.textContent = (shopName || 'PARTENAIRE').toUpperCase();
+        nameEl.textContent = (shopName || 'STENAMO MARKET').toUpperCase();
         el.after(nameEl);
       }, 100);
       return;
@@ -4493,7 +4493,7 @@ function generateQRCode(sellerId, shopName) {
   const nameEl = document.createElement('div');
   nameEl.className = 'qr-name-label';
   nameEl.style.cssText = 'text-align:center;padding:6px 12px;background:#1A2B4A;color:#C9A84C;border-radius:0 0 8px 8px;font-size:11px;font-weight:800;letter-spacing:1.5px';
-  nameEl.textContent = (shopName || 'PARTENAIRE').toUpperCase();
+  nameEl.textContent = (shopName || 'STENAMO MARKET').toUpperCase();
   el.after(nameEl);
 }
 
@@ -4545,7 +4545,7 @@ function printQR() {
     </head>
     <body>
       <div class="card">
-        <div class="logo">PARTENAIRE <span>✦</span></div>
+        <div class="logo">STENAMO MARKET <span>✦</span></div>
         <div class="shop-name">${shopName}</div>
         <div class="city">📍 ${city}</div>
         <div class="qr-wrap">${el.innerHTML}</div>
@@ -4743,7 +4743,7 @@ document.addEventListener('keydown', e => {
     <div class="sandbox-badge" id="campay-sandbox-badge" style="display:none">🧪 SANDBOX — Campay Demo</div>
     <script>/* MP-CAMPAY-ENV-INDICATOR-FIX: badge shown ONLY when the backend's real Campay URL is demo. Hidden by default → production / fetch-fail = no banner. */(function(){try{fetch('/api/config').then(function(r){return r.json();}).then(function(c){if(c&&c.is_sandbox){var b=document.getElementById('campay-sandbox-badge');if(b)b.style.display='inline-block';}}).catch(function(){});}catch(e){}})();</script>
     <div class="momo-amount" id="momo-amount">0 FCFA</div>
-    <div class="momo-sub" id="momo-sub">Renew your PARTENAIRE subscription</div>
+    <div class="momo-sub" id="momo-sub">Renew your Stenamo Market subscription</div>
     <div class="momo-phone-row">
       <div class="momo-cc">🇨🇲 +237</div>
       <input class="momo-phone-input" id="momo-phone" type="tel" maxlength="9" placeholder="699 000 000">

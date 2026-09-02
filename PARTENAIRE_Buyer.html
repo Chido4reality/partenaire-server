@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PARTENAIRE ✦ Buyer Portal</title>
+<title>Stenamo Market ✦ Buyer Portal</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon.svg">
@@ -525,7 +525,7 @@ body{background:#F0EDE8;color:var(--navy);min-height:100vh}
       <button class="btn btn-gold btn-block" onclick="saveProfile()">✓ Save Changes</button>
     </div>
     <div class="card">
-      <div class="card-title">🏪 Also sell on PARTENAIRE?</div>
+      <div class="card-title">🏪 Also sell on Stenamo Market?</div>
       <div class="card-sub">Use the same phone number — register as a seller too</div>
       <button class="btn btn-primary btn-block" id="become-seller-btn" onclick="becomeSeller()">Activate Seller Account</button>
     </div>
@@ -1117,7 +1117,7 @@ async function registerBuyer() {
     localStorage.setItem('dozie_jwt', result.jwt);
     currentBuyer = result.user;
     currentBuyer._hasSeller = false;
-    toast('✓ Compte créé ! Bienvenue sur PARTENAIRE', 'success');
+    toast('✓ Compte créé ! Bienvenue sur Stenamo Market', 'success');
     // DOZIE-PRODUCT-DEEP-LINK: return to the shared product (?next) after signup.
     if (dzReturnToNext()) return;
     enterApp();
@@ -2402,7 +2402,7 @@ function showBroadcastPopup(bc) {
   const icon = bc.type==='security'?'🔒 ':bc.type==='new_stock'?'📦 ':bc.type==='promo'?'🎉 ':'📣 ';
   document.getElementById('bc-popup-title').textContent = icon + bc.title;
   document.getElementById('bc-popup-message').textContent = bc.message;
-  document.getElementById('bc-popup-from').textContent = bc.sender_role==='admin' ? 'From: PARTENAIRE Admin' : '🏪 ' + (bc.sender_name||'A seller');
+  document.getElementById('bc-popup-from').textContent = bc.sender_role==='admin' ? 'From: Stenamo Market Admin' : '🏪 ' + (bc.sender_name||'A seller');
   const orderBtn = document.getElementById('bc-order-btn');
   if (orderBtn) {
     if (bc.sender_role === 'seller' && bc.sender_id) {
@@ -3076,14 +3076,14 @@ async function shareProduct(listingId, name, price) {
   // listing for logged-out strangers + gives WhatsApp a real Open Graph card).
   const url = location.origin + '/p/' + encodeURIComponent(listingId);
   const priceTxt = price ? (Number(price).toLocaleString('fr-FR') + ' FCFA') : 'Prix sur demande';
-  const text = `${name} — ${priceTxt}\nVoir sur PARTENAIRE : ${url}`;
+  const text = `${name} — ${priceTxt}\nVoir sur Stenamo Market : ${url}`;
   try { if (navigator.share) { await navigator.share({ title: name, text, url }); return; } }
   catch(e) { if (e && e.name === 'AbortError') return; }
   window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
 }
 async function shareShop(shopId, shopName) {
   const url = location.origin + '/buyer?shop=' + encodeURIComponent(shopId);
-  const text = `${shopName} sur PARTENAIRE : ${url}`;
+  const text = `${shopName} sur Stenamo Market : ${url}`;
   try { if (navigator.share) { await navigator.share({ title: shopName, text, url }); return; } }
   catch(e) { if (e && e.name === 'AbortError') return; }
   window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
