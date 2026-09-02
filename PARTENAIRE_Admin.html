@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://ftxttdagpioieyzaijdc.supabase.co https://cdn.jsdelivr.net; img-src * data: blob:; connect-src *;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PARTENAIRE ✦ Admin Portal</title>
+<title>Stenamo Market ✦ Admin Portal</title>
 <!-- Supabase via direct REST API -->
 <style>
   *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif}
@@ -200,7 +200,7 @@ window.addEventListener('DOMContentLoaded', function() {
 <!-- ══ LOGIN SCREEN ══════════════════════════════════════════════ -->
 <div id="login-screen">
   <div class="login-box">
-    <div class="login-logo">PARTENAIRE <span>✦</span></div>
+    <div class="login-logo">STENAMO MARKET <span>✦</span></div>
     <div class="login-sub">Administrator Portal · Email + 4-Digit PIN</div>
     <div>
       <label>Email Address</label>
@@ -213,7 +213,7 @@ window.addEventListener('DOMContentLoaded', function() {
       <button class="login-btn" onclick="handleLogin()">Access Admin Panel →</button>
       <div class="login-error" id="login-error"></div>
       <div class="login-hint">
-        <strong>PARTENAIRE ✦ Admin Access</strong><br>
+        <strong>STENAMO MARKET ✦ Admin Access</strong><br>
         Use your assigned email and 4-digit PIN<br>
         <small style="color:#bbb;margin-top:4px;display:block">Contact CEO if you have forgotten your PIN</small>
       </div>
@@ -224,7 +224,7 @@ window.addEventListener('DOMContentLoaded', function() {
 <!-- ══ SIDEBAR ══════════════════════════════════════════════════ -->
 <div id="sidebar">
   <div class="sb-logo">
-    <div class="sb-logo-text">PARTENAIRE <span>✦</span></div>
+    <div class="sb-logo-text">STENAMO MARKET <span>✦</span></div>
     <div class="sb-logo-sub">Admin Portal</div>
   </div>
   <div class="lang-toggle">
@@ -246,7 +246,7 @@ window.addEventListener('DOMContentLoaded', function() {
     <a onclick="showPage('subscriptions')" data-page="subscriptions">💳 <span data-t="subscriptions">Subscriptions</span> <span class="badge" id="sub-badge" style="display:none">0</span></a>
     <a onclick="showPage('admins')" data-page="admins" id="nav-admins">🔑 <span data-t="admins">Admin Team</span></a>
     <a onclick="showPage('broadcasts')" data-page="broadcasts">📢 <span>Broadcasts</span></a>
-    <a onclick="showPage('mp')" data-page="mp">🏢 <span>Mon Partenaire</span> <span class="badge" id="mp-badge" style="display:none">0</span></a>
+    <a onclick="showPage('mp')" data-page="mp">🏢 <span>Stenamo Book</span> <span class="badge" id="mp-badge" style="display:none">0</span></a>
   </nav>
   <div class="sb-footer">
     <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-bottom:8px;text-align:center">Douala, Cameroun · 2026</div>
@@ -522,7 +522,7 @@ window.addEventListener('DOMContentLoaded', function() {
 
   <!-- ══ MON PARTENAIRE PAGE ══ -->
   <div class="page" id="page-mp">
-    <div class="page-title">🏢 Mon Partenaire</div>
+    <div class="page-title">🏢 Stenamo Book</div>
     <div class="page-sub">MP businesses using the POS — view plans & manage upgrade requests</div>
 
     <!-- Pending payment requests -->
@@ -1865,8 +1865,8 @@ async function sendReminder(sellerId, company) {
       type: 'payment',
       title_en: 'Subscription Payment Due',
       title_fr: "Paiement d'abonnement dû",
-      body_en: 'Your PARTENAIRE subscription is due soon. Please renew via MTN MoMo or Orange Money to keep your shop active.',
-      body_fr: "Votre abonnement PARTENAIRE est dû bientôt. Renouvelez via MTN MoMo ou Orange Money pour garder votre boutique active.",
+      body_en: 'Your Stenamo Market subscription is due soon. Please renew via MTN MoMo or Orange Money to keep your shop active.',
+      body_fr: "Votre abonnement Stenamo Market est dû bientôt. Renouvelez via MTN MoMo ou Orange Money pour garder votre boutique active.",
       read: false
     });
     await logAction('send_reminder', 'user', sellerId, { company });
