@@ -436,6 +436,47 @@ async function getSellerPayoutForOrder(order) {
   return null;
 }
 
+// PUBLIC-KEY LOCK-DOWN (2026-10-11): the ONLY proof an order was paid is a
+// ptn_campay_transactions row the SERVER wrote after FLW.verifyTransaction()
+// confirmed it (flwSettle). That table is service-role-only (RLS, no anon write
+// policy). ptn_orders.payment_status / escrow_held / campay_paid_at /
+// flw_collected_net could all be written with the public anon key, and this
+// engine used to trust them — so a forged "paid" order could be paid out.
+// Returns { amount, currency, net, flw_id, tx_ref } or null.
+async function verifiedCollectForOrder(orderId) {
+  const rows = await supaRequestPrivileged('GET', 'ptn_campay_transactions',
+    'order_id=eq.' + encodeURIComponent(orderId) +
+    '&transaction_type=eq.flutterwave_collect&status=eq.successful' +
+    '&select=reference,amount,currency,campay_response&order=updated_at.desc&limit=1');
+  const t = Array.isArray(rows) && rows[0];
+  if (!t) return null;
+  const v = t.campay_response || {};
+  const amount = Number(t.amount);
+  if (!(amount > 0) || String(v.status || '').toLowerCase() !== 'successful' || v.tx_ref !== t.reference) return null;
+  const settled = Number(v.amount_settled);
+  return { amount, currency: t.currency, net: isFinite(settled) && settled > 0 ? Math.min(settled, amount) : amount,
+           flw_id: v.id || null, tx_ref: t.reference };
+}
+
+// The seller ids that may act on a seller's orders: the seller themself plus any
+// seller account linked to the same Stenamo Business shop (one shop can own
+// several ptn_users rows). Read with the service key.
+async function sellerScopeIds(uid) {
+  const ids = new Set([uid]);
+  const me = await supaRequestPrivileged('GET', 'ptn_users', 'id=eq.' + encodeURIComponent(uid) + '&select=id,linked_mp_org_id');
+  const org = Array.isArray(me) && me[0] && me[0].linked_mp_org_id;
+  if (org) {
+    const sibs = await supaRequestPrivileged('GET', 'ptn_users', 'linked_mp_org_id=eq.' + encodeURIComponent(org) + '&select=id');
+    (Array.isArray(sibs) ? sibs : []).forEach(s => s && s.id && ids.add(s.id));
+  }
+  return ids;
+}
+async function sellerOwnsOrder(uid, order) {
+  if (!uid || !order || !order.seller_id) return false;
+  if (order.seller_id === uid) return true;
+  return (await sellerScopeIds(uid)).has(order.seller_id);
+}
+
 async function payoutSellerForOrder(orderId) {
   const orders = await supaRequestPrivileged('GET', 'ptn_orders', 'id=eq.' + orderId + '&select=*');
   const order = Array.isArray(orders) && orders[0];
@@ -447,6 +488,14 @@ async function payoutSellerForOrder(orderId) {
   // GUARD — escrow present & collected.
   if (order.payment_status !== 'paid' || !(Number(order.escrow_held) > 0))
     return { ok: false, status: order.flw_payout_status || null, reason: 'no_escrow' };
+  // GUARD — the payment was VERIFIED with Flutterwave by this server. Nothing on
+  // the order row is trusted for this (see verifiedCollectForOrder). No status is
+  // written: a forged order must not even reach the payout queue.
+  const collected = await verifiedCollectForOrder(order.id);
+  if (!collected) {
+    console.warn('[payout] refused — no server-verified payment for', order.order_ref || order.id);
+    return { ok: false, status: order.flw_payout_status || null, reason: 'payment_not_verified' };
+  }
   // GUARD — released/confirmed state.
   if (!orderReleasedOrConfirmed(order))
     return { ok: false, status: order.flw_payout_status || null, reason: 'not_released' };
@@ -501,7 +550,9 @@ async function payoutSellerForOrder(orderId) {
   // Then the seller also bears the transfer fee below → our balance change per
   // order nets to 0. Fall back to escrow_held for orders settled before the
   // flw_collected_net capture existed.
-  const basis = Number(order.flw_collected_net != null ? order.flw_collected_net : order.escrow_held);
+  // PUBLIC-KEY LOCK-DOWN: the basis comes from the verified transaction, never from
+  // order columns the public key could edit (flw_collected_net / escrow_held).
+  const basis = Number(collected.net);
 
   // XAF GATING — do NOT call FLW for XAF (transfers not enabled on the account).
   if (cur.currency === 'XAF') {
@@ -892,17 +943,26 @@ async function flwSettle({ verified, txRef, source }) {
   // currency. PRIVILEGED: ptn_campay_transactions has RLS (authenticated-only
   // SELECT), so the anon key can't read/write it — use the service role.
   const txns = await supaRequestPrivileged('GET', 'ptn_campay_transactions',
-    'reference=eq.' + encodeURIComponent(txRef) + '&select=id,order_id,currency,status&limit=1');
+    'reference=eq.' + encodeURIComponent(txRef) + '&select=id,order_id,currency,status,amount&limit=1');
   const txn = Array.isArray(txns) && txns[0];
   if (!txn || !txn.order_id) return { ok: false, reason: 'unknown_tx_ref' };
   if (txn.status === 'successful') return { ok: true, idempotent: true, order_id: txn.order_id };
 
-  const orders = await supaRequest('GET', 'ptn_orders', 'id=eq.' + txn.order_id + '&select=*');
+  // PUBLIC-KEY LOCK-DOWN: read + write the order with the service key. The money
+  // columns are pinned for the public roles by trg_ptn_orders_pin_money_columns,
+  // so an anon write of payment_status/escrow_held would now be silently ignored.
+  const orders = await supaRequestPrivileged('GET', 'ptn_orders', 'id=eq.' + txn.order_id + '&select=*');
   const order = Array.isArray(orders) && orders[0];
   if (!order) return { ok: false, reason: 'order_not_found' };
-  if (order.payment_status === 'paid') return { ok: true, idempotent: true, order_id: order.id };
+  // Idempotency rests on the server-written transaction row (above), not on the
+  // order's payment_status — the public key could set that before this ran.
+  if (order.payment_status === 'paid' && await verifiedCollectForOrder(order.id))
+    return { ok: true, idempotent: true, order_id: order.id };
 
-  const amt = Number(orderEscrowAmount(order));
+  // The amount the buyer had to pay was frozen in the transaction row at
+  // /flw/initiate (server-written). The order's total is editable with the public
+  // key, so it no longer decides what counts as paid in full.
+  const amt = Number(txn.amount) > 0 ? Number(txn.amount) : Number(orderEscrowAmount(order));
   const okStatus = String(verified.status || '').toLowerCase() === 'successful';
   const okAmount = Number(verified.amount) >= amt;                 // >= tolerates over-pay/rounding
   const okCurrency = String(verified.currency || '').toUpperCase() === String(txn.currency || '').toUpperCase();
@@ -925,7 +985,7 @@ async function flwSettle({ verified, txRef, source }) {
   const settled = (verified.amount_settled != null) ? Number(verified.amount_settled) : NaN;
   const collectedNet = isFinite(settled) ? settled : amt;
   const collectionFee = isFinite(settled) ? Math.max(0, Math.round((grossCharged - settled) * 100) / 100) : 0;
-  await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order.id, {
+  await supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + order.id, {
     payment_status: 'paid', escrow_held: amt, status: 'confirmed',
     flw_collected_net: collectedNet, flw_collection_fee: collectionFee,
     payment_method: 'flutterwave', campay_status: 'successful',
@@ -1722,6 +1782,34 @@ http.createServer((req, res) => {
     }
   }
 
+  // ── PUBLIC-KEY LOCK-DOWN (Phase 2): handoff status for the Seller page ──
+  // GET /api/seller/handoff-status?ids=<uuid,uuid,…>   (seller Dozie JWT)
+  // Replaces the Seller page's direct anon read of pa_online_cart. Only the
+  // caller's own orders (or a linked seller's, same Stenamo Business shop) are
+  // answered; other ids are silently dropped. Returns [{dozie_order_id, id, status}].
+  if (req.method === 'GET' && req.url.split('?')[0] === '/api/seller/handoff-status') {
+    const send = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify(obj)); };
+    (async () => {
+      try {
+        const idn = resolveDozieIdentity(req, 'seller');
+        if (idn.error === 'role') return send(403, { success: false, code: 'wrong_role', message: 'Seller login required' });
+        if (idn.error || !idn.uid) return send(401, { success: false, code: 'auth_required', message: 'Authentication required' });
+        const raw = new URLSearchParams(req.url.split('?')[1] || '').get('ids') || '';
+        const ids = [...new Set(raw.split(',').map(s => s.trim()).filter(s => /^[0-9a-f-]{36}$/i.test(s)))].slice(0, 200);
+        if (!ids.length) return send(200, { success: true, data: [] });
+        const scope = [...(await sellerScopeIds(idn.uid))];
+        const mine = await supaRequestPrivileged('GET', 'ptn_orders',
+          'id=in.(' + ids.join(',') + ')&seller_id=in.(' + scope.join(',') + ')&select=id');
+        const own = (Array.isArray(mine) ? mine : []).map(o => o.id);
+        if (!own.length) return send(200, { success: true, data: [] });
+        const rows = await supaRequestPrivileged('GET', 'pa_online_cart',
+          'dozie_order_id=in.(' + own.join(',') + ')&status=neq.voided&select=id,dozie_order_id,status');
+        return send(200, { success: true, data: Array.isArray(rows) ? rows : [] });
+      } catch (e) { return send(500, { success: false, message: e.message || 'error' }); }
+    })();
+    return;
+  }
+
   // ── SPRINT D-1 — SELLER-TRIGGERED HANDOFF TO MP ──────────────────────
   //
   // POST /api/orders/<id>/complete-at-shop   body { payment_mode }
@@ -1751,10 +1839,21 @@ http.createServer((req, res) => {
           const paymentMode  = parsed.payment_mode;
           const depositPaid  = Number(parsed.deposit_paid || 0);
 
-          const orderRows = await supaRequest('GET', 'ptn_orders',
+          // PUBLIC-KEY LOCK-DOWN (Phase 2): this route had NO login check — anyone
+          // with an order id could push it into the seller's Stenamo Business Online
+          // Cart, or mark it delivered and take the seller's listing stock down.
+          // Now: the seller's Dozie JWT, and the order must be theirs (or belong to a
+          // seller account linked to the same Stenamo Business shop).
+          const idn = resolveDozieIdentity(req, 'seller');
+          if (idn.error === 'role') return send(403, { success: false, code: 'wrong_role', message: 'Seller login required' });
+          if (idn.error || !idn.uid) return send(401, { success: false, code: 'auth_required', message: 'Authentication required' });
+
+          const orderRows = await supaRequestPrivileged('GET', 'ptn_orders',
             'id=eq.' + encodeURIComponent(orderId) + '&select=*');
           const order = Array.isArray(orderRows) && orderRows[0];
           if (!order) return send(404, { success: false, message: 'Order not found' });
+          if (!(await sellerOwnsOrder(idn.uid, order)))
+            return send(403, { success: false, code: 'forbidden', message: 'Not your order' });
           // Accept any live post-confirmation status. Delivered is in
           // fact the most natural time to record the sale in MP
           // (buyer has the goods, escrow released). Reject only the
@@ -1764,7 +1863,7 @@ http.createServer((req, res) => {
 
           // Prevent double-handoff: a non-voided pa_online_cart row
           // for this order means it's already in the MP Online Cart.
-          const existingHandoff = await supaRequest('GET', 'pa_online_cart',
+          const existingHandoff = await supaRequestPrivileged('GET', 'pa_online_cart',
             'dozie_order_id=eq.' + encodeURIComponent(orderId) +
             '&status=in.(pending,completed)&select=id,status');
           if (Array.isArray(existingHandoff) && existingHandoff[0])
@@ -1797,19 +1896,19 @@ http.createServer((req, res) => {
           if (isStandalone) {
             // Local completion. ptn_orders → delivered; decrement
             // ptn_products.stock by name match (items have no product_id).
-            await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + encodeURIComponent(orderId),
+            await supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + encodeURIComponent(orderId),
               { status: 'delivered' });
             for (const it of (order.items || [])) {
               const nm = (it.name || '').trim();
               const qty = Number(it.qty || it.quantity || 0);
               if (!nm || qty <= 0) continue;
-              const prodRows = await supaRequest('GET', 'ptn_products',
+              const prodRows = await supaRequestPrivileged('GET', 'ptn_products',
                 'seller_id=eq.' + encodeURIComponent(seller.id) +
                 '&name=ilike.' + encodeURIComponent(nm) + '&select=id,stock');
               const prod = Array.isArray(prodRows) && prodRows[0];
               if (prod) {
                 const newStock = Math.max(0, Number(prod.stock || 0) - qty);
-                await supaRequest('PATCH', 'ptn_products', 'id=eq.' + prod.id, { stock: newStock });
+                await supaRequestPrivileged('PATCH', 'ptn_products', 'id=eq.' + prod.id, { stock: newStock });
               }
             }
             await supaRequest('POST', 'ptn_audit_log', null, {
@@ -1837,7 +1936,7 @@ http.createServer((req, res) => {
             deposit_paid: depositPaid || order.deposit_paid || 0,
             campay_reference: order.campay_reference || null
           };
-          const created = await supaRequest('POST', 'pa_online_cart', null, insert);
+          const created = await supaRequestPrivileged('POST', 'pa_online_cart', null, insert);
           if (!Array.isArray(created) || !created[0]) {
             // supaRequest returns the raw error object on failure.
             const msg = (created && (created.message || created.hint)) || 'Handoff insert failed';
@@ -2580,6 +2679,10 @@ http.createServer((req, res) => {
             const results = [];
             for (const o of list) {
               if (isOpenDispute(o.dispute_status)) continue; // belt-and-braces vs the SQL filter
+              // PUBLIC-KEY LOCK-DOWN: the filter above reads columns the public key
+              // could set (campay_paid_at, escrow_held). Release only a payment this
+              // server verified with Flutterwave; never flip a forged order to released.
+              if (!(await verifiedCollectForOrder(o.id))) { results.push({ order_id: o.id, ok: false, status: null, reason: 'payment_not_verified' }); continue; }
               try { const r = await releaseAndPayout(o, 'auto_24h'); results.push({ order_id: o.id, ok: !!r.ok, status: r.status, reason: r.reason || null }); }
               catch (e) { results.push({ order_id: o.id, error: e.message }); }
             }
@@ -2649,6 +2752,8 @@ http.createServer((req, res) => {
 
         // Guards: paid + has escrow; not already released; no open dispute.
         if (!(order.campay_paid_at || Number(order.escrow_held) > 0)) return send(409, { success: false, error_code: 'not_paid', message: 'This order is not paid yet' });
+        // PUBLIC-KEY LOCK-DOWN: "paid" must be a server-verified payment, not the order row.
+        if (!(await verifiedCollectForOrder(order.id))) return send(409, { success: false, error_code: 'not_paid', message: 'This order is not paid yet' });
         if (order.escrow_released === true) return send(200, { success: true, idempotent: true, message: 'Already released' });
         if (isOpenDispute(order.dispute_status)) return send(409, { success: false, error_code: 'dispute_open', message: 'A dispute is open on this order' });
 
@@ -2718,7 +2823,7 @@ http.createServer((req, res) => {
 
         // Record the attempt so the webhook/return can find the order by tx_ref.
         await supaRequestPrivileged('POST', 'ptn_campay_transactions', null, { reference: txRef, order_id: order.id, transaction_type: 'flutterwave_collect', amount: amt, currency: cur.currency, payer_phone: phone, status: 'initiated' });
-        await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order.id, { campay_reference: txRef, campay_status: 'initiated', payment_method: 'flutterwave', updated_at: new Date().toISOString() }).catch(() => {});
+        await supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + order.id, { campay_reference: txRef, campay_status: 'initiated', payment_method: 'flutterwave', updated_at: new Date().toISOString() }).catch(() => {});
         return send(200, { success: true, link, tx_ref: txRef, amount: amt, currency: cur.currency });
       } catch (e) { send(500, { success: false, error_code: 'error', message: e.message }); }
     });
@@ -2818,6 +2923,11 @@ http.createServer((req, res) => {
         const order = Array.isArray(orders) && orders[0];
         if (!order) return send(404, { success: false, message: 'Order not found' });
         if (order.escrow_released) return send(200, { success: false, message: 'Already released' });
+        // PUBLIC-KEY LOCK-DOWN: a manual payout is recorded only against a payment
+        // this server verified with Flutterwave (the order row alone can be forged).
+        if (!(await verifiedCollectForOrder(order.id)))
+          return send(409, { success: false, code: 'payment_not_verified',
+            message: 'No Flutterwave-verified payment for this order — do not pay out. Check the Flutterwave dashboard.' });
         // PAYOUT INTERLOCK: never pay a seller on a disputed or refunded order.
         if (['open', 'seller_contested', 'escalated'].includes(order.dispute_status))
           return send(200, { success: false, message: 'Cannot pay out: a dispute is open on this order' });
@@ -2825,7 +2935,7 @@ http.createServer((req, res) => {
           return send(200, { success: false, message: 'Cannot pay out: this order has been refunded' });
         if (order.payment_status !== 'paid' || !order.escrow_held) return send(200, { success: false, message: 'No escrow to release' });
         const ref = payout_ref || ('MANUAL-' + order.order_ref + '-' + Date.now());
-        await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { escrow_released: true, campay_payout_ref: ref, campay_payout_at: new Date().toISOString(), status: 'delivered', updated_at: new Date().toISOString() });
+        await supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + order_id, { escrow_released: true, campay_payout_ref: ref, campay_payout_at: new Date().toISOString(), status: 'delivered', updated_at: new Date().toISOString() });
         await supaRequest('POST', 'ptn_audit_log', null, { action: 'flw_manual_payout_recorded', target_type: 'ptn_orders', target_id: order_id, details: { order_ref: order.order_ref, amount: order.escrow_held, payout_ref: ref } }).catch(() => {});
         await supaRequest('POST', 'ptn_notifications', null, { user_id: order.seller_id, type: 'payment', order_id, title_en: 'Payout Sent', title_fr: 'Paiement envoyé', body_en: 'Payout for order ' + order.order_ref + ' has been sent (ref ' + ref + ').', body_fr: 'Le paiement de la commande ' + order.order_ref + ' a été envoyé (réf ' + ref + ').', read: false }).catch(() => {});
         return send(200, { success: true, order_id, payout_ref: ref, amount: order.escrow_held });
@@ -3111,7 +3221,7 @@ http.createServer((req, res) => {
         const result = await cr.json();
         await supaRequest('POST', 'ptn_campay_transactions', null, { reference: ref, order_id: order_id || null, transaction_type: type || 'payment', amount, payer_phone: phone, status: 'pending' });
         if (result.reference || result.ussd_code) {
-          if (order_id) await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { campay_reference: ref, campay_status: 'pending', payer_phone: phone });
+          if (order_id) await supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + order_id, { campay_reference: ref, campay_status: 'pending', payer_phone: phone });
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           res.end(JSON.stringify({ success: true, reference: ref, ussd_code: result.ussd_code, operator: result.operator }));
         } else {
@@ -3142,7 +3252,7 @@ http.createServer((req, res) => {
           const orders = await supaRequest('GET', 'ptn_orders', 'id=eq.' + order_id + '&select=total,counter_total,counter_status,seller_id,order_ref');
           const order = orders && orders[0];
           const amt = order && order.counter_status === 'accepted' ? order.counter_total : order && order.total;
-          await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { payment_status: 'paid', campay_status: 'successful', campay_paid_at: new Date().toISOString(), escrow_held: amt, status: 'confirmed' });
+          await supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + order_id, { payment_status: 'paid', campay_status: 'successful', campay_paid_at: new Date().toISOString(), escrow_held: amt, status: 'confirmed' });
           if (order) await supaRequest('POST', 'ptn_notifications', null, { user_id: order.seller_id, type: 'payment', title_en: 'Payment Received', title_fr: 'Paiement recu', body_en: 'Order ' + order.order_ref + ' paid.', body_fr: 'Commande ' + order.order_ref + ' payee.', order_id });
         }
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -3176,7 +3286,7 @@ http.createServer((req, res) => {
         // REPLACES the old Campay XAF transfer. Mark the order released, then
         // call payoutSellerForOrder (idempotent). NOTE: /campay/release is itself
         // 410-gated now (Campay retired); kept correct for Phase 3.
-        await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { status: 'delivered', delivery_confirmed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).catch(() => {});
+        await supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + order_id, { status: 'delivered', delivery_confirmed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).catch(() => {});
         const pr = await payoutSellerForOrder(order_id);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ success: !!pr.ok, payout: pr }));
@@ -3280,7 +3390,7 @@ http.createServer((req, res) => {
           const orders = await supaRequest('GET', 'ptn_orders', 'id=eq.' + txn.order_id + '&select=total,counter_total,counter_status');
           const order = orders && orders[0];
           const amt = order && order.counter_status === 'accepted' ? order.counter_total : order && order.total;
-          await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + txn.order_id, { payment_status: 'paid', campay_status: 'successful', campay_operator: operator || null, campay_paid_at: new Date().toISOString(), escrow_held: amt, status: 'confirmed' });
+          await supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + txn.order_id, { payment_status: 'paid', campay_status: 'successful', campay_operator: operator || null, campay_paid_at: new Date().toISOString(), escrow_held: amt, status: 'confirmed' });
         }
         await supaRequest('PATCH', 'ptn_campay_transactions', 'reference=eq.' + encodeURIComponent(reference), { status: 'successful', operator: operator || null, updated_at: new Date().toISOString() });
         await audit('campay_webhook_success', { reference, order_id: txn.order_id || null, amount: expectedAmt });
@@ -3335,7 +3445,7 @@ http.createServer((req, res) => {
         // NOTE: this /campay/auto-release route is itself currently 410-gated
         // (Campay retired as a rail); Phase 3 adds the live buyer-confirm +
         // 24h-auto triggers that flip escrow_released and call the same engine.
-        await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, { status: 'delivered', delivery_confirmed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).catch(() => {});
+        await supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + order_id, { status: 'delivered', delivery_confirmed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).catch(() => {});
         const pr = await payoutSellerForOrder(order_id);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ success: !!pr.ok, payout: pr }));
@@ -3434,7 +3544,7 @@ http.createServer((req, res) => {
           const amt = order && order.counter_status === 'accepted' 
             ? order.counter_total : order && order.total;
 
-          await supaRequest('PATCH', 'ptn_orders', 'id=eq.' + order_id, {
+          await supaRequestPrivileged('PATCH', 'ptn_orders', 'id=eq.' + order_id, {
             payment_status: 'paid',
             campay_status: 'successful',
             campay_reference: reference,

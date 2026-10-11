@@ -14,7 +14,7 @@
 //     tabs/wrappers immediately, no full restart needed.
 //
 // Bump CACHE on every frontend deploy that must invalidate clients.
-const CACHE = 'partenaire-dozie-v46-20260624';
+const CACHE = 'partenaire-dozie-v47-20261011';
 // BUMP (2026-06-24e): buyer currency localization (display-only). EVERY buyer
 // price now derives currency from the right context (NG → ₦ + neutral online
 // label; CM/default → FCFA + Mobile Money): (1) ORDER flow — order card amount,
