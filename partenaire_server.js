@@ -2860,6 +2860,26 @@ http.createServer((req, res) => {
         const txRef = data.tx_ref, txId = data.id;
         const chargeStatus = String(data.status || '').toLowerCase();
         if (!txRef) return send(200, { ok: true, skipped: 'no_tx_ref' });
+        // STENAMO BOOK FORWARD (2026-10-17): the Flutterwave account has ONE live webhook URL, and it
+        // points here — so Book's subscription charges (tx_ref MPFLW-…) arrive at the Market server
+        // and were answered 200 'not_dozie_order': dropped, and never retried. They are handed to the
+        // Book API as received (same body, same verif-hash — Book checks it against its own
+        // FLW_SECRET_HASH, which must equal this one). Book re-verifies with Flutterwave itself, so a
+        // forwarded event can never activate anything on its own say-so. A failed hand-off answers
+        // non-2xx so Flutterwave retries (when "Enable webhook retries" is on).
+        if (String(txRef).startsWith('MPFLW-')) {
+          const bookUrl = process.env.BOOK_FLW_WEBHOOK_URL || 'https://api.partenairedozie.com/api/webhooks/flutterwave';
+          try {
+            const fr = await fetch(bookUrl, { method: 'POST', body,
+              headers: { 'Content-Type': 'application/json', 'verif-hash': sent }, signal: AbortSignal.timeout(20000) });
+            const fj = await fr.json().catch(() => null);
+            if (!fr.ok) { console.error('[flw webhook] Book forward', fr.status, txRef); return send(502, { ok: false, forwarded: 'book', status: fr.status }); }
+            return send(200, { ok: true, forwarded: 'book', book: fj });
+          } catch (e) {
+            console.error('[flw webhook] Book forward failed', txRef, e.message);
+            return send(502, { ok: false, forwarded: 'book', error: e.message });
+          }
+        }
         if (!String(txRef).startsWith('DZORD-')) return send(200, { ok: true, skipped: 'not_dozie_order' });
 
         if (chargeStatus !== 'successful') {
